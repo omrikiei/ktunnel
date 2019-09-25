@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package grpc_tunnel;
+
+option go_package = "kube_tunnel";
+
+
+service Tunnel {
+    rpc InitTunnel (stream SocketDataRequest) returns (stream SocketDataResponse) {}
+}
+
+enum LogLevel {
+    INFO = 0;
+    VERBOSE = 1;
+    DEBUG = 2;
+    WARNING = 3;
+    ERROR = 4;
+}
+
+enum TunnelScheme {
+    TCP = 0;
+    UDP = 1;
+}
+
+message LogMessage {
+    LogLevel logLevel = 1;
+    string message = 2;
+}
+
+message SocketDataRequest {
+    int32 port = 1;
+    LogLevel logLevel = 2;
+    TunnelScheme scheme = 3;
+    bytes data = 4;
+    bool shouldClose = 5;
+}
+
+message SocketDataResponse {
+    bool hasErr = 1;
+    LogMessage logMessage = 2;
+    bytes data = 3;
+    bool shouldClose = 4;
+}
