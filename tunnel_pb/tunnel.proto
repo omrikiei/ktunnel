@@ -29,15 +29,17 @@ message LogMessage {
 
 message SocketDataRequest {
     int32 port = 1;
-    LogLevel logLevel = 2;
-    TunnelScheme scheme = 3;
-    bytes data = 4;
-    bool shouldClose = 5;
+    string requestId = 2;
+    LogLevel logLevel = 3;
+    TunnelScheme scheme = 4;
+    bytes data = 5;
+    bool shouldClose = 6;
 }
 
 message SocketDataResponse {
     bool hasErr = 1;
     LogMessage logMessage = 2;
-    bytes data = 3;
-    bool shouldClose = 4;
+    string requestId = 3;
+    bytes data = 4;
+    bool shouldClose = 5;
 }

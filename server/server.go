@@ -3,8 +3,10 @@ package server
 import (
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"io"
 	"kube_tunnel/common"
 	pb "kube_tunnel/tunnel_pb"
 	"log"
@@ -18,31 +20,82 @@ const (
 
 type tunnelServer struct {}
 
-type Message struct {
-	c *net.Conn
-	d *[]byte
-}
-
 func NewServer() *tunnelServer {
 	return &tunnelServer{}
 }
 
-func datagramResponse(size int, data *[]byte) *pb.SocketDataResponse {
-	log.Printf("preparing to send %d bytes to client", size)
-	return &pb.SocketDataResponse{
-		HasErr:               false,
-		LogMessage:           &pb.LogMessage{
-			LogLevel:             pb.LogLevel_DEBUG,
-			Message:              fmt.Sprintf("read %d bytes", size),
-		},
-		Data:                 (*data)[:size],
+func SendData(stream *pb.Tunnel_InitTunnelServer, requests <-chan *common.Request) {
+	for {
+		request := <-requests
+		request.Lock.Lock()
+		if request.Buf.Len() > 0 || request.Open == false {
+			st := *stream
+			resp := &pb.SocketDataResponse{
+				HasErr:               false,
+				LogMessage:           nil,
+				RequestId:            request.Id.String(),
+				Data:                 request.Buf.Bytes(),
+				ShouldClose:          false,
+			}
+			if request.Open == false {
+				resp.ShouldClose = true
+				ok, err := common.CloseRequest(request.Id)
+				if ok != true {
+					log.Printf("%s failed to close request: %v", request.Id.String(), err)
+				}
+			}
+			err := st.Send(resp)
+			if err != nil {
+				log.Println("failed sending message to tunnel stream, exiting", err)
+				request.Lock.Unlock()
+				return
+			}
+			request.Buf.Reset()
+		}
+		request.Lock.Unlock()
+	}
+}
+
+func ReceiveData(stream *pb.Tunnel_InitTunnelServer) {
+	st := *stream
+	for {
+		message, err := st.Recv()
+		if err != nil {
+			log.Printf("%s; failed receiving message from stream, exiting: %v", message.RequestId, err)
+			// TODO: signal stream close
+			return
+		}
+		reqId, err := uuid.Parse(message.GetRequestId())
+		if err != nil {
+			log.Printf(" %s; failed to parse requestId, %v", message.GetRequestId(), err)
+		} else {
+			request, ok := common.GetRequest(&reqId)
+			if ok != true {
+				log.Printf("%s; request not found in openRequests", reqId)
+			} else {
+				data := message.GetData()
+				if len(data) > 0 {
+					conn := *request.Conn
+					_, err := conn.Write(data)
+					if err != nil {
+						log.Printf("%s; failed writing data to socket", reqId)
+					}
+				}
+				if message.ShouldClose == true {
+					ok, _ := common.CloseRequest(reqId)
+					if ok != true {
+						log.Printf("%s; failed closing request", reqId)
+					}
+				}
+			}
+		}
 	}
 }
 
 func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 	request, err := stream.Recv()
 	if err != nil {
-		log.Fatalf("Failed to receive initial connection from tunnel")
+		log.Fatalf("Failed receiving initial connection from tunnel")
 	}
 	port := request.GetPort()
 	if port == 0 {
@@ -78,85 +131,45 @@ func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 		_ = ln.Close()
 	}()
 
-	socketReceiver := make(chan *Message)
-	clientReceiver := make(chan *Message)
-	connClose := make(chan bool, 1)
-
-	go func() {
-		for {
-			select {
-			case socketMessage := <-socketReceiver:
-				if socketMessage == nil {
-					log.Println("Socket exit")
-					connClose <- true
-					break
-				}
-				data := *socketMessage.d
-				err := stream.Send(datagramResponse(len(data), &data))
-				if err != nil {
-					log.Println("Error; failed writing to client: ", err)
-					connClose <- true
-					break
-				}
-
-			case clientResponse := <-clientReceiver:
-				if clientResponse == nil {
-					log.Println("Client exit")
-					break
-				}
-				//fmt.Println("Writing to socket: ", clientResponse)
-				c := *clientResponse.c
-				_, err := c.Write(*clientResponse.d)
-				if err != nil {
-					log.Println("Error; failed writing to socket: ", err)
-				}
-				connClose <- true
-			}
-		}
-	}()
+	requests := make(chan *common.Request)
+	go ReceiveData(&stream)
+	go SendData(&stream, requests)
 
 	for {
 		conn, err := ln.Accept()
-		if err != nil {
-			log.Printf("Failed accepting connection on port %d", port)
-			return err
-		}
-		go func(c *net.Conn) {
-			_, buff, err := common.StreamToByte(*c)
+		// socket -> stream
+		go func(conn net.Conn) {
 			if err != nil {
-				log.Println("Error: failed to read line from connection: ", err)
-				socketReceiver <- nil
+				log.Printf("Failed accepting connection on port %d", port)
 				return
 			}
-			if len(*buff) > 0 {
-				socketReceiver <- &Message{
-					c,
-					buff,
-				}
-			}
-		}(&conn)
+			request := common.NewRequest(&conn)
+			log.Printf("got new request %s", request.Id.String())
+			// Read from socket in a loop and push messages to the requests channel
+			// If the socket is closed, signal the channel to close connection
 
-		go func(c *net.Conn) {
 			for {
-				clientStream, err := stream.Recv()
+				buff := make([]byte, bufferSize)
+				br, err := conn.Read(buff)
+				request.Lock.Lock()
 				if err != nil {
-					log.Println("Error: failed to get response from client: ", err)
-					clientReceiver <- nil
-					return
-				}
-				if len(clientStream.Data) > 0 {
-					data := clientStream.GetData()
-					clientReceiver <- &Message{
-						c,
-						&data,
+					if err != io.EOF {
+						log.Printf("%s; failed to read from server socket: %v", request.Id.String(), err)
 					}
-					break
+					request.Open = false
+					request.Lock.Unlock()
+					requests <- request
+					return
+				} else {
+					_, err := request.Buf.Write(buff[:br])
+					if err != nil {
+						log.Printf("%s; failed to write to request buffer: %v", request.Id.String(), err)
+					}
 				}
-				fmt.Println("end of stream receive: ", clientStream)
+				request.Lock.Unlock()
+				requests <- request
 			}
-		}(&conn)
-		<-connClose
-		_ = conn.Close()
+		}(conn)
 	}
 
 	return nil
