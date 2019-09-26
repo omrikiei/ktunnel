@@ -1,19 +1,14 @@
 package common
 
 import (
-	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
-	"io"
 	"log"
 	"net"
 	"sync"
-)
 
-const (
-	bufferSize = 32*1024
 )
 
 type Request struct {
@@ -54,44 +49,26 @@ func AddRequest(r *Request) (bool, error) {
 	if _, ok := GetRequest(&r.Id); ok != false {
 		return false, errors.New(fmt.Sprintf("Request %s already exists", r.Id.String()))
 	}
-	openRequests[r.Id] = r
+	openRequests[r.Id.String()] = r
 	return true, nil
 }
 
 func GetRequest(id *uuid.UUID) (*Request, bool){
-	request, ok := openRequests[*id]
+	request, ok := openRequests[id.String()]
 	return request, ok
 }
 
-type RequestPool map[uuid.UUID]*Request
+type RequestPool map[string]*Request
 
 var openRequests = RequestPool{}
 
 func CloseRequest(id uuid.UUID) (bool, error) {
-	request, ok := openRequests[id]
+	request, ok := openRequests[id.String()]
 	if ok == false {
 		return false, errors.New(fmt.Sprintf("id %v not found in open requests", id))
 	}
 	conn := *request.Conn
 	_ = conn.Close()
-	delete(openRequests, id)
+	delete(openRequests, id.String())
 	return true, nil
-}
-
-func StreamToByte(stream io.Reader) (int, *[]byte, error) {
-	//TODO: figure out a way to wait for readability or alternatively stream through the tunnel
-	buf := make([]byte, bufferSize)
-	br, err := stream.Read(buf)
-	res := buf[:br]
-	return br, &res, err
-}
-
-func StreamToChan(stream io.Reader) (int, *[]byte, error) {
-	buf := make([]byte, bufferSize)
-	reader := bufio.NewReader(stream)
-	for br, err := reader.Read(buf); err != io.EOF; {
-		fmt.Println(br, err)
-	}
-	res := buf
-	return 0, &res, nil
 }
