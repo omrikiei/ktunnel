@@ -24,7 +24,7 @@ func NewServer() *tunnelServer {
 	return &tunnelServer{}
 }
 
-func SendData(stream *pb.Tunnel_InitTunnelServer, requests <-chan *common.Request) {
+func SendData(stream *pb.Tunnel_InitTunnelServer, requests <-chan *common.Request, closeChan chan<- bool) {
 	for {
 		request := <-requests
 		request.Lock.Lock()
@@ -48,6 +48,7 @@ func SendData(stream *pb.Tunnel_InitTunnelServer, requests <-chan *common.Reques
 			if err != nil {
 				log.Errorf("failed sending message to tunnel stream, exiting", err)
 				request.Lock.Unlock()
+				closeChan <- true
 				return
 			}
 			request.Buf.Reset()
@@ -126,58 +127,56 @@ func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 		})
 		return err
 	}
-	defer func(){
-		log.Info("Closing conenction on port %d", port)
-		_ = ln.Close()
-	}()
 
 	requests := make(chan *common.Request)
 	closeChan := make(chan bool, 1)
+	go func(close <-chan bool){
+		<-close
+		log.Infof("Closing conenction on port %d", port)
+		_ = ln.Close()
+	}(closeChan)
+
 	go ReceiveData(&stream, closeChan)
-	go SendData(&stream, requests)
+	go SendData(&stream, requests, closeChan)
 
 	for {
-		select {
-			case <-closeChan:
-				log.Infof("closing listener on port %d", port)
-				_ = ln.Close()
-				break
-			default:
-				conn, err := ln.Accept()
-				// socket -> stream
-				go func(conn net.Conn) {
-					if err != nil {
-						log.Errorf("Failed accepting connection on port %d", port)
-						return
-					}
-					request := common.NewRequest(&conn)
-					log.Debugf("got new request %s", request.Id.String())
-					// Read from socket in a loop and push messages to the requests channel
-					// If the socket is closed, signal the channel to close connection
-
-					for {
-						buff := make([]byte, bufferSize)
-						br, err := conn.Read(buff)
-						request.Lock.Lock()
-						if err != nil {
-							if err != io.EOF {
-								log.Errorf("%s; failed to read from server socket: %v", request.Id.String(), err)
-							}
-							request.Open = false
-							request.Lock.Unlock()
-							requests <- request
-							break
-						} else {
-							_, err := request.Buf.Write(buff[:br])
-							if err != nil {
-								log.Errorf("%s; failed to write to request buffer: %v", request.Id.String(), err)
-							}
-						}
-						request.Lock.Unlock()
-						requests <- request
-					}
-				}(conn)
+		conn, err := ln.Accept()
+		if err != nil {
+			return err
 		}
+		// socket -> stream
+		go func(conn net.Conn) {
+			if err != nil {
+				log.Errorf("Failed accepting connection on port %d", port)
+				return
+			}
+			request := common.NewRequest(&conn)
+			log.Debugf("got new request %s", request.Id.String())
+			// Read from socket in a loop and push messages to the requests channel
+			// If the socket is closed, signal the channel to close connection
+
+			for {
+				buff := make([]byte, bufferSize)
+				br, err := conn.Read(buff)
+				request.Lock.Lock()
+				if err != nil {
+					if err != io.EOF {
+						log.Errorf("%s; failed to read from server socket: %v", request.Id.String(), err)
+					}
+					request.Open = false
+					request.Lock.Unlock()
+					requests <- request
+					break
+				} else {
+					_, err := request.Buf.Write(buff[:br])
+					if err != nil {
+						log.Errorf("%s; failed to write to request buffer: %v", request.Id.String(), err)
+					}
+				}
+				request.Lock.Unlock()
+				requests <- request
+			}
+		}(conn)
 	}
 }
 
