@@ -41,32 +41,40 @@ func ReceiveData(st *pb.Tunnel_InitTunnelClient, closeStream chan<-bool, request
 			closeStream <- true
 			return
 		}
-		log.Printf("%s; got new request from server", m.RequestId)
+		log.Debugf("%s; got new request from server", m.RequestId)
 		requestId, err := uuid.Parse(m.RequestId)
 		if err != nil {
 			log.Errorf("%s; failed parsing request uuid from stream, skipping", m.RequestId)
 		}
 		request, exists := common.GetRequest(&requestId)
 		if exists == false {
-			log.Infof("%s; new request; connecting to port %d", m.RequestId, port)
-			// new request
-			conn ,err := net.Dial(strings.ToLower(scheme), fmt.Sprintf("localhost:%d", port))
-			if err != nil {
-				log.Errorf("failed connecting to localhost on port %s scheme %s, exiting", port, scheme)
-				return
+			if m.ShouldClose != true {
+				log.Infof("%s; new request; connecting to port %d", m.RequestId, port)
+				// new request
+				conn ,err := net.Dial(strings.ToLower(scheme), fmt.Sprintf("localhost:%d", port))
+				if err != nil {
+					log.Errorf("failed connecting to localhost on port %s scheme %s, exiting", port, scheme)
+					return
+				}
+				_ = conn.SetDeadline(time.Now().Add(time.Second))
+				request = common.NewRequestFromStream(&requestId, &conn)
+			} else {
+				request = common.NewRequestFromStream(&requestId, nil)
+				request.Open = false
 			}
-			_ = conn.SetDeadline(time.Now().Add(time.Second))
-			request = common.NewRequestFromStream(&requestId, &conn)
 		}
-		c := *request.Conn
+
 		if request.Open == false {
-			_ = c.Close()
-			ok, err := common.CloseRequest(request.Id)
-			if ok != true {
-				log.Printf("%s; failed closing request: %v", request.Id.String(), err)
+			if request.Conn != nil {
+				c := *request.Conn
+				_ = c.Close()
+				ok, err := common.CloseRequest(request.Id)
+				if ok != true {
+					log.Printf("%s; failed closing request: %v", request.Id.String(), err)
+				}
 			}
-			return
 		} else {
+			c := *request.Conn
 			request.Lock.Lock()
 			_, err := c.Write(m.GetData())
 			if err != nil {
