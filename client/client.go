@@ -53,7 +53,8 @@ func ReceiveData(st *pb.Tunnel_InitTunnelClient, closeStream chan<-bool, request
 				// new request
 				conn ,err := net.Dial(strings.ToLower(scheme), fmt.Sprintf("localhost:%d", port))
 				if err != nil {
-					log.Errorf("failed connecting to localhost on port %s scheme %s, exiting", port, scheme)
+					log.Errorf("failed connecting to localhost on port %d scheme %s, exiting", port, scheme)
+					closeStream <- true
 					return
 				}
 				_ = conn.SetDeadline(time.Now().Add(time.Second))
