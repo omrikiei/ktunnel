@@ -21,7 +21,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -105,7 +104,7 @@ func InjectSidecar(namespace, deploymentName *string, port *int, readyChan chan<
 		Name: "ktunnel",
 		Image: image,
 		Command: []string{"/ktunnel/ktunnel"},
-		Args: []string{ "server", "-p", strconv.FormatInt(int64(*port), 10)},
+		Args: []string{ "server", fmt.Sprintf("-p=%d", *port)},
 	}
 
 	deployment.Spec.Template.Spec.Containers = append(deployment.Spec.Template.Spec.Containers, co)

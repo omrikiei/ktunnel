@@ -17,6 +17,8 @@ var (
 	serverCmd  = flag.NewFlagSet("server", flag.ExitOnError)
 	certFile   = serverCmd.String("cert_file", "", "TLS cert file")
 	keyFile    = serverCmd.String("key_file", "", "TLS key file")
+	serverPort = serverCmd.Int("port", 28688, "Server port")
+	serverTls = serverCmd.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
 	clientCmd  = flag.NewFlagSet("client", flag.ExitOnError)
 	host = clientCmd.String("host", "localhost", "Host to connect to")
 	caFile = clientCmd.String("ca_file", "", "TLS cert auth file")
@@ -24,8 +26,8 @@ var (
 	deploymentName = clientCmd.String("deployment", "", "Name of the kubernetes deployment")
 	namespace = clientCmd.String("namespace", "default", "kubernetes namespace")
 	serverHostOverride = clientCmd.String("server_host_override", "", "Server name use to verify the hostname returned by TLS handshake")
-	port       = flag.Int("port", 28688, "Server port")
-	tls        = flag.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
+	clientPort       = clientCmd.Int("port", 28688, "Server port")
+	clientTls        = clientCmd.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
 	o = sync.Once{}
 )
 
@@ -48,7 +50,7 @@ func main() {
 		}
 		// Inject sidecar server to deployment
 		readyChan := make(chan bool, 1)
-		_, err = injector.InjectSidecar(namespace, deploymentName, port, readyChan)
+		_, err = injector.InjectSidecar(namespace, deploymentName, clientPort, readyChan)
 		if err != nil {
 			log.Fatalf("failed injecting sidecar: %v", err)
 		}
@@ -70,7 +72,7 @@ func main() {
 		}()
 
 		// Create a port forward to the deployment/pod
-		strPort := strconv.FormatInt(int64(*port), 10)
+		strPort := strconv.FormatInt(int64(*clientPort), 10)
 		fwdChan := make(chan bool, 1)
 		_, err = injector.PortForward(namespace, deploymentName, &[]string{strPort}, fwdChan)
 		if err != nil {
@@ -80,7 +82,7 @@ func main() {
 		log.Info("Waiting for port forward to finish")
 		<-fwdChan
 		// Run tunnel client and establish connection
-		err = client.RunClient(host, port, *scheme ,tls, caFile, serverHostOverride, flag.Args()[2:])
+		err = client.RunClient(host, clientPort, *scheme ,clientTls, caFile, serverHostOverride, flag.Args()[2:])
 		if err != nil {
 			log.Fatalf("Failed to run client: %v", err)
 			os.Exit(1)
@@ -92,7 +94,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		err = server.RunServer(port, tls, keyFile, certFile)
+		err = server.RunServer(serverPort, serverTls, keyFile, certFile)
 		if err != nil {
 			log.Fatalf("Error running server: %v", err)
 		}
