@@ -15,19 +15,7 @@ import (
 
 var (
 	serverCmd  = flag.NewFlagSet("server", flag.ExitOnError)
-	certFile   = serverCmd.String("cert_file", "", "TLS cert file")
-	keyFile    = serverCmd.String("key_file", "", "TLS key file")
-	serverPort = serverCmd.Int("port", 28688, "Server port")
-	serverTls = serverCmd.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
 	clientCmd  = flag.NewFlagSet("client", flag.ExitOnError)
-	host = clientCmd.String("host", "localhost", "Host to connect to")
-	caFile = clientCmd.String("ca_file", "", "TLS cert auth file")
-	scheme = clientCmd.String("scheme", "tcp", "Connection scheme")
-	deploymentName = clientCmd.String("deployment", "", "Name of the kubernetes deployment")
-	namespace = clientCmd.String("namespace", "default", "kubernetes namespace")
-	serverHostOverride = clientCmd.String("server_host_override", "", "Server name use to verify the hostname returned by TLS handshake")
-	clientPort       = clientCmd.Int("port", 28688, "Server port")
-	clientTls        = clientCmd.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
 	o = sync.Once{}
 )
 
@@ -40,6 +28,14 @@ func main() {
 
 	switch os.Args[1] {
 	case "client":
+		host := clientCmd.String("host", "localhost", "Host to connect to")
+		caFile := clientCmd.String("ca_file", "", "TLS cert auth file")
+		scheme := clientCmd.String("scheme", "tcp", "Connection scheme")
+		deploymentName := clientCmd.String("deployment", "", "Name of the kubernetes deployment")
+		namespace := clientCmd.String("namespace", "default", "kubernetes namespace")
+		serverHostOverride := clientCmd.String("server_host_override", "", "Server name use to verify the hostname returned by TLS handshake")
+		clientPort       := clientCmd.Int("port", 28688, "Server port")
+		clientTls        := clientCmd.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
 		err := clientCmd.Parse(os.Args[2:])
 		if err != nil {
 			log.Fatal(err)
@@ -90,6 +86,10 @@ func main() {
 		<-done
 		os.Exit(0)
 	case "server":
+		certFile   := serverCmd.String("cert_file", "", "TLS cert file")
+		keyFile    := serverCmd.String("key_file", "", "TLS key file")
+		serverPort := serverCmd.Int("port", 28688, "Server port")
+		serverTls := serverCmd.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
 		err := serverCmd.Parse(os.Args[2:])
 		if err != nil {
 			log.Fatal(err)
