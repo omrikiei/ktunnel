@@ -1,0 +1,14 @@
+
+Hope you enjoy your new logo, here are the people that
+made your beautiful logo happen :)
+font name: SpaceText-Bold
+font link: https://github.com/floriankarsten/space-text
+font author: Florian Karsten
+font author site: http://floriankarsten.com/
+
+
+icon designer: Jenie Tomboc
+icon designer link: /innograpica
+        
+{"bg":"transparent","icon-gradient-0":"#5A5A2D","icon-gradient-1":"#0DE30D","font":"#000000","slogan":"#141414"}
+      
