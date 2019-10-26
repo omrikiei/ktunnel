@@ -2,7 +2,10 @@ FROM golang:1.13.1-alpine as builder
 ENV GO111MODULE=on
 COPY . /build
 WORKDIR /build
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w"
+RUN apk update && \
+    apk add upx && \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o="ktunnel" && \
+    upx ktunnel
 
 FROM alpine:latest
 WORKDIR /ktunnel
