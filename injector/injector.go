@@ -66,9 +66,8 @@ func getClients(namespace *string) {
 
 func getAllPods(namespace, deployment *string) (*apiv1.PodList, error) {
 	getClients(namespace)
-	pods, err := podsClient.List(metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("app.kubernetes.io/name=%s", *deployment),
-	})
+	// TODO: filter pod list
+	pods, err := podsClient.List(metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
