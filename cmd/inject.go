@@ -52,6 +52,7 @@ var injectDeploymentCmd = &cobra.Command{
 		go func() {
 			o.Do(func(){
 				_ = <-sigs
+				CloseChan<-true
 				ok, err := injector.RemoveSidecar(&Namespace, &deployment)
 				if !ok {
 					log.Errorf("Failed removing tunnel sidecar", err)

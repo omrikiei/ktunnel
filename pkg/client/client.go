@@ -176,8 +176,15 @@ func parsePorts(s string) (error, *redirectRequest) {
 	return errors.New(fmt.Sprintf("Error, bad tunnel format: %s", s)), nil
 }
 
-func RunClient(host *string, port *int, scheme string, tls *bool, caFile, serverHostOverride *string, tunnels []string) error {
+func RunClient(host *string, port *int, scheme string, tls *bool, caFile, serverHostOverride *string, tunnels []string, stopChan <-chan bool) error {
 	wg := sync.WaitGroup{}
+	closeStreams := make([]chan bool, len(tunnels))
+	go func() {
+		<-stopChan
+		for _, c := range closeStreams {
+			c <- true
+		}
+	}()
 	var opts []grpc.DialOption
 	if *tls {
 		creds, err := credentials.NewClientTLSFromFile(*caFile, *serverHostOverride)
@@ -202,7 +209,8 @@ func RunClient(host *string, port *int, scheme string, tls *bool, caFile, server
 			log.Error(err)
 		}
 		wg.Add(1)
-		go func() {
+		c := make(chan bool, 1)
+		go func(closeStream chan bool) {
 			log.Println(fmt.Sprintf("starting %s tunnel from source %d to target %d", scheme, tunnelData.source, tunnelData.target))
 			ctx := context.Background()
 			tunnelScheme, ok := pb.TunnelScheme_value[scheme]
@@ -223,7 +231,7 @@ func RunClient(host *string, port *int, scheme string, tls *bool, caFile, server
 					log.Errorf("Failed to send initial tunnel request to server")
 				} else {
 					requests := make(chan *common.Request)
-					closeStream := make(chan bool, 1)
+					//closeStream := make(chan bool, 1)
 					go ReceiveData(&stream, closeStream, requests, tunnelData.target, scheme)
 					go SendData(requests, &stream)
 					<- closeStream
@@ -231,7 +239,8 @@ func RunClient(host *string, port *int, scheme string, tls *bool, caFile, server
 				}
 			}
 			wg.Done()
-		}()
+		}(c)
+		closeStreams = append(closeStreams, c)
 	}
 	wg.Wait()
 	log.Info("All ports closed, exiting..")

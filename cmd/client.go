@@ -3,13 +3,17 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 	"ktunnel/pkg/client"
-	"log"
+	log "github.com/sirupsen/logrus"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
 var Host string
 var CaFile string
 var Scheme string
 var ServerHostOverride string
+var CloseChan = make(chan bool, 1)
 
 var clientCmd = &cobra.Command{
 	Use:   "client",
@@ -18,7 +22,19 @@ var clientCmd = &cobra.Command{
 	Args: cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		// Run tunnel client and establish connection
-		err := client.RunClient(&Host, &Port, Scheme ,&Tls, &CaFile, &ServerHostOverride, args)
+
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
+
+		go func() {
+			o.Do(func(){
+				_ = <-sigs
+				log.Info("Got exit signal, closing client tunnels")
+				CloseChan<-true
+			})
+		}()
+
+		err := client.RunClient(&Host, &Port, Scheme ,&Tls, &CaFile, &ServerHostOverride, args, CloseChan)
 		if err != nil {
 			log.Fatalf("Failed to run client: %v", err)
 		}
