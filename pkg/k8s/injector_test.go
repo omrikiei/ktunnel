@@ -1,4 +1,4 @@
-package injector
+package k8s
 
 import (
 	v12 "k8s.io/api/apps/v1"

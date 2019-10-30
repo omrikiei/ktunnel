@@ -3,7 +3,8 @@ package cmd
 import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"ktunnel/pkg/injector"
+	"ktunnel/pkg/client"
+	"ktunnel/pkg/k8s"
 	"os"
 	"os/signal"
 	"strconv"
@@ -21,14 +22,6 @@ var injectCmd = &cobra.Command{
 			it then establishes a reverse tunnel`,
 }
 
-var injectPodCmd = &cobra.Command{
-	Use: "pod",
-	Short: "Inject server sidecar to a pod and run the ktunnel client to establish a connection",
-	Args: cobra.MinimumNArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
-
-	},
-}
 var injectDeploymentCmd = &cobra.Command{
 	Use: "deployment",
 	Short: "Inject server sidecar to a deployment and run the ktunnel client to establish a connection",
@@ -37,7 +30,7 @@ var injectDeploymentCmd = &cobra.Command{
 		// Inject
 		deployment := args[0]
 		readyChan := make(chan bool, 1)
-		_, err := injector.InjectSidecar(&Namespace, &deployment, &Port, readyChan)
+		_, err := k8s.InjectSidecar(&Namespace, &deployment, &Port, readyChan)
 		if err != nil {
 			log.Fatalf("failed injecting sidecar: %v", err)
 		}
@@ -47,33 +40,51 @@ var injectDeploymentCmd = &cobra.Command{
 		// Signal hook to remove sidecar
 		sigs := make(chan os.Signal, 1)
 		done := make(chan bool, 1)
+		wg := &sync.WaitGroup{}
 		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
 
 		go func() {
 			o.Do(func(){
 				_ = <-sigs
+				log.Info("Stopping streams")
 				CloseChan<-true
-				ok, err := injector.RemoveSidecar(&Namespace, &deployment)
+				wg.Wait()
+				readyChan = make(chan bool, 1)
+				ok, err := k8s.RemoveSidecar(&Namespace, &deployment, readyChan)
 				if !ok {
 					log.Errorf("Failed removing tunnel sidecar", err)
 				}
+				_ = <-readyChan
+				log.Info("Finished, exiting")
 				done<-true
 			})
 		}()
 
 		// Port-Forward
 		strPort := strconv.FormatInt(int64(Port), 10)
-		fwdChan := make(chan bool, 1)
-		_, err = injector.PortForward(&Namespace, &deployment, &[]string{strPort}, fwdChan)
+		stopChan := make(chan struct{}, 1)
+		// Create a tunnel client for each replica
+		sourcePorts, err := k8s.PortForward(&Namespace, &deployment, strPort, wg, stopChan)
 		if err != nil {
 			log.Fatalf("Failed to run port forwarding: %v", err)
 			os.Exit(1)
 		}
 		log.Info("Waiting for port forward to finish")
-		<-fwdChan
-		// Run tunnel client
-		clientCmd.Run(cmd, args[1:])
-		<-done
+		wg.Wait()
+		for _, srcPort := range *sourcePorts {
+			go func() {
+				p, err := strconv.ParseInt(srcPort, 10, 0)
+				if err != nil {
+					log.Fatalf("Failed to run client: %v", err)
+				}
+				prt := int(p)
+				err = client.RunClient(&Host, &prt, Scheme ,&Tls, &CaFile, &ServerHostOverride, args[1:], CloseChan)
+				if err != nil {
+					log.Fatalf("Failed to run client: %v", err)
+				}
+			}()
+		}
+		_ = <-done
 	},
 }
 
@@ -82,6 +93,6 @@ func init() {
 	injectCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	injectCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	injectCmd.Flags().StringVarP(&Namespace, "namespace","n",  "default", "Namespace")
-	injectCmd.AddCommand(injectPodCmd, injectDeploymentCmd)
+	injectCmd.AddCommand(injectDeploymentCmd)
 	rootCmd.AddCommand(injectCmd)
 }

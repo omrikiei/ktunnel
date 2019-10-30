@@ -37,7 +37,7 @@ func ReceiveData(st *pb.Tunnel_InitTunnelClient, closeStream chan<-bool, request
 	for {
 		m, err := stream.Recv()
 		if err != nil {
-			log.Errorf("error reading from stream, exiting: %v", err)
+			log.Warn("error reading from stream: %v", err)
 			closeStream <- true
 			return
 		}
@@ -53,9 +53,8 @@ func ReceiveData(st *pb.Tunnel_InitTunnelClient, closeStream chan<-bool, request
 				// new request
 				conn ,err := net.Dial(strings.ToLower(scheme), fmt.Sprintf("localhost:%d", port))
 				if err != nil {
-					log.Errorf("failed connecting to localhost on port %d scheme %s, exiting", port, scheme)
-					closeStream <- true
-					return
+					log.Errorf("failed connecting to localhost on port %d scheme %s", port, scheme)
+					continue
 				}
 				_ = conn.SetDeadline(time.Now().Add(time.Second))
 				request = common.NewRequestFromStream(&requestId, &conn)
@@ -243,6 +242,5 @@ func RunClient(host *string, port *int, scheme string, tls *bool, caFile, server
 		closeStreams = append(closeStreams, c)
 	}
 	wg.Wait()
-	log.Info("All ports closed, exiting..")
 	return nil
 }
