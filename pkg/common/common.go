@@ -7,6 +7,8 @@ import (
 	"github.com/google/uuid"
 	"log"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 
 )
@@ -17,6 +19,11 @@ type Request struct {
 	Buf *bytes.Buffer
 	Open bool
 	Lock *sync.Mutex
+}
+
+type RedirectRequest struct {
+	Source int32
+	Target int32
 }
 
 func NewRequest(conn *net.Conn) *Request {
@@ -71,4 +78,36 @@ func CloseRequest(id uuid.UUID) (bool, error) {
 	_ = conn.Close()
 	delete(openRequests, id.String())
 	return true, nil
+}
+
+func ParsePorts(s string) (*RedirectRequest, error) {
+	raw := strings.Split(s, ":")
+	if len(raw) == 0 {
+		return nil, errors.New(fmt.Sprintf("failed parsing redirect request: %s", s))
+	}
+	if len(raw) == 1 {
+		p, err := strconv.ParseInt(raw[0], 10, 32)
+		if err != nil {
+			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[0], err))
+		}
+		return &RedirectRequest{
+			Source: int32(p),
+			Target: int32(p),
+		}, nil
+	}
+	if len(raw) == 2 {
+		s, err := strconv.ParseInt(raw[0], 10, 32)
+		if err != nil {
+			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[0], err))
+		}
+		t, err := strconv.ParseInt(raw[1], 10, 32)
+		if err != nil {
+			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[1], err))
+		}
+		return &RedirectRequest{
+			Source: int32(s),
+			Target: int32(t),
+		}, nil
+	}
+	return nil, errors.New(fmt.Sprintf("Error, bad tunnel format: %s", s))
 }

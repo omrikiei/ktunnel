@@ -1,7 +1,6 @@
 package client
 
 import (
-	"errors"
 	"fmt"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -12,7 +11,6 @@ import (
 	"ktunnel/pkg/common"
 	pb "ktunnel/tunnel_pb"
 	"net"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,11 +19,6 @@ import (
 const (
 	bufferSize = 1024
 )
-
-type redirectRequest struct {
-	source int32
-	target int32
-}
 
 type Message struct {
 	c *net.Conn
@@ -143,38 +136,6 @@ func SendData(requests <-chan *common.Request, stream *pb.Tunnel_InitTunnelClien
 	}
 }
 
-func parsePorts(s string) (error, *redirectRequest) {
-	raw := strings.Split(s, ":")
-	if len(raw) == 0 {
-		return errors.New(fmt.Sprintf("failed parsing redirect request: %s", s)), nil
-	}
-	if len(raw) == 1 {
-		p, err := strconv.ParseInt(raw[0], 10, 32)
-		if err != nil {
-			return errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[0], err)), nil
-		}
-		return nil, &redirectRequest{
-			int32(p),
-			int32(p),
-		}
-	}
-	if len(raw) == 2 {
-		s, err := strconv.ParseInt(raw[0], 10, 32)
-		if err != nil {
-			return errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[0], err)), nil
-		}
-		t, err := strconv.ParseInt(raw[1], 10, 32)
-		if err != nil {
-			return errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[1], err)), nil
-		}
-		return nil, &redirectRequest{
-			source: int32(s),
-			target: int32(t),
-		}
-	}
-	return errors.New(fmt.Sprintf("Error, bad tunnel format: %s", s)), nil
-}
-
 func RunClient(host *string, port *int, scheme string, tls *bool, caFile, serverHostOverride *string, tunnels []string, stopChan <-chan bool) error {
 	wg := sync.WaitGroup{}
 	closeStreams := make([]chan bool, len(tunnels))
@@ -203,21 +164,21 @@ func RunClient(host *string, port *int, scheme string, tls *bool, caFile, server
 	}()
 	client := pb.NewTunnelClient(conn)
 	for _, rawTunnelData := range tunnels {
-		err, tunnelData := parsePorts(rawTunnelData)
+		tunnelData, err := common.ParsePorts(rawTunnelData)
 		if err != nil {
 			log.Error(err)
 		}
 		wg.Add(1)
 		c := make(chan bool, 1)
 		go func(closeStream chan bool) {
-			log.Println(fmt.Sprintf("starting %s tunnel from source %d to target %d", scheme, tunnelData.source, tunnelData.target))
+			log.Println(fmt.Sprintf("starting %s tunnel from source %d to target %d", scheme, tunnelData.Source, tunnelData.Target))
 			ctx := context.Background()
 			tunnelScheme, ok := pb.TunnelScheme_value[scheme]
 			if ok != false {
 				log.Fatalf("unsupported connection scheme %s", scheme)
 			}
 			req := &pb.SocketDataRequest{
-				Port:                 tunnelData.source,
+				Port:                 tunnelData.Source,
 				LogLevel:             0,
 				Scheme:               pb.TunnelScheme(tunnelScheme),
 			}
@@ -231,7 +192,7 @@ func RunClient(host *string, port *int, scheme string, tls *bool, caFile, server
 				} else {
 					requests := make(chan *common.Request)
 					//closeStream := make(chan bool, 1)
-					go ReceiveData(&stream, closeStream, requests, tunnelData.target, scheme)
+					go ReceiveData(&stream, closeStream, requests, tunnelData.Target, scheme)
 					go SendData(requests, &stream)
 					<- closeStream
 					_ = stream.CloseSend()

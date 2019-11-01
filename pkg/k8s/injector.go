@@ -8,82 +8,16 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/kubernetes"
-	v1 "k8s.io/client-go/kubernetes/typed/apps/v1"
-	v12 "k8s.io/client-go/kubernetes/typed/core/v1"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
-	"k8s.io/client-go/util/homedir"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-
-const (
-	image = "quay.io/omrikiei/ktunnel:latest"
-)
-
-var deploymentOnce = sync.Once{}
-var deploymentsClient v1.DeploymentInterface
-var podsClient v12.PodInterface
-var kubeconfig = getKubeConfig()
-
-func getKubeConfig() *rest.Config {
-	kconfig := os.Getenv("KUBE_CONFIG")
-	if home := homedir.HomeDir(); kconfig == "" && home != "" {
-		kconfig = filepath.Join(home, ".kube", "config")
-	}
-
-	config, err := clientcmd.BuildConfigFromFlags("", kconfig)
-	if err != nil {
-		log.Errorf("Failed getting kubernetes config: %v", err)
-		return nil
-	}
-	return config
-}
-
-func getClients(namespace *string) {
-	deploymentOnce.Do(func(){
-		clientset, err := kubernetes.NewForConfig(kubeconfig)
-		if err != nil {
-			log.Errorf("Failed to get k8s client: %v", err)
-			os.Exit(1)
-		}
-
-		c := clientset.AppsV1().Deployments(*namespace)
-		deploymentsClient = c
-		p := clientset.CoreV1().Pods(*namespace)
-		podsClient = p
-	})
-}
-
-func getAllPods(namespace, deployment *string) (*apiv1.PodList, error) {
-	getClients(namespace)
-	// TODO: filter pod list
-	pods, err := podsClient.List(metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-	return pods, nil
-}
-
-func hasSidecar(podSpec apiv1.PodSpec) bool {
-	for _, c := range podSpec.Containers {
-		if c.Image == image {
-			return true
-		}
-	}
-	return false
-}
 
 func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, readyChan chan<- bool) (bool, error) {
 	if hasSidecar(o.Spec.Template.Spec) {
@@ -99,51 +33,10 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, readyChan chan
 	return true, nil
 }
 
-func waitForReady(name *string, ti *time.Time, numPods int32, readyChan chan<-bool) {
-	go func() {
-		watcher, err := podsClient.Watch(metav1.ListOptions{
-			TypeMeta:            metav1.TypeMeta{
-				Kind: "pod",
-			},
-			Watch:               true,
-		})
-		if err != nil {
-			return
-		}
-		for e := range watcher.ResultChan(){
-			if e.Type == watch.Deleted {
-				break
-			}
-		}
-		for {
-			count := int32(0)
-			pods, err := podsClient.List(metav1.ListOptions{})
-			if err != nil {
-				log.Error(err)
-				os.Exit(1)
-			}
-			for _, p := range pods.Items {
-				if strings.HasPrefix(p.Name, *name) && p.CreationTimestamp.After(*ti) && p.Status.Phase == apiv1.PodRunning {
-					count += 1
-				}
-				if count >= numPods {
-					readyChan <- true
-					break
-				}
-			}
-		}
-	}()
-}
-
 func InjectSidecar(namespace, objectName *string, port *int, readyChan chan<- bool) (bool, error) {
 	log.Infof("Injecting tunnel sidecar to %s/%s", *namespace, *objectName)
 	getClients(namespace)
-	co := apiv1.Container{
-		Name: "ktunnel",
-		Image: image,
-		Command: []string{"/ktunnel/ktunnel"},
-		Args: []string{ "server", "-p", strconv.FormatInt(int64(*port), 10)},
-	}
+	co := newContainer(*port)
 	creationTime := time.Now().Add(-1*time.Second)
 	obj, err := deploymentsClient.Get(*objectName, metav1.GetOptions{})
 	if err != nil {
@@ -152,7 +45,7 @@ func InjectSidecar(namespace, objectName *string, port *int, readyChan chan<- bo
 	if *obj.Spec.Replicas > int32(1) {
 		return false, errors.New("sidecar injection only support deployments with one replica")
 	}
-	_, err = injectToDeployment(obj, &co, readyChan)
+	_, err = injectToDeployment(obj, co, readyChan)
 	if err != nil {
 		return false, err
 	}

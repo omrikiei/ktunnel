@@ -34,8 +34,6 @@ var injectDeploymentCmd = &cobra.Command{
 		if err != nil {
 			log.Fatalf("failed injecting sidecar: %v", err)
 		}
-		log.Info("Waiting for deployment to be ready")
-		<- readyChan
 
 		// Signal hook to remove sidecar
 		sigs := make(chan os.Signal, 1)
@@ -59,6 +57,9 @@ var injectDeploymentCmd = &cobra.Command{
 				done<-true
 			})
 		}()
+
+		log.Info("Waiting for deployment to be ready")
+		<- readyChan
 
 		// Port-Forward
 		strPort := strconv.FormatInt(int64(Port), 10)
