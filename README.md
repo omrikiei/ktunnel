@@ -73,7 +73,7 @@ ktunnel expose myapp 80:8000
 ### Inject to an existing deployment
 This will currently only work for deployments with 1 replica - it will expose a listening port on the pod through a tunnel to your local machine
 ```bash
-ktunnel inject deploymeny mydeployment 3306
+ktunnel inject deployment mydeployment 3306
 ``` 
 
 ## ✍️ Authors <a name = "authors"></a>
