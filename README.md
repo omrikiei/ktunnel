@@ -5,6 +5,10 @@
 
 <h3 align="center">ktunnel</h3>
 
+<p>
+<img src="./docs/ktunnel diagram.png" alt="Ktunnel schema">
+</p>
+
 <div align="center">
 
   [![Status](https://img.shields.io/badge/status-active-success.svg)]() 
