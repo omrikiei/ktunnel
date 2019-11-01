@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/spf13/cobra/doc"
 	"os"
 )
 
@@ -32,5 +34,11 @@ func init() {
 	rootCmd.PersistentFlags().IntVarP(&Port, "port", "p", 28688, "author name for copyright attribution")
 	rootCmd.PersistentFlags().BoolVarP(&Tls, "tls", "t", false, "Connection uses TLS if true, else plain TCP")
 	_ = rootCmd.MarkFlagRequired("port")
+	if genDoc := os.Getenv("GEN_DOC"); genDoc == "true" {
+		err := doc.GenMarkdownTree(rootCmd, "./docs")
+		if err != nil {
+			log.Errorf("Failed generating docs: %v", err)
+		}
+	}
 }
 
