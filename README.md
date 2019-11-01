@@ -5,10 +5,6 @@
 
 <h3 align="center">ktunnel</h3>
 
-<p>
-<img src="./docs/ktunnel diagram.png" alt="Ktunnel schema">
-</p>
-
 <div align="center">
 
   [![Status](https://img.shields.io/badge/status-active-success.svg)]() 
@@ -32,6 +28,10 @@
 - [Contributing](../CONTRIBUTING.md)
 - [Authors](#authors)
 - [Acknowledgments](#acknowledgement)
+
+<p align="center">
+<img src="./docs/ktunnel diagram.png" alt="Ktunnel schema">
+</p>
 
 ## 🧐 About <a name = "about"></a>
 Ktunnel is a CLI tool that establishes a reverse tunnel between a kubernetes cluster and your local machine. It let's you expose your machine as a service in the cluster or expose it to a specific deployment. You can also use the client and server without the orchestration part.
