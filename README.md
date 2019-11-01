@@ -44,7 +44,7 @@ You should have proper permissions on the kubernetes cluster
 
 ### Installing
 ## From the releases page
-TODO
+Download [here](https://github.com/omrikiei/ktunnel/releases/) and extract it to a local bin path
 ## Building from source
 Clone the project
 ```
