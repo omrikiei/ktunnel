@@ -8,7 +8,19 @@ This command would inject a new service and deployment to the cluster, and open 
 			forwarding tunnel ingress traffic to the the same port on localhost
 
 ```
-ktunnel expose [flags]
+ktunnel expose [flags] SERVICE_NAME [ports]
+```
+
+### Examples
+
+```
+
+# Expose a local application running on port 8000 via http
+ktunnel expose kewlapp 80:8000
+			  
+# Expose a local redis server
+ktunnel expose redis 6379
+              
 ```
 
 ### Options

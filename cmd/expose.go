@@ -13,11 +13,18 @@ import (
 )
 
 var exposeCmd = &cobra.Command{
-	Use:   "expose",
+	Use:   "expose [flags] SERVICE_NAME [ports]",
 	Short: "Expose local machine as a service on the kubernetes cluster",
 	Long:  `This command would inject a new service and deployment to the cluster, and open the tunnel to the server 
 			forwarding tunnel ingress traffic to the the same port on localhost`,
 	Args:  cobra.MinimumNArgs(2),
+	Example: `
+# Expose a local application running on port 8000 via http
+ktunnel expose kewlapp 80:8000
+			  
+# Expose a local redis server
+ktunnel expose redis 6379
+              `,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Create service and deployment
 		svcName, ports := args[0], args[1:]

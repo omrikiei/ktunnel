@@ -10,9 +10,13 @@ var CertFile string
 var KeyFile string
 
 var serverCmd = &cobra.Command{
-	Use:   "server",
+	Use:   "server [flags]",
 	Short: "Run the ktunnel server(from remote - usually k8s pod)",
 	Long:  `This command would start the tunnel server wait for tunnel clients to bind`,
+	Example: `
+# Run a ktunnel server(on a remote machine) on the non default port
+ktunnel server -p 8181
+`,
 	Run: func(cmd *cobra.Command, args []string) {
 		err := server.RunServer(&Port, &Tls, &KeyFile, &CertFile)
 		if err != nil {

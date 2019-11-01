@@ -17,10 +17,14 @@ var ServerHostOverride string
 var CloseChan = make(chan bool, 1)
 
 var clientCmd = &cobra.Command{
-	Use:   "client",
+	Use:   "client [flags] [ports]",
 	Short: "Run the ktunnel client(from source listener - usually localhost)",
 	Long:  `This command would open the tunnel to the server and forward tunnel ingress traffic to the the same port on localhost`,
 	Args:  cobra.MinimumNArgs(1),
+	Example: `
+# Open a tunnel to a remote tunnel server
+ktunnel client --host ktunnel-server.yourcompany.com -s tcp 8000 8001:8432
+	`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Run tunnel client and establish connection
 

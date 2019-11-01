@@ -7,7 +7,16 @@ Run the ktunnel client(from source listener - usually localhost)
 This command would open the tunnel to the server and forward tunnel ingress traffic to the the same port on localhost
 
 ```
-ktunnel client [flags]
+ktunnel client [flags] [ports]
+```
+
+### Examples
+
+```
+
+# Open a tunnel to a remote tunnel server
+ktunnel client --host ktunnel-server.yourcompany.com -s tcp 8000 8001:8432
+	
 ```
 
 ### Options

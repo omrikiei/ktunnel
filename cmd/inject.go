@@ -23,9 +23,13 @@ var injectCmd = &cobra.Command{
 }
 
 var injectDeploymentCmd = &cobra.Command{
-	Use: "deployment",
+	Use: "deployment [flags] DEPLOYMENT_NAME [ports]",
 	Short: "Inject server sidecar to a deployment and run the ktunnel client to establish a connection",
 	Args: cobra.MinimumNArgs(2),
+	Example: `
+# Inject a back tunnel from a running deployment to local mysql and redis
+ktunnel inject deploymeny mydeployment 3306 6379
+`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Inject
 		deployment := args[0]

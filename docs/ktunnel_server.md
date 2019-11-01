@@ -10,6 +10,15 @@ This command would start the tunnel server wait for tunnel clients to bind
 ktunnel server [flags]
 ```
 
+### Examples
+
+```
+
+# Run a ktunnel server(on a remote machine) on the non default port
+ktunnel server -p 8181
+
+```
+
 ### Options
 
 ```

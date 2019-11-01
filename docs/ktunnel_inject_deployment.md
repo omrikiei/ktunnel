@@ -7,7 +7,16 @@ Inject server sidecar to a deployment and run the ktunnel client to establish a 
 Inject server sidecar to a deployment and run the ktunnel client to establish a connection
 
 ```
-ktunnel inject deployment [flags]
+ktunnel inject deployment [flags] DEPLOYMENT_NAME [ports]
+```
+
+### Examples
+
+```
+
+# Inject a back tunnel from a running deployment to local mysql and redis
+ktunnel inject deploymeny mydeployment 3306 6379
+
 ```
 
 ### Options
