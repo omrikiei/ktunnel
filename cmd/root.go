@@ -37,7 +37,7 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().IntVarP(&Port, "port", "p", 28688, "author name for copyright attribution")
+	rootCmd.PersistentFlags().IntVarP(&Port, "port", "p", 28688, "The port to use to establish the tunnel")
 	rootCmd.PersistentFlags().BoolVarP(&Tls, "tls", "t", false, "Connection uses TLS if true, else plain TCP")
 	_ = rootCmd.MarkFlagRequired("port")
 }

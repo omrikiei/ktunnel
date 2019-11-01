@@ -10,7 +10,7 @@ Built to ease development on kubernetes clusters and allow connectivity between 
 
 ```
   -h, --help       help for ktunnel
-  -p, --port int   author name for copyright attribution (default 28688)
+  -p, --port int   The port to use to establish the tunnel (default 28688)
   -t, --tls        Connection uses TLS if true, else plain TCP
 ```
 

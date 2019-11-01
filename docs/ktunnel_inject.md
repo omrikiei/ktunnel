@@ -20,7 +20,7 @@ This command accepts a pod/deployment and injects the tunnel sidecar to that art
 ### Options inherited from parent commands
 
 ```
-  -p, --port int   author name for copyright attribution (default 28688)
+  -p, --port int   The port to use to establish the tunnel (default 28688)
   -t, --tls        Connection uses TLS if true, else plain TCP
 ```
 
