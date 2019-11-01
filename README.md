@@ -22,7 +22,7 @@
 
 ## 📝 Table of Contents
 - [About](#about)
-- [Getting Started](#getting_started)
+- [Installation](#installation)
 - [Usage](#usage)
 - [Docs](./docs/ktunnel.md)
 - [Contributing](../CONTRIBUTING.md)
@@ -42,10 +42,10 @@ These instructions will get you a copy of the project up and running on your loc
 ### Prerequisites
 You should have proper permissions on the kubernetes cluster
 
-### Installing
-## From the releases page
+## Installation
+### From the releases page
 Download [here](https://github.com/omrikiei/ktunnel/releases/) and extract it to a local bin path
-## Building from source
+### Building from source
 Clone the project
 ```
 git clone https://github.com/omrikiei/ktunnel; cd ktunnel
