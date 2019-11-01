@@ -24,6 +24,12 @@ var rootCmd = &cobra.Command{
 }
 
 func Execute() {
+	if genDoc := os.Getenv("GEN_DOC"); genDoc == "true" {
+		err := doc.GenMarkdownTree(rootCmd, "./docs")
+		if err != nil {
+			log.Errorf("Failed generating docs: %v", err)
+		}
+	}
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -34,11 +40,5 @@ func init() {
 	rootCmd.PersistentFlags().IntVarP(&Port, "port", "p", 28688, "author name for copyright attribution")
 	rootCmd.PersistentFlags().BoolVarP(&Tls, "tls", "t", false, "Connection uses TLS if true, else plain TCP")
 	_ = rootCmd.MarkFlagRequired("port")
-	if genDoc := os.Getenv("GEN_DOC"); genDoc == "true" {
-		err := doc.GenMarkdownTree(rootCmd, "./docs")
-		if err != nil {
-			log.Errorf("Failed generating docs: %v", err)
-		}
-	}
 }
 
