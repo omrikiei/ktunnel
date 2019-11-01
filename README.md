@@ -64,13 +64,13 @@ ktunnel -h
 ```
 
 ## 🎈 Usage <a name="usage"></a>
-# Expose your local machine as a headless service in the cluster
+### Expose your local machine as a headless service in the cluster
 This will allow pods in the cluster to access your local web app(listening on port 8000) via http
 ```bash
 ktunnel expose myapp 80:8000
 ```
 
-# Inject to an existing deployment
+### Inject to an existing deployment
 This will currently only work for deployments with 1 replica - it will expose a listening port on the pod through a tunnel to your local machine
 ```bash
 ktunnel inject deploymeny mydeployment 3306
