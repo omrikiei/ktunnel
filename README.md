@@ -69,7 +69,8 @@ ktunnel -h
 
 ## 🎈 Usage <a name="usage"></a>
 ### Expose your local machine as a headless service in the cluster
-This will allow pods in the cluster to access your local web app(listening on port 8000) via http
+This will allow pods in the cluster to access your local web app(listening on port 8000) via 
+http(i.e pods can send requests to myapp:8000)
 ```bash
 ktunnel expose myapp 80:8000
 ```

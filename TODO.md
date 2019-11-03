@@ -6,4 +6,7 @@
 - ~~Support multi pod deployment injection(create multiple tunnels and port-forwards)~~ - Not possible at the moment
 - ~~Add "expose" subcommand(Create new deployment+service that forwards traffic to localhost)~~
 - Add autocompletion sub-command
+- Add examples section with:
+    - debugging a python application remotely
+    - sending metrics to a local monitoring stack
 - ~~Add docs(auto-generated from cobra)~~
