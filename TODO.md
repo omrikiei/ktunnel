@@ -11,3 +11,4 @@
     - sending metrics to a local monitoring stack
 - ~~Add docs(auto-generated from cobra)~~
 - ~~Add goreleaser manifest and actions~~
+- Add cluster selection flag
