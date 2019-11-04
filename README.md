@@ -32,7 +32,7 @@
 ## 🧐 About <a name = "about"></a>
 Ktunnel is a CLI tool that establishes a reverse tunnel between a kubernetes cluster and your local machine. It let's you expose your machine as a service in the cluster or expose it to a specific deployment. You can also use the client and server without the orchestration part.
 
-ktunnel was born out of the need to access my development host when running applications on kubernetes. I specifically found it to be a challenge to run a [remote pycharm debuuger](https://www.jetbrains.com/help/pycharm/remote-debugging-with-product.html#remote-debug-config) on pods in a kubernetes development cluster. 
+ktunnel was born out of the need to access my development host when running applications on kubernetes. I specifically found it to be a challenge to run a [remote pycharm debugger](https://www.jetbrains.com/help/pycharm/remote-debugging-with-product.html#remote-debug-config) on pods in a kubernetes development cluster. 
 The aim of this project is to be an holistic solution to this specific problem(accessing the your local machine from a kubernetes pod) - although there are partial solutions to this problem such as [inlets](https://github.com/inlets/inlets) and [ngrok](https://ngrok.com/) I found them to be unsuitable and insecure for the task at hand.
 If you found this tool to be helpful on other scenarios(accessing a seeded development database/mocking a service and whatnot) I would love for us to communicate on that.
 
