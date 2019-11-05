@@ -30,11 +30,11 @@
 - [Acknowledgments](#acknowledgement)
 
 ## 🧐 About <a name = "about"></a>
-Ktunnel is a CLI tool that establishes a reverse tunnel between a kubernetes cluster and your local machine. It let's you expose your machine as a service in the cluster or expose it to a specific deployment. You can also use the client and server without the orchestration part.
+Ktunnel is a CLI tool that establishes a reverse tunnel between a kubernetes cluster and your local machine. It lets you expose your machine as a service in the cluster or expose it to a specific deployment. You can also use the client and server without the orchestration part.
 
-ktunnel was born out of the need to access my development host when running applications on kubernetes. I specifically found it to be a challenge to run a [remote pycharm debugger](https://www.jetbrains.com/help/pycharm/remote-debugging-with-product.html#remote-debug-config) on pods in a kubernetes development cluster. 
-The aim of this project is to be an holistic solution to this specific problem(accessing the your local machine from a kubernetes pod) - although there are partial solutions to this problem such as [inlets](https://github.com/inlets/inlets) and [ngrok](https://ngrok.com/) I found them to be unsuitable and insecure for the task at hand.
-If you found this tool to be helpful on other scenarios(accessing a seeded development database/mocking a service and whatnot) I would love for us to communicate on that.
+Ktunnel was born out of the need to access my development host when running applications on kubernetes. I specifically found it to be a challenge to run a [remote pycharm debugger](https://www.jetbrains.com/help/pycharm/remote-debugging-with-product.html#remote-debug-config) on pods in a kubernetes development cluster. 
+The aim of this project is to be a holistic solution to this specific problem (accessing the local machine from a kubernetes pod) - although there are partial solutions to this problem such as [inlets](https://github.com/inlets/inlets) and [ngrok](https://ngrok.com/) I found them to be unsuitable and insecure for the task at hand.
+If you found this tool to be helpful on other scenarios (accessing a seeded development database/mocking a service and whatnot) I would love for us to communicate on that.
 
 <p align="center">
 <img src="./docs/ktunnel diagram.png" alt="Ktunnel schema">
@@ -69,8 +69,8 @@ ktunnel -h
 
 ## 🎈 Usage <a name="usage"></a>
 ### Expose your local machine as a headless service in the cluster
-This will allow pods in the cluster to access your local web app(listening on port 8000) via 
-http(i.e pods can send requests to myapp:8000)
+This will allow pods in the cluster to access your local web app (listening on port 8000) via 
+http (i.e pods can send requests to myapp:8000)
 ```bash
 ktunnel expose myapp 80:8000
 ```
