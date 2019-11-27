@@ -84,6 +84,6 @@ ktunnel expose redis 6379
 }
 
 func init() {
-
+	exposeCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme(tcp/udp/websocket)")
 	rootCmd.AddCommand(exposeCmd)
 }

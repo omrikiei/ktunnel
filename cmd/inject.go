@@ -95,7 +95,7 @@ ktunnel inject deploymeny mydeployment 3306 6379
 
 func init() {
 	injectCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
-	injectCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
+	injectCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme(tcp/udp/websocket)")
 	injectCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	injectCmd.Flags().StringVarP(&Namespace, "namespace","n",  "default", "Namespace")
 	injectCmd.AddCommand(injectDeploymentCmd)

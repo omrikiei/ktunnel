@@ -48,7 +48,7 @@ ktunnel client --host ktunnel-server.yourcompany.com -s tcp 8000 8001:8432
 func init() {
 	clientCmd.Flags().StringVarP(&Host, "host", "H", "localhost", "server host address")
 	clientCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
-	clientCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
+	clientCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme(tcp/udp/websocket)")
 	clientCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	rootCmd.AddCommand(clientCmd)
 }

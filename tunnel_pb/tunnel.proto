@@ -20,6 +20,7 @@ enum LogLevel {
 enum TunnelScheme {
     TCP = 0;
     UDP = 1;
+    WEBSOCKET = 2;
 }
 
 message LogMessage {
@@ -34,6 +35,7 @@ message SocketDataRequest {
     TunnelScheme scheme = 4;
     bytes data = 5;
     bool shouldClose = 6;
+    int32 messageType = 7;
 }
 
 message SocketDataResponse {
@@ -42,4 +44,6 @@ message SocketDataResponse {
     string requestId = 3;
     bytes data = 4;
     bool shouldClose = 5;
+    int32 messageType = 6;
+    string path = 8;
 }
