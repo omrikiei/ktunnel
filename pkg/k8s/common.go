@@ -2,8 +2,8 @@ package k8s
 
 import (
 	log "github.com/sirupsen/logrus"
-	apiv1 "k8s.io/api/core/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	//"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
@@ -29,6 +29,7 @@ var deploymentsClient v1.DeploymentInterface
 var podsClient v12.PodInterface
 var svcClient v12.ServiceInterface
 var kubeconfig = getKubeConfig()
+var Verbose = false
 
 func getKubeConfig() *rest.Config {
 	kconfig := os.Getenv("KUBE_CONFIG")
@@ -117,11 +118,15 @@ func hasSidecar(podSpec apiv1.PodSpec) bool {
 }
 
 func newContainer(port int) *apiv1.Container{
+	args := []string{ "server", "-p", strconv.FormatInt(int64(port), 10)}
+	if Verbose == true {
+		args = append(args, "-v")
+	}
 	return &apiv1.Container{
 		Name: "ktunnel",
 		Image: image,
 		Command: []string{"/ktunnel/ktunnel"},
-		Args: []string{ "server", "-p", strconv.FormatInt(int64(port), 10)},
+		Args: args,
 	}
 }
 

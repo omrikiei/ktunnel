@@ -5,6 +5,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
+	"ktunnel/pkg/k8s"
 	"os"
 )
 
@@ -14,6 +15,7 @@ const (
 
 var Port int
 var Tls bool
+var Verbose bool
 
 var rootCmd = &cobra.Command{
 	Use:   "ktunnel",
@@ -39,6 +41,11 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().IntVarP(&Port, "port", "p", 28688, "The port to use to establish the tunnel")
 	rootCmd.PersistentFlags().BoolVarP(&Tls, "tls", "t", false, "Connection uses TLS if true, else plain TCP")
+	rootCmd.PersistentFlags().BoolVarP(&Verbose, "verbose", "v", false, "Emit debug logs")
 	_ = rootCmd.MarkFlagRequired("port")
+	if Verbose == true {
+		log.SetLevel(log.DebugLevel)
+		k8s.Verbose = true
+	}
 }
 
