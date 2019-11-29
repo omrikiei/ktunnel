@@ -8,13 +8,13 @@ import (
 	"net/http"
 )
 
-func startWebsocketTunnel(stream pb.Tunnel_InitTunnelServer, port *int32) error {
+func startWebsocketTunnel(stream pb.Tunnel_InitTunnelServer, port int32) error {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  bufferSize,
 		WriteBufferSize: bufferSize,
 	}
 	http.HandleFunc("/", wsHandlerClosure(upgrader, stream))
-	addr := fmt.Sprintf(":%d", &port)
+	addr := fmt.Sprintf(":%d", port)
 	log.Infof("listening on %s", addr)
 	return http.ListenAndServe(addr, nil)
 }

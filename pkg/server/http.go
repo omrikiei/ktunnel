@@ -11,8 +11,8 @@ import (
 	"strings"
 )
 
-func startHttpTunnel(stream pb.Tunnel_InitTunnelServer, scheme *pb.TunnelScheme, port *int32) error {
-	ln, err := net.Listen(strings.ToLower(scheme.String()), fmt.Sprintf(":%d", &port))
+func startHttpTunnel(stream pb.Tunnel_InitTunnelServer, scheme *pb.TunnelScheme, port int32) error {
+	ln, err := net.Listen(strings.ToLower(scheme.String()), fmt.Sprintf(":%d", port))
 	if err != nil {
 		defer func() {
 			log.Errorf("Failed listening on port %d: %v", port, err)

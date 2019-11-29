@@ -44,10 +44,10 @@ func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 	log.Infof("Opening %s connection on port %d", scheme, port)
 	if scheme == pb.TunnelScheme_WEBSOCKET {
 		log.Info("Starting websocket server")
-		return startWebsocketTunnel(stream, &port)
+		return startWebsocketTunnel(stream, port)
 	} else {
 		log.Infof("Starting %s server", scheme.String())
-		return startHttpTunnel(stream, &scheme, &port)
+		return startHttpTunnel(stream, &scheme, port)
 	}
 }
 
