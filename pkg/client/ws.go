@@ -33,6 +33,7 @@ func localWsConnection(st *pb.Tunnel_InitTunnelClient, closeStream chan<-bool, p
 			if err != nil {
 				log.Errorf("Failed closing websocket connection: %v", err)
 			}
+			closeStream<-true
 		}()
 		// Receiver
 		go func() {
@@ -75,6 +76,4 @@ func localWsConnection(st *pb.Tunnel_InitTunnelClient, closeStream chan<-bool, p
 			}
 		}()
 	}()
-	<-closeChan
-	closeStream<-true
 }

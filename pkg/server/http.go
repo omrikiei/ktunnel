@@ -12,7 +12,7 @@ import (
 )
 
 func startHttpTunnel(stream pb.Tunnel_InitTunnelServer, scheme *pb.TunnelScheme, port *int32) error {
-	ln, err := net.Listen(strings.ToLower(scheme.String()), fmt.Sprintf(":%d", port))
+	ln, err := net.Listen(strings.ToLower(scheme.String()), fmt.Sprintf(":%d", &port))
 	if err != nil {
 		defer func() {
 			log.Errorf("Failed listening on port %d: %v", port, err)
@@ -31,7 +31,7 @@ func startHttpTunnel(stream pb.Tunnel_InitTunnelServer, scheme *pb.TunnelScheme,
 	closeChan := make(chan bool, 1)
 	go func(close <-chan bool){
 		<-close
-		log.Infof("Closing conenction on port %d", port)
+		log.Infof("Closing connection on port %d", port)
 		_ = ln.Close()
 	}(closeChan)
 

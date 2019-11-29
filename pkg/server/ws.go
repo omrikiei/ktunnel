@@ -14,7 +14,7 @@ func startWebsocketTunnel(stream pb.Tunnel_InitTunnelServer, port *int32) error 
 		WriteBufferSize: bufferSize,
 	}
 	http.HandleFunc("/", wsHandlerClosure(upgrader, stream))
-	return http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", &port), nil)
+	return http.ListenAndServe(fmt.Sprintf(":%d", &port), nil)
 }
 
 func wsHandlerClosure(upgrader websocket.Upgrader, stream pb.Tunnel_InitTunnelServer) func(w http.ResponseWriter, r *http.Request) {
