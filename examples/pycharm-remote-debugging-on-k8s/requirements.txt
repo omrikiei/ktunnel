@@ -1,0 +1,2 @@
+Flask==1.1.1
+pydevd-pycharm~=191.7141.48

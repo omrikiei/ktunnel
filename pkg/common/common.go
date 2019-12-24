@@ -13,7 +13,7 @@ import (
 
 )
 
-type Request struct {
+type Session struct {
 	Id uuid.UUID
 	Conn *net.Conn
 	Buf *bytes.Buffer
@@ -26,23 +26,23 @@ type RedirectRequest struct {
 	Target int32
 }
 
-func NewRequest(conn *net.Conn) *Request {
-	r := &Request{
+func NewSession(conn *net.Conn) *Session {
+	r := &Session{
 		Id:   uuid.New(),
 		Conn:    conn,
 		Buf:   &bytes.Buffer{},
 		Open: true,
 		Lock: &sync.Mutex{},
 	}
-	ok, err := AddRequest(r)
+	ok, err := AddSession(r)
 	if ok != true {
 		log.Printf("%s; failed registering request: %v", r.Id.String(), err)
 	}
 	return r
 }
 
-func NewRequestFromStream(id *uuid.UUID, conn *net.Conn) *Request {
-	r := &Request{
+func NewSessionFromStream(id *uuid.UUID, conn *net.Conn) *Session {
+	r := &Session{
 		Id:   *id,
 		Conn:    conn,
 		Buf:   &bytes.Buffer{},
@@ -52,31 +52,31 @@ func NewRequestFromStream(id *uuid.UUID, conn *net.Conn) *Request {
 	return r
 }
 
-func AddRequest(r *Request) (bool, error) {
-	if _, ok := GetRequest(&r.Id); ok != false {
-		return false, errors.New(fmt.Sprintf("Request %s already exists", r.Id.String()))
+func AddSession(r *Session) (bool, error) {
+	if _, ok := GetSession(&r.Id); ok != false {
+		return false, errors.New(fmt.Sprintf("Session %s already exists", r.Id.String()))
 	}
-	openRequests[r.Id.String()] = r
+	openSessions[r.Id.String()] = r
 	return true, nil
 }
 
-func GetRequest(id *uuid.UUID) (*Request, bool){
-	request, ok := openRequests[id.String()]
+func GetSession(id *uuid.UUID) (*Session, bool){
+	request, ok := openSessions[id.String()]
 	return request, ok
 }
 
-type RequestPool map[string]*Request
+type SessionPool map[string]*Session
 
-var openRequests = RequestPool{}
+var openSessions = SessionPool{}
 
-func CloseRequest(id uuid.UUID) (bool, error) {
-	request, ok := openRequests[id.String()]
+func CloseSession(id uuid.UUID) (bool, error) {
+	request, ok := openSessions[id.String()]
 	if ok == false {
 		return false, errors.New(fmt.Sprintf("id %v not found in open requests", id))
 	}
 	conn := *request.Conn
 	_ = conn.Close()
-	delete(openRequests, id.String())
+	delete(openSessions, id.String())
 	return true, nil
 }
 
