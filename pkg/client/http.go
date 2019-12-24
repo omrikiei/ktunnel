@@ -62,30 +62,29 @@ func receiveData(st *pb.Tunnel_InitTunnelClient, closeStream chan<-bool, request
 			c := *request.Conn
 			request.Lock.Lock()
 			_, err := c.Write(m.GetData())
-			if err != nil {
+			go readRespFromConn(request, requestsOut)
+			if neterr, ok := err.(net.Error);err != nil && !( ok && neterr.Timeout()) {
 				log.Printf("%s; failed writing to socket, closing request", request.Id.String())
 				ok, err := common.CloseRequest(requestId)
 				if ok != true {
 					log.Printf("%s; failed closing request: %v", request.Id.String(), err)
 				}
-			} else {
-				go readResp(request, requestsOut)
 			}
 			request.Lock.Unlock()
 		}
 	}
 }
 
-func readResp(request *common.Request, requestsOut chan<- *common.Request) {
+func readRespFromConn(request *common.Request, requestsOut chan<- *common.Request) {
 	conn := *request.Conn
 	for {
 		buff := make([]byte, bufferSize)
 		br, err := conn.Read(buff)
 		if err != nil {
-			if err != io.EOF {
-				log.Errorf("%s; failed reading from socket, exiting: %v", request.Id.String(), err)
+			if neterr, ok := err.(net.Error);err != io.EOF && !( ok && neterr.Timeout()) {
+				log.Errorf("%s; failed reading from socket: %v", request.Id.String(), err)
+				return
 			}
-			break
 		}
 		request.Lock.Lock()
 		_, err = request.Buf.Write(buff[:br])
@@ -93,7 +92,7 @@ func readResp(request *common.Request, requestsOut chan<- *common.Request) {
 		if err != nil {
 			log.Errorf("%s; failed writing to request buffer: %v", request.Id, err)
 			_, _ = common.CloseRequest(request.Id)
-			break
+			return
 		}
 		requestsOut <- request
 	}
@@ -103,26 +102,26 @@ func sendData(requests <-chan *common.Request, stream *pb.Tunnel_InitTunnelClien
 	for {
 		request := <-requests
 		request.Lock.Lock()
-		if request.Buf.Len() > 0 {
-			st := *stream
-			resp := &pb.SocketDataRequest{
-				RequestId:            request.Id.String(),
-				Data:                 request.Buf.Bytes(),
-				ShouldClose:          false,
-			}
-			if request.Open == false {
-				resp.ShouldClose = true
-				ok, err := common.CloseRequest(request.Id)
-				if ok != true {
-					log.Println(err)
-				}
-			}
-			err := st.Send(resp)
-			if err != nil {
-				log.Errorf("failed sending message to tunnel stream, exiting", err)
-				return
+
+		st := *stream
+		resp := &pb.SocketDataRequest{
+			RequestId:            request.Id.String(),
+			Data:                 request.Buf.Bytes(),
+			ShouldClose:          false,
+		}
+		if request.Open == false {
+			resp.ShouldClose = true
+			ok, err := common.CloseRequest(request.Id)
+			if ok != true {
+				log.Println(err)
 			}
 		}
+		err := st.Send(resp)
+		if err != nil {
+			log.Errorf("failed sending message to tunnel stream, exiting", err)
+			return
+		}
+
 		request.Buf.Reset()
 		request.Lock.Unlock()
 	}

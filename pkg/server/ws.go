@@ -12,6 +12,9 @@ func startWebsocketTunnel(stream pb.Tunnel_InitTunnelServer, port int32) error {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  bufferSize,
 		WriteBufferSize: bufferSize,
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
 	}
 	http.HandleFunc("/", wsHandlerClosure(upgrader, stream))
 	addr := fmt.Sprintf(":%d", port)

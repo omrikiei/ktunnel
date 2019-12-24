@@ -49,6 +49,10 @@ func NewRequestFromStream(id *uuid.UUID, conn *net.Conn) *Request {
 		Open: true,
 		Lock: &sync.Mutex{},
 	}
+	ok, err := AddRequest(r)
+	if ok != true {
+		log.Printf("%s; failed registering request: %v", r.Id.String(), err)
+	}
 	return r
 }
 

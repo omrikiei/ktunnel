@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	bufferSize = 32*1024
+	bufferSize = 1024
 )
 
 type tunnelServer struct {}

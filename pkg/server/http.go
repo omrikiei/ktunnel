@@ -9,6 +9,7 @@ import (
 	pb "ktunnel/tunnel_pb"
 	"net"
 	"strings"
+	"time"
 )
 
 func startHttpTunnel(stream pb.Tunnel_InitTunnelServer, scheme *pb.TunnelScheme, port int32) error {
@@ -41,14 +42,13 @@ func startHttpTunnel(stream pb.Tunnel_InitTunnelServer, scheme *pb.TunnelScheme,
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
+			log.Errorf("got error on new connection: %v", err)
 			return err
 		}
+		_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+		log.Infof("received new connection")
 		// socket -> stream
 		go func(conn net.Conn) {
-			if err != nil {
-				log.Errorf("Failed accepting connection on port %d", port)
-				return
-			}
 			request := common.NewRequest(&conn)
 			log.Debugf("got new request %s", request.Id.String())
 			// Read from socket in a loop and push messages to the requests channel
@@ -58,7 +58,7 @@ func startHttpTunnel(stream pb.Tunnel_InitTunnelServer, scheme *pb.TunnelScheme,
 				buff := make([]byte, bufferSize)
 				br, err := conn.Read(buff)
 				request.Lock.Lock()
-				if err != nil {
+				if neterr, ok := err.(net.Error);err != nil && !( ok && neterr.Timeout()) {
 					if err != io.EOF {
 						log.Errorf("%s; failed to read from server socket: %v", request.Id.String(), err)
 					}
@@ -83,31 +83,29 @@ func sendData(stream *pb.Tunnel_InitTunnelServer, requests <-chan *common.Reques
 	for {
 		request := <-requests
 		request.Lock.Lock()
-		if request.Buf.Len() > 0 || request.Open == false {
-			st := *stream
-			resp := &pb.SocketDataResponse{
-				HasErr:               false,
-				LogMessage:           nil,
-				RequestId:            request.Id.String(),
-				Data:                 request.Buf.Bytes(),
-				ShouldClose:          false,
-			}
-			if request.Open == false {
-				resp.ShouldClose = true
-				ok, err := common.CloseRequest(request.Id)
-				if ok != true {
-					log.Errorf("%s failed to close request: %v", request.Id.String(), err)
-				}
-			}
-			err := st.Send(resp)
-			if err != nil {
-				log.Errorf("failed sending message to tunnel stream, exiting", err)
-				request.Lock.Unlock()
-				closeChan <- true
-				return
-			}
-			request.Buf.Reset()
+		st := *stream
+		resp := &pb.SocketDataResponse{
+			HasErr:               false,
+			LogMessage:           nil,
+			RequestId:            request.Id.String(),
+			Data:                 request.Buf.Bytes(),
+			ShouldClose:          false,
 		}
+		if request.Open == false {
+			resp.ShouldClose = true
+			ok, err := common.CloseRequest(request.Id)
+			if ok != true {
+				log.Errorf("%s failed closing request: %v", request.Id.String(), err)
+			}
+		}
+		err := st.Send(resp)
+		if err != nil {
+			log.Errorf("failed sending message to tunnel stream, exiting", err)
+			request.Lock.Unlock()
+			closeChan <- true
+			return
+		}
+		request.Buf.Reset()
 		request.Lock.Unlock()
 	}
 }
@@ -130,12 +128,12 @@ func receiveData(stream *pb.Tunnel_InitTunnelServer, closeChan chan<- bool) {
 				log.Errorf("%s; request not found in openRequests", reqId)
 			} else {
 				data := message.GetData()
-				if len(data) > 0 {
-					conn := *request.Conn
-					_, err := conn.Write(data)
-					if err != nil {
-						log.Errorf("%s; failed writing data to socket", reqId)
-					}
+				log.Debugf("request data: %v", data)
+
+				conn := *request.Conn
+				_, err := conn.Write(data)
+				if err != nil {
+					log.Errorf("%s; failed writing data to socket", reqId)
 				}
 				if message.ShouldClose == true {
 					ok, _ := common.CloseRequest(reqId)

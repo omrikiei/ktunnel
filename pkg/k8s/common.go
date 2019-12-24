@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	image = "quay.io/omrikiei/ktunnel:latest"
+	image = "quay.io/omrikiei/ktunnel:websocket_support"
 )
 
 var deploymentOnce = sync.Once{}
@@ -125,6 +125,7 @@ func newContainer(port int) *apiv1.Container{
 	return &apiv1.Container{
 		Name: "ktunnel",
 		Image: image,
+		ImagePullPolicy: apiv1.PullAlways,
 		Command: []string{"/ktunnel/ktunnel"},
 		Args: args,
 	}
