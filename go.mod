@@ -15,8 +15,6 @@ require (
 	github.com/konsorten/go-windows-terminal-sequences v1.0.2 // indirect
 	github.com/sirupsen/logrus v1.4.2
 	github.com/spf13/cobra v0.0.5
-	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/stretchr/testify v1.4.0 // indirect
 	golang.org/x/crypto v0.0.0-20191011191535-87dc89f01550 // indirect
 	golang.org/x/net v0.0.0-20191014212845-da9a3fd4c582
 	golang.org/x/sys v0.0.0-20191018095205-727590c5006e // indirect
@@ -25,9 +23,8 @@ require (
 	google.golang.org/genproto v0.0.0-20191009194640-548a555dbc03 // indirect
 	google.golang.org/grpc v1.24.0
 	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
-	gopkg.in/inf.v0 v0.9.1 // indirect
-	k8s.io/api v0.0.0-20191016225839-816a9b7df678
-	k8s.io/apimachinery v0.0.0-20191017185446-6e68a40eebf9
-	k8s.io/client-go v0.0.0-20191016111102-bec269661e48
+	k8s.io/api v0.17.0
+	k8s.io/apimachinery v0.17.0
+	k8s.io/client-go v0.0.0-20191114101535-6c5935290e33
 	k8s.io/utils v0.0.0-20191010214722-8d271d903fe4 // indirect
 )

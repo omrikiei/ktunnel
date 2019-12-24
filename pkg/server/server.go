@@ -24,36 +24,36 @@ func NewServer() *tunnelServer {
 	return &tunnelServer{}
 }
 
-func SendData(stream *pb.Tunnel_InitTunnelServer, requests <-chan *common.Request, closeChan chan<- bool) {
+func SendData(stream *pb.Tunnel_InitTunnelServer, sessions <-chan *common.Session, closeChan chan<- bool) {
 	for {
-		request := <-requests
-		request.Lock.Lock()
-		if request.Buf.Len() > 0 || request.Open == false {
+		session := <-sessions
+		session.Lock.Lock()
+		if session.Buf.Len() > 0 || session.Open == false {
 			st := *stream
 			resp := &pb.SocketDataResponse{
-				HasErr:               false,
-				LogMessage:           nil,
-				RequestId:            request.Id.String(),
-				Data:                 request.Buf.Bytes(),
-				ShouldClose:          false,
+				HasErr:      false,
+				LogMessage:  nil,
+				RequestId:   session.Id.String(),
+				Data:        session.Buf.Bytes(),
+				ShouldClose: false,
 			}
-			if request.Open == false {
+			if session.Open == false {
 				resp.ShouldClose = true
-				ok, err := common.CloseRequest(request.Id)
+				ok, err := common.CloseSession(session.Id)
 				if ok != true {
-					log.Errorf("%s failed to close request: %v", request.Id.String(), err)
+					log.Errorf("%s failed to close session: %v", session.Id.String(), err)
 				}
 			}
 			err := st.Send(resp)
 			if err != nil {
 				log.Errorf("failed sending message to tunnel stream, exiting", err)
-				request.Lock.Unlock()
+				session.Lock.Unlock()
 				closeChan <- true
 				return
 			}
-			request.Buf.Reset()
+			session.Buf.Reset()
 		}
-		request.Lock.Unlock()
+		session.Lock.Unlock()
 	}
 }
 
@@ -70,22 +70,22 @@ func ReceiveData(stream *pb.Tunnel_InitTunnelServer, closeChan chan<- bool) {
 		if err != nil {
 			log.Errorf(" %s; failed to parse requestId, %v", message.GetRequestId(), err)
 		} else {
-			request, ok := common.GetRequest(&reqId)
+			session, ok := common.GetSession(&reqId)
 			if ok != true {
-				log.Errorf("%s; request not found in openRequests", reqId)
+				log.Errorf("%s; session not found in openRequests", reqId)
 			} else {
 				data := message.GetData()
 				if len(data) > 0 {
-					conn := *request.Conn
+					conn := *session.Conn
 					_, err := conn.Write(data)
 					if err != nil {
 						log.Errorf("%s; failed writing data to socket", reqId)
 					}
 				}
 				if message.ShouldClose == true {
-					ok, _ := common.CloseRequest(reqId)
+					ok, _ := common.CloseSession(reqId)
 					if ok != true {
-						log.Errorf("%s; failed closing request", reqId)
+						log.Errorf("%s; failed closing session", reqId)
 					}
 				}
 			}
@@ -128,44 +128,45 @@ func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 		return err
 	}
 
-	requests := make(chan *common.Request)
+	sessions := make(chan *common.Session)
 	closeChan := make(chan bool, 1)
 	go func(close <-chan bool){
 		<-close
-		log.Infof("Closing conenction on port %d", port)
+		log.Infof("Closing connection on port %d", port)
 		_ = ln.Close()
 	}(closeChan)
 
 	go ReceiveData(&stream, closeChan)
-	go SendData(&stream, requests, closeChan)
+	go SendData(&stream, sessions, closeChan)
 
 	for {
-		conn, err := ln.Accept()
+		connection, err := ln.Accept()
 		if err != nil {
 			return err
 		}
 		// socket -> stream
-		go func(conn net.Conn) {
+		go func(connection net.Conn) {
 			if err != nil {
 				log.Errorf("Failed accepting connection on port %d", port)
 				return
 			}
-			request := common.NewRequest(&conn)
+			request := common.NewSession(&connection)
 			log.Debugf("got new request %s", request.Id.String())
-			// Read from socket in a loop and push messages to the requests channel
+			// Read from socket in a loop and push messages to the sessions channel
 			// If the socket is closed, signal the channel to close connection
 
 			for {
 				buff := make([]byte, bufferSize)
-				br, err := conn.Read(buff)
+				br, err := connection.Read(buff)
 				request.Lock.Lock()
 				if err != nil {
-					if err != io.EOF {
-						log.Errorf("%s; failed to read from server socket: %v", request.Id.String(), err)
+					if err == io.EOF {
+						continue
 					}
+					log.Errorf("%s; failed to read from server socket: %v", request.Id.String(), err)
 					request.Open = false
+					sessions <- request
 					request.Lock.Unlock()
-					requests <- request
 					break
 				} else {
 					_, err := request.Buf.Write(buff[:br])
@@ -174,9 +175,9 @@ func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 					}
 				}
 				request.Lock.Unlock()
-				requests <- request
+				sessions <- request
 			}
-		}(conn)
+		}(connection)
 	}
 }
 
