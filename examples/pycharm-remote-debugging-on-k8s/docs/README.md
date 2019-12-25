@@ -1,4 +1,4 @@
-# Debugging a python application running on  kubernetes with Pycharm(breakpoints)
+# Debugging a python application running on  kubernetes with Pycharm(with breakpoints and the whole shebang)
 One of the pains of running a containerized application on kubernetes is the inability to debug it with a normal IDE. 
 With Python, there are nice solutions for remote debugging such as [remote-pdb](https://pypi.org/project/remote-pdb/) but it would never be as convenient as debugging your application with a real IDE.
 
