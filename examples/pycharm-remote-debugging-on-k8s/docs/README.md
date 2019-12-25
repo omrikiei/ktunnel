@@ -1,26 +1,29 @@
-# Debugging a python application running on  kubernetes with Pycharm(with breakpoints and the whole shebang)
+# Debugging a python application running on  kubernetes with Pycharm (with breakpoints and the whole shebang)
 One of the pains of running a containerized application on kubernetes is the inability to debug it with a normal IDE. 
 With Python, there are nice solutions for remote debugging such as [remote-pdb](https://pypi.org/project/remote-pdb/) but it would never be as convenient as debugging your application with a real IDE.
 
 ## The problem
-Although Intellij did an amazing job with [guidance and support](https://www.jetbrains.com/help/pycharm/remote-debugging-with-product.html) for remote debugging, their solutions are incompatible with a remote runtime that is unfamiliar with the development environment, or in simpler words - in order for remote debugging to work, the runtime(python process) needs to have network access to the IDE(your workstation).
+Although Intellij did an amazing job with [guidance and support](https://www.jetbrains.com/help/pycharm/remote-debugging-with-product.html) for remote debugging, their solutions are incompatible with a remote runtime that is unfamiliar with the development environment, 
+or in simpler terms - in order for remote debugging to work, the runtime (python process) needs to have network access to the IDE(your workstation).
 
-Under the hood Pycharm uses a debugger based on [pydevd](https://www.pydev.org/manual_adv_remote_debugger.html) - which only support connecting from the runtime as a client and not connection listening inside the runtime as a server.
+Under the hood Pycharm uses a debugger based on [pydevd](https://www.pydev.org/manual_adv_remote_debugger.html) - which only supports connecting from the runtime as a client and not listening to incoming connections inside the runtime as a server.
 
-A naive solution to this problem can be coupling an sshd sidecar with your deployment, and running a reverse SSH tunnel. 
-It would probably work - but in order to make it transparent one will need to inject the sidecar with one's public key, then run the ssh command and keep the tunnel open... seems like a lot of work.
+A naive solution to this problem can be coupling a sidecar running sshd with your deployment, and running a reverse SSH client tunnel . 
+It would probably work - but in order to make it transparent one will need to inject the sidecar with one's public key, then run the SSH client and keep the tunnel open... seems like a lot of work.
 
-Another alternative is using [telepresence](telepresence.io) to actually run the service locally, but that would mean I will need to build/install dependencies locally - which sometimes mean a lot of time and work and I didn't even mention the CPU and memory usage that our app will consume.  
+Another alternative is using [telepresence](telepresence.io) to actually run the service locally, but that would mean one would need to build/install dependencies locally - which sometimes mean a lot of time and work and without even mentioning the CPU and memory that our app will consume.  
 
 ## Ktunnel to the rescue
-[Ktunnel](github.com/omrikiei/ktunnel) is a CLI that established reverse tunnel from kubernetes to your workstation, this means I can expose my workstation to a kubernetes pod, or even as a service. for our use case - it means I can tell the pod running our python app to connect to localhost on the debug port, when actually behind the scene a tunnel will be established to the IDE which is listening on that port on my workstation. pretty neat!
+[Ktunnel](github.com/omrikiei/ktunnel) is a CLI that establishes a reverse tunnel from kubernetes and exposes your workstation to traffic from kubernetes, this means one can expose one's workstation to a kubernetes pod, 
+or even as a service. for our use case - it means one can tell a pod running our python app to connect to localhost on the debug port, 
+when actually behind the scenes a tunnel will be established to the IDE which is listening on that port on my workstation. pretty neat!
 
 ### Getting started
 As an example I created a simple flask web server with two endpoints:
-  - '/' - will return a random number
-  - '/debug' - will run 
+  - `/` - will return a random number
+  - `/debug` - will run 
 
-When the /debug endpoint is called, the runtime should attempt to connect to the debugger and block until it succeeds.
+When the `/debug` endpoint is called, the runtime should attempt to connect to the debugger and block until it succeeds.
 
 The code along with the kubernetes manifests can be found [here](https://github.com/omrikiei/ktunnel/tree/master/examples/pycharm-remote-debugging-on-k8s)
 
@@ -41,10 +44,12 @@ Hello, Ktunnel! random number: 409
  ```
 
 #### Step 2 - Open the project on Pycharm and configure a remote debugger
-- Open pycharm, open the project(`File->open->"project directory"`).
-- Put some breakpoints in the main.py file
+- Open pycharm, open the project (`File->open->"project directory"`).
+- Put some breakpoints in the `main.py` file
+![Set a breakpoint](breakpoint.png)
 - Configure a remote debugger according to [these](https://www.jetbrains.com/help/pycharm/remote-debugging-with-product.html#remote-debug-config) instructions. use local host name 'localhost' and port 4321. __Important note! use 'Path Mapping' to map your local project directory to the source Workdir in the container image__ 
-- Start the debugger(`Run->debug remote_server`)
+![Debugger config example](./dbg_config.png)
+- Start the debugger (`Run->debug remote_server`) 
 
 #### Step 3 - Establish the tunnel
 ```bash
@@ -72,7 +77,8 @@ Now, sending a request to the root endpoint will trigger the breakpoint in the I
 ```bash
 > curl -v localhost:8000/
 ```
-We can change the value of 'r' in the 'Evaluate Expression' window to -1, and the result in our terminal:
+We can change the value of `r` in the `Evaluate Expression` window to -1, and the result in our terminal:
+![Change var](set_r.png)
 ```bash
 > curl -v localhost:8000/
 *   Trying 127.0.0.1...
