@@ -49,6 +49,10 @@ func NewSessionFromStream(id *uuid.UUID, conn *net.Conn) *Session {
 		Open: true,
 		Lock: &sync.Mutex{},
 	}
+	ok, err := AddSession(r)
+	if ok != true {
+		log.Printf("%s; failed registering request: %v", r.Id.String(), err)
+	}
 	return r
 }
 

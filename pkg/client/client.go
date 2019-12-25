@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	bufferSize = 1024
+	bufferSize = 1024*32
 )
 
 type Message struct {
@@ -33,7 +33,7 @@ func ReceiveData(st *pb.Tunnel_InitTunnelClient, closeStream chan<-bool, session
 			closeStream <- true
 			return
 		}
-		log.Debugf("%s; got new session from server", m.RequestId)
+		log.Debugf("%s; got session from server: %s", m.RequestId, m.GetData())
 		requestId, err := uuid.Parse(m.RequestId)
 		if err != nil {
 			log.Errorf("%s; failed parsing session uuid from stream, skipping", m.RequestId)
@@ -83,6 +83,7 @@ func ReceiveData(st *pb.Tunnel_InitTunnelClient, closeStream chan<-bool, session
 
 func ReadFromSession(session *common.Session, sessionsOut chan<- *common.Session) {
 	conn := *session.Conn
+	log.Debugf("started reading from session %s", session.Id)
 	for {
 		buff := make([]byte, bufferSize)
 		br, err := conn.Read(buff)
@@ -103,6 +104,7 @@ func ReadFromSession(session *common.Session, sessionsOut chan<- *common.Session
 		}
 		sessionsOut <- session
 	}
+	log.Debugf("finished reading from session %s", session.Id)
 }
 
 func SendData(sessions <-chan *common.Session, stream *pb.Tunnel_InitTunnelClient) {

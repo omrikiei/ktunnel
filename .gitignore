@@ -1,1 +1,9 @@
 .idea/*
+.*/.*/.idea
+.*/.*/.pyenv
+.DS_Store
+examples/pycharm-remote-debugging-on-k8s/.idea/
+examples/pycharm-remote-debugging-on-k8s/.pyenv/
+releases/
+dist/
+ktunnel

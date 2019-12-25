@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	bufferSize = 32*1024
+	bufferSize = 1024*32
 )
 
 type tunnelServer struct {}
@@ -28,31 +28,29 @@ func SendData(stream *pb.Tunnel_InitTunnelServer, sessions <-chan *common.Sessio
 	for {
 		session := <-sessions
 		session.Lock.Lock()
-		if session.Buf.Len() > 0 || session.Open == false {
-			st := *stream
-			resp := &pb.SocketDataResponse{
-				HasErr:      false,
-				LogMessage:  nil,
-				RequestId:   session.Id.String(),
-				Data:        session.Buf.Bytes(),
-				ShouldClose: false,
-			}
-			if session.Open == false {
-				resp.ShouldClose = true
-				ok, err := common.CloseSession(session.Id)
-				if ok != true {
-					log.Errorf("%s failed to close session: %v", session.Id.String(), err)
-				}
-			}
-			err := st.Send(resp)
-			if err != nil {
-				log.Errorf("failed sending message to tunnel stream, exiting", err)
-				session.Lock.Unlock()
-				closeChan <- true
-				return
-			}
-			session.Buf.Reset()
+		st := *stream
+		resp := &pb.SocketDataResponse{
+			HasErr:      false,
+			LogMessage:  nil,
+			RequestId:   session.Id.String(),
+			Data:        session.Buf.Bytes(),
+			ShouldClose: false,
 		}
+		if session.Open == false {
+			resp.ShouldClose = true
+			ok, err := common.CloseSession(session.Id)
+			if ok != true {
+				log.Errorf("%s failed to close session: %v", session.Id.String(), err)
+			}
+		}
+		err := st.Send(resp)
+		if err != nil {
+			log.Errorf("failed sending message to tunnel stream, exiting", err)
+			session.Lock.Unlock()
+			closeChan <- true
+			return
+		}
+		session.Buf.Reset()
 		session.Lock.Unlock()
 	}
 }
@@ -112,7 +110,7 @@ func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 		}
 		return errors.New("missing port")
 	}
-	log.Infof("Opening %s conenction on port %d", request.GetScheme(), port)
+	log.Infof("Opening %s connection on port %d", request.GetScheme(), port)
 	ln, err := net.Listen(strings.ToLower(request.GetScheme().String()), fmt.Sprintf(":%d", port))
 	if err != nil {
 		defer func() {
@@ -141,6 +139,7 @@ func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 
 	for {
 		connection, err := ln.Accept()
+		log.Debugf("Accepted new connection %v; %v", connection, err)
 		if err != nil {
 			return err
 		}
@@ -150,32 +149,31 @@ func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 				log.Errorf("Failed accepting connection on port %d", port)
 				return
 			}
-			request := common.NewSession(&connection)
-			log.Debugf("got new request %s", request.Id.String())
+			session := common.NewSession(&connection)
+			log.Debugf("got new session %s", session.Id.String())
+
+			sessions <- session // We want to inform the client that we accepted a connection - some weird ass protocols wait for data from the server when connecting
 			// Read from socket in a loop and push messages to the sessions channel
 			// If the socket is closed, signal the channel to close connection
-
 			for {
 				buff := make([]byte, bufferSize)
 				br, err := connection.Read(buff)
-				request.Lock.Lock()
-				if err != nil {
-					if err == io.EOF {
-						continue
-					}
-					log.Errorf("%s; failed to read from server socket: %v", request.Id.String(), err)
-					request.Open = false
-					sessions <- request
-					request.Lock.Unlock()
+				session.Lock.Lock()
+				if err != nil && err != io.EOF {
+					log.Errorf("%s; failed to read from server socket: %v", session.Id.String(), err)
+					session.Open = false
+					sessions <- session
+					session.Lock.Unlock()
 					break
-				} else {
-					_, err := request.Buf.Write(buff[:br])
+				} else if br > 0 {
+					log.Debugf("read %s from socket", buff[:br])
+					_, err := session.Buf.Write(buff[:br])
 					if err != nil {
-						log.Errorf("%s; failed to write to request buffer: %v", request.Id.String(), err)
+						log.Errorf("%s; failed to write to session buffer: %v", session.Id.String(), err)
 					}
+					sessions <- session
 				}
-				request.Lock.Unlock()
-				sessions <- request
+				session.Lock.Unlock()
 			}
 		}(connection)
 	}
