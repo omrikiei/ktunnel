@@ -7,8 +7,9 @@
 - ~~Add "expose" subcommand(Create new deployment+service that forwards traffic to localhost)~~
 - Add autocompletion sub-command
 - Add examples section with:
-    - debugging a python application remotely
+    - ~~debugging a python application remotely~~
     - sending metrics to a local monitoring stack
 - ~~Add docs(auto-generated from cobra)~~
 - ~~Add goreleaser manifest and actions~~
 - Add cluster selection flag
+- Add 'swap' subcommand for swapping deployment with a tunnel to the workstation
