@@ -9,6 +9,7 @@
 - Add examples section with:
     - ~~debugging a python application remotely~~
     - sending metrics to a local monitoring stack
+    - nodejs remote debugging(based on (this)[https://nodejs.org/de/docs/guides/debugging-getting-started/#enabling-remote-debugging-scenarios])
 - ~~Add docs(auto-generated from cobra)~~
 - ~~Add goreleaser manifest and actions~~
 - Add cluster selection flag
