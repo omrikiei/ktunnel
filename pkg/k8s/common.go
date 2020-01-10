@@ -5,7 +5,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	v1 "k8s.io/client-go/kubernetes/typed/apps/v1"
 	v12 "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -71,7 +70,7 @@ func getAllPods(namespace, deployment *string) (*apiv1.PodList, error) {
 
 func waitForReady(name *string, ti *time.Time, numPods int32, readyChan chan<-bool) {
 	go func() {
-
+		/*
 		watcher, err := podsClient.Watch(metav1.ListOptions{
 			TypeMeta:            metav1.TypeMeta{
 				Kind: "pod",
@@ -81,11 +80,12 @@ func waitForReady(name *string, ti *time.Time, numPods int32, readyChan chan<-bo
 		if err != nil {
 			return
 		}
+
 		for e := range watcher.ResultChan(){
 			if e.Type == watch.Deleted {
 				break
 			}
-		}
+		}*/
 		for {
 			count := int32(0)
 			pods, err := podsClient.List(metav1.ListOptions{})
@@ -184,7 +184,6 @@ func newService(namespace, name string, ports []apiv1.ServicePort) *apiv1.Servic
 				"app.kubernetes.io/name": name,
 				"app.kubernetes.io/instance": name,
 			},
-			ClusterIP: "None",
 		},
 	}
 }

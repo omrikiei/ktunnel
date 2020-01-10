@@ -47,10 +47,11 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 	if err != nil {
 		return err
 	}
-	_, err = svcClient.Create(service)
+	newSvc, err := svcClient.Create(service)
 	if err != nil {
 		return err
 	}
+	log.Infof("Exposed service's cluster ip is: %s", newSvc.Spec.ClusterIP)
 	waitForReady(name, &creationTime, *deployment.Spec.Replicas, readyChan)
 	return nil
 }
