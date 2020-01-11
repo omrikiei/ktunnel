@@ -51,6 +51,11 @@ If you found this tool to be helpful on other scenarios, or have any suggesstion
 These instructions will get you a copy of the project up and running on your local machine for development and testing purposes. See [deployment](#deployment) for notes on how to deploy the project on a live system.
 
 ### Installation
+#### Homebrew ####
+```
+brew tap omrikiei/ktunnel
+brew install ktunnel
+```
 #### From the releases page
 Download [here](https://github.com/omrikiei/ktunnel/releases/) and extract it to a local bin path
 #### Building from source
