@@ -84,6 +84,9 @@ ktunnel expose redis 6379
 }
 
 func init() {
-
+	exposeCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
+	exposeCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
+	exposeCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
+	exposeCmd.Flags().StringVarP(&Namespace, "namespace","n",  "default", "Namespace")
 	rootCmd.AddCommand(exposeCmd)
 }

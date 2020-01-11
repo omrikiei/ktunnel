@@ -1,0 +1,12 @@
+title ktunnel request sequence
+
+ktunnel client(localhost)->+ktunnel server(k8s): Init Tunnel
+ktunnel server(k8s)-->-ktunnel client(localhost): tunnel stream
+
+loop Tunnel
+    application pod->+ktunnel server(k8s): request
+    ktunnel server(k8s)->+ktunnel client(localhost): request
+    note left of ktunnel client(localhost): make request to localhost
+    ktunnel client(localhost)->-ktunnel server(k8s):response
+    ktunnel server(k8s)->-application pod: response
+end

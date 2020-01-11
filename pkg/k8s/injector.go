@@ -144,7 +144,7 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 	for i,podName := range podNames {
 		readyChan := make(chan struct{}, 1)
 		ports := []string{fmt.Sprintf("%s:%s", sourcePorts[i], targetPort)}
-		path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", "default", podName)
+		path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", *namespace, podName)
 		hostIP := strings.TrimLeft(kubeconfig.Host, "https://")
 		serverURL := url.URL{
 			Scheme: "https",
