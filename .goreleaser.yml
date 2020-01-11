@@ -32,7 +32,7 @@ changelog:
     - '^docs:'
     - '^test:'
 release:
-  draft: true
+  draft: false
   name_template: "{{.ProjectName}}-v{{.Version}} {{.Env.USER}}"
   prerelease: auto
 nfpms:
