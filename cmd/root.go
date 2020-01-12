@@ -2,15 +2,16 @@ package cmd
 
 import (
 	"fmt"
+	"ktunnel/pkg/k8s"
+	"os"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
-	"ktunnel/pkg/k8s"
-	"os"
 )
 
 const (
-	version = "1.1.3"
+	version = "1.1.4"
 )
 
 var Port int
@@ -18,11 +19,11 @@ var Tls bool
 var Verbose bool
 
 var rootCmd = &cobra.Command{
-	Use:   "ktunnel",
-	Short: "Ktunnel is a network tunneling tool for kubernetes",
-	Long: `Built to ease development on kubernetes clusters and allow connectivity between dev machines and clusters`,
+	Use:     "ktunnel",
+	Short:   "Ktunnel is a network tunneling tool for kubernetes",
+	Long:    `Built to ease development on kubernetes clusters and allow connectivity between dev machines and clusters`,
 	Version: version,
-	Args: cobra.MinimumNArgs(1),
+	Args:    cobra.MinimumNArgs(1),
 }
 
 func Execute() {
@@ -48,4 +49,3 @@ func init() {
 		k8s.Verbose = true
 	}
 }
-
