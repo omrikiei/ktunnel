@@ -141,11 +141,16 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 	for i := 0; i < len(sourcePorts); i++ {
 		sourcePorts[i] = strconv.FormatInt(numPort+int64(i), 10)
 	}
+
+	hostIP, err := url.QueryUnescape(strings.TrimPrefix(kubeconfig.Host, "https://"))
+	if err != nil {
+		log.Errorf("Failed unescaping k8s cluster host: %v", err)
+		return nil, err
+	}
 	for i,podName := range podNames {
 		readyChan := make(chan struct{}, 1)
 		ports := []string{fmt.Sprintf("%s:%s", sourcePorts[i], targetPort)}
 		path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", *namespace, podName)
-		hostIP := strings.TrimLeft(kubeconfig.Host, "https://")
 		serverURL := url.URL{
 			Scheme: "https",
 			Path: path,

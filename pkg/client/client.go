@@ -194,7 +194,8 @@ func RunClient(host *string, port *int, scheme string, tls *bool, caFile, server
 					//closeStream := make(chan bool, 1)
 					go ReceiveData(&stream, closeStream, sessions, tunnelData.Target, scheme)
 					go SendData(sessions, &stream)
-					<- closeStream
+					<-closeStream
+					log.Infof("Closing channel for %s", rawTunnelData)
 					_ = stream.CloseSend()
 				}
 			}
