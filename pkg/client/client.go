@@ -163,7 +163,7 @@ func RunClient(host *string, port *int, scheme string, tls *bool, caFile, server
 		_ = conn.Close()
 	}()
 	client := pb.NewTunnelClient(conn)
-	for _, rawTunnelData := range tunnels {
+	for i, rawTunnelData := range tunnels {
 		tunnelData, err := common.ParsePorts(rawTunnelData)
 		if err != nil {
 			log.Error(err)
@@ -200,7 +200,7 @@ func RunClient(host *string, port *int, scheme string, tls *bool, caFile, server
 			}
 			wg.Done()
 		}(c)
-		closeStreams = append(closeStreams, c)
+		closeStreams[i] = c
 	}
 	wg.Wait()
 	return nil

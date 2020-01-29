@@ -7,7 +7,7 @@ RUN apk update && \
     CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o="ktunnel" && \
     upx ktunnel
 
-FROM alpine:latest
+FROM scratch
 WORKDIR /ktunnel
 COPY --from=builder /build/ktunnel ./
 EXPOSE 28688
