@@ -18,7 +18,7 @@ type Session struct {
 	Conn *net.Conn
 	Buf *bytes.Buffer
 	Open bool
-	Lock *sync.Mutex
+	Lock sync.Mutex
 }
 
 type RedirectRequest struct {
@@ -32,7 +32,6 @@ func NewSession(conn *net.Conn) *Session {
 		Conn:    conn,
 		Buf:   &bytes.Buffer{},
 		Open: true,
-		Lock: &sync.Mutex{},
 	}
 	ok, err := AddSession(r)
 	if ok != true {
@@ -47,7 +46,6 @@ func NewSessionFromStream(id *uuid.UUID, conn *net.Conn) *Session {
 		Conn:    conn,
 		Buf:   &bytes.Buffer{},
 		Open: true,
-		Lock: &sync.Mutex{},
 	}
 	ok, err := AddSession(r)
 	if ok != true {
