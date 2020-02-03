@@ -4,6 +4,7 @@ import (
 	"ktunnel/pkg/client"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	log "github.com/sirupsen/logrus"
@@ -14,7 +15,6 @@ var Host string
 var CaFile string
 var Scheme string
 var ServerHostOverride string
-var CloseChan = make(chan bool, 1)
 
 var clientCmd = &cobra.Command{
 	Use:   "client [flags] [ports]",
@@ -26,6 +26,8 @@ var clientCmd = &cobra.Command{
 ktunnel client --host ktunnel-server.yourcompany.com -s tcp 8000 8001:8432
 	`,
 	Run: func(cmd *cobra.Command, args []string) {
+		o := sync.Once{}
+		closeChan := make(chan bool, 1)
 		// Run tunnel client and establish connection
 
 		sigs := make(chan os.Signal, 1)
@@ -35,10 +37,10 @@ ktunnel client --host ktunnel-server.yourcompany.com -s tcp 8000 8001:8432
 			o.Do(func() {
 				_ = <-sigs
 				log.Info("Got exit signal, closing client tunnels")
-				CloseChan <- true
+				close(closeChan)
 			})
 		}()
-		err := client.RunClient(&Host, &Port, Scheme, &Tls, &CaFile, &ServerHostOverride, args, CloseChan)
+		err := client.RunClient(&Host, &Port, Scheme, &Tls, &CaFile, &ServerHostOverride, args, closeChan)
 		if err != nil {
 			log.Fatalf("Failed to run client: %v", err)
 		}

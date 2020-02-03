@@ -13,7 +13,6 @@ import (
 )
 
 var Namespace string
-var o sync.Once
 
 var injectCmd = &cobra.Command{
 	Use:   "inject",
@@ -27,13 +26,15 @@ var injectDeploymentCmd = &cobra.Command{
 	Short: "Inject server sidecar to a deployment and run the ktunnel client to establish a connection",
 	Args: cobra.MinimumNArgs(2),
 	Example: `
-# Inject a back tunnel from a running deployment to local mysql and redis
+# Inject a back tunnel from a running deployment to local mysql and redis 
 ktunnel inject deploymeny mydeployment 3306 6379
 `,
 	Run: func(cmd *cobra.Command, args []string) {
+		o := sync.Once{}
 		// Inject
 		deployment := args[0]
 		readyChan := make(chan bool, 1)
+		closeChan := make(chan bool, 1)
 		_, err := k8s.InjectSidecar(&Namespace, &deployment, &Port, readyChan)
 		if err != nil {
 			log.Fatalf("failed injecting sidecar: %v", err)
@@ -44,30 +45,31 @@ ktunnel inject deploymeny mydeployment 3306 6379
 		done := make(chan bool, 1)
 		wg := &sync.WaitGroup{}
 		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
+		stopChan := make(chan struct{}, 1)
 
 		go func() {
 			o.Do(func(){
-				_ = <-sigs
+				<-sigs
 				log.Info("Stopping streams")
-				CloseChan<-true
+				close(closeChan)
+				close(stopChan)
 				wg.Wait()
 				readyChan = make(chan bool, 1)
 				ok, err := k8s.RemoveSidecar(&Namespace, &deployment, readyChan)
 				if !ok {
 					log.Errorf("Failed removing tunnel sidecar", err)
 				}
-				_ = <-readyChan
+				<-readyChan
 				log.Info("Finished, exiting")
-				done<-true
+				close(done)
 			})
 		}()
 
 		log.Info("Waiting for deployment to be ready")
-		<- readyChan
+		<-readyChan
 
 		// Port-Forward
 		strPort := strconv.FormatInt(int64(Port), 10)
-		stopChan := make(chan struct{}, 1)
 		// Create a tunnel client for each replica
 		sourcePorts, err := k8s.PortForward(&Namespace, &deployment, strPort, wg, stopChan)
 		if err != nil {
@@ -83,13 +85,13 @@ ktunnel inject deploymeny mydeployment 3306 6379
 					log.Fatalf("Failed to run client: %v", err)
 				}
 				prt := int(p)
-				err = client.RunClient(&Host, &prt, Scheme ,&Tls, &CaFile, &ServerHostOverride, args[1:], CloseChan)
+				err = client.RunClient(&Host, &prt, Scheme ,&Tls, &CaFile, &ServerHostOverride, args[1:], closeChan)
 				if err != nil {
 					log.Fatalf("Failed to run client: %v", err)
 				}
 			}()
 		}
-		_ = <-done
+		<-done
 	},
 }
 

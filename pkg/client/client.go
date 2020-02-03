@@ -24,59 +24,64 @@ type Message struct {
 	d *[]byte
 }
 
-func ReceiveData(st *pb.Tunnel_InitTunnelClient, closeStream chan<-bool, sessionsOut chan<- *common.Session, port int32, scheme string) {
+func ReceiveData(st *pb.Tunnel_InitTunnelClient, closeStream <-chan bool, sessionsOut chan<- *common.Session, port int32, scheme string) {
 	stream := *st
 	for {
-		m, err := stream.Recv()
-		if err != nil {
-			log.Warn("error reading from stream: %v", err)
-			closeStream <- true
+		select {
+		case <-closeStream:
+			log.Infof("stopping to receive data on port %s", port)
 			return
-		}
-		log.Debugf("%s; got session from server: %s", m.RequestId, m.GetData())
-		requestId, err := uuid.Parse(m.RequestId)
-		if err != nil {
-			log.Errorf("%s; failed parsing session uuid from stream, skipping", m.RequestId)
-		}
-		session, exists := common.GetSession(&requestId)
-		if exists == false {
-			if m.ShouldClose != true {
-				log.Infof("%s; new session; connecting to port %d", m.RequestId, port)
-				// new session
-				conn ,err := net.Dial(strings.ToLower(scheme), fmt.Sprintf("localhost:%d", port))
-				if err != nil {
-					log.Errorf("failed connecting to localhost on port %d scheme %s", port, scheme)
-					continue
-				}
-				session = common.NewSessionFromStream(&requestId, &conn)
-				go ReadFromSession(session, sessionsOut)
-			} else {
-				session = common.NewSessionFromStream(&requestId, nil)
-				session.Open = false
-			}
-		}
-
-		if session.Open == false {
-			if session.Conn != nil {
-				c := *session.Conn
-				_ = c.Close()
-				ok, err := common.CloseSession(session.Id)
-				if ok != true {
-					log.Printf("%s; failed closing session: %v", session.Id.String(), err)
-				}
-			}
-		} else {
-			c := *session.Conn
-			session.Lock.Lock()
-			_, err := c.Write(m.GetData())
+		default:
+			m, err := stream.Recv()
 			if err != nil {
-				log.Printf("%s; failed writing to socket, closing session", session.Id.String())
-				ok, err := common.CloseSession(requestId)
-				if ok != true {
-					log.Printf("%s; failed closing session: %v", session.Id.String(), err)
+				log.Warn("error reading from stream: %v", err)
+				return
+			}
+			log.Debugf("%s; got session from server: %s", m.RequestId, m.GetData())
+			requestId, err := uuid.Parse(m.RequestId)
+			if err != nil {
+				log.Errorf("%s; failed parsing session uuid from stream, skipping", m.RequestId)
+			}
+			session, exists := common.GetSession(&requestId)
+			if exists == false {
+				if m.ShouldClose != true {
+					log.Infof("%s; new session; connecting to port %d", m.RequestId, port)
+					// new session
+					conn ,err := net.Dial(strings.ToLower(scheme), fmt.Sprintf("localhost:%d", port))
+					if err != nil {
+						log.Errorf("failed connecting to localhost on port %d scheme %s", port, scheme)
+						continue
+					}
+					session = common.NewSessionFromStream(&requestId, &conn)
+					go ReadFromSession(session, sessionsOut)
+				} else {
+					session = common.NewSessionFromStream(&requestId, nil)
+					session.Open = false
 				}
 			}
-			session.Lock.Unlock()
+
+			if session.Open == false {
+				if session.Conn != nil {
+					c := *session.Conn
+					_ = c.Close()
+					ok, err := common.CloseSession(session.Id)
+					if ok != true {
+						log.Printf("%s; failed closing session: %v", session.Id.String(), err)
+					}
+				}
+			} else {
+				c := *session.Conn
+				session.Lock.Lock()
+				_, err := c.Write(m.GetData())
+				if err != nil {
+					log.Printf("%s; failed writing to socket, closing session", session.Id.String())
+					ok, err := common.CloseSession(requestId)
+					if ok != true {
+						log.Printf("%s; failed closing session: %v", session.Id.String(), err)
+					}
+				}
+				session.Lock.Unlock()
+			}
 		}
 	}
 }
@@ -107,32 +112,36 @@ func ReadFromSession(session *common.Session, sessionsOut chan<- *common.Session
 	log.Debugf("finished reading from session %s", session.Id)
 }
 
-func SendData(sessions <-chan *common.Session, stream *pb.Tunnel_InitTunnelClient) {
+func SendData(stream *pb.Tunnel_InitTunnelClient, sessions <-chan *common.Session, closeChan <-chan bool) {
 	for {
-		session := <-sessions
-		session.Lock.Lock()
-		if session.Buf.Len() > 0 {
-			st := *stream
-			resp := &pb.SocketDataRequest{
-				RequestId:   session.Id.String(),
-				Data:        session.Buf.Bytes(),
-				ShouldClose: false,
-			}
-			if session.Open == false {
-				resp.ShouldClose = true
-				ok, err := common.CloseSession(session.Id)
-				if ok != true {
-					log.Println(err)
+		select {
+		case <-closeChan:
+			return
+		case session := <-sessions:
+			session.Lock.Lock()
+			if session.Buf.Len() > 0 {
+				st := *stream
+				resp := &pb.SocketDataRequest{
+					RequestId:   session.Id.String(),
+					Data:        session.Buf.Bytes(),
+					ShouldClose: false,
+				}
+				if session.Open == false {
+					resp.ShouldClose = true
+					ok, err := common.CloseSession(session.Id)
+					if ok != true {
+						log.Println(err)
+					}
+				}
+				err := st.Send(resp)
+				if err != nil {
+					log.Errorf("failed sending message to tunnel stream, exiting", err)
+					return
 				}
 			}
-			err := st.Send(resp)
-			if err != nil {
-				log.Errorf("failed sending message to tunnel stream, exiting", err)
-				return
-			}
+			session.Buf.Reset()
+			session.Lock.Unlock()
 		}
-		session.Buf.Reset()
-		session.Lock.Unlock()
 	}
 }
 
@@ -142,7 +151,7 @@ func RunClient(host *string, port *int, scheme string, tls *bool, caFile, server
 	go func() {
 		<-stopChan
 		for _, c := range closeStreams {
-			c <- true
+			close(c)
 		}
 	}()
 	var opts []grpc.DialOption
@@ -193,7 +202,7 @@ func RunClient(host *string, port *int, scheme string, tls *bool, caFile, server
 					sessions := make(chan *common.Session)
 					//closeStream := make(chan bool, 1)
 					go ReceiveData(&stream, closeStream, sessions, tunnelData.Target, scheme)
-					go SendData(sessions, &stream)
+					go SendData(&stream, sessions, closeStream)
 					<- closeStream
 					_ = stream.CloseSend()
 				}

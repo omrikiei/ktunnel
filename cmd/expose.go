@@ -26,6 +26,7 @@ ktunnel expose kewlapp 80:8000
 ktunnel expose redis 6379
               `,
 	Run: func(cmd *cobra.Command, args []string) {
+		o := sync.Once{}
 		// Create service and deployment
 		svcName, ports := args[0], args[1:]
 		readyChan := make(chan bool, 1)
@@ -36,6 +37,7 @@ ktunnel expose redis 6379
 		sigs := make(chan os.Signal, 1)
 		wg := &sync.WaitGroup{}
 		done := make(chan bool, 1)
+		closeChan := make(chan bool, 1)
 		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
 
 		// Teardown
@@ -43,7 +45,7 @@ ktunnel expose redis 6379
 			o.Do(func() {
 				_ = <-sigs
 				log.Info("Got exit signal, closing client tunnels and removing k8s objects")
-				CloseChan <- true
+				close(closeChan)
 				err := k8s.TeardownExposedService(&Namespace, &svcName)
 				if err != nil {
 					log.Errorf("Failed deleting k8s objects: %s", err)
@@ -73,7 +75,7 @@ ktunnel expose redis 6379
 					log.Fatalf("Failed to run client: %v", err)
 				}
 				prt := int(p)
-				err = client.RunClient(&Host, &prt, Scheme ,&Tls, &CaFile, &ServerHostOverride, args[1:], CloseChan)
+				err = client.RunClient(&Host, &prt, Scheme ,&Tls, &CaFile, &ServerHostOverride, args[1:], closeChan)
 				if err != nil {
 					log.Fatalf("Failed to run client: %v", err)
 				}
