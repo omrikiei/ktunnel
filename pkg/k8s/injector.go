@@ -8,6 +8,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
 	"net/http"
@@ -117,6 +118,22 @@ func getPodNames(namespace, deploymentName *string, podsPtr *[]string) error {
 
 }
 
+func getPortForwardUrl(config *rest.Config, namespace string, podName string) *url.URL {
+	host := strings.TrimLeft(config.Host, "https://")
+	trailingHostPath := strings.Split(host, "/")
+	hostIp := trailingHostPath[0]
+	trailingPath := ""
+	if len(trailingHostPath) > 1 {
+		trailingPath = fmt.Sprintf("/%s", strings.Join(trailingHostPath[1:], "/"))
+	}
+	path := fmt.Sprintf("%s/api/v1/namespaces/%s/pods/%s/portforward", trailingPath, namespace, podName)
+	return &url.URL{
+		Scheme: "https",
+		Path: path,
+		Host: hostIp,
+	}
+}
+
 func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGroup *sync.WaitGroup, stopChan <-chan struct{}) (*[]string, error) {
 	getClients(namespace)
 
@@ -141,22 +158,16 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 	for i := 0; i < len(sourcePorts); i++ {
 		sourcePorts[i] = strconv.FormatInt(numPort+int64(i), 10)
 	}
-	for i,podName := range podNames {
+	for i, podName := range podNames {
 		readyChan := make(chan struct{}, 1)
 		ports := []string{fmt.Sprintf("%s:%s", sourcePorts[i], targetPort)}
-		path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", *namespace, podName)
-		hostIP := strings.TrimLeft(kubeconfig.Host, "https://")
-		serverURL := url.URL{
-			Scheme: "https",
-			Path: path,
-			Host: hostIP,
-		}
+		serverURL := getPortForwardUrl(kubeconfig, *namespace, podName)
 
 		transport, upgrader, err := spdy.RoundTripperFor(kubeconfig)
 		if err != nil {
 			return nil, err
 		}
-		dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, &serverURL)
+		dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, serverURL)
 
 		forwarder, err := portforward.New(dialer, ports, stopChan, readyChan, out, errOut)
 		if err != nil {
