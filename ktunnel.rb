@@ -2,20 +2,21 @@
 class Ktunnel < Formula
   desc "Network tunneling tool for kubernetes."
   homepage "https://github.com/omrikiei/ktunnel"
-  version "1.1.7"
+  version "1.1.8"
   bottle :unneeded
 
   if OS.mac?
-    url "https://github.com/omrikiei/ktunnel/releases/download/v1.1.7/ktunnel_1.1.7_Darwin_x86_64.tar.gz"
-    sha256 "3ca9188df2fc1b721df7a22b4a08a16f3dbc28a94b7d53f72066a1c543964c78"
+    url "https://github.com/omrikiei/ktunnel/releases/download/v1.1.8/ktunnel_1.1.8_Darwin_x86_64.tar.gz"
+    sha256 "dceadbf708b76ffc49edcf4cdae7cba0534df724a298cf4d4f8e231d5fbc29f6"
   elsif OS.linux?
     if Hardware::CPU.intel?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.1.7/ktunnel_1.1.7_Linux_x86_64.tar.gz"
-      sha256 "0f13267161d2638e3cd9432e204c44cc748c030cc3667ebe8efd9238ef32422b"
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.1.8/ktunnel_1.1.8_Linux_x86_64.tar.gz"
+      sha256 "ff4380b114d68ed673c1ea74fa2641a6ca72d0bdd8f0462cbce47d9e70b1a490"
     end
   end
   
   head "https://github.com/omrikiei/ktunnel.git"
+  ...
 
   def install
     bin.install "ktunnel"
@@ -23,5 +24,6 @@ class Ktunnel < Formula
 
   test do
     system "#{bin}/program version"
+    ...
   end
 end
