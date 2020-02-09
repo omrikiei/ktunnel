@@ -16,7 +16,6 @@ class Ktunnel < Formula
   end
   
   head "https://github.com/omrikiei/ktunnel.git"
-  ...
 
   def install
     bin.install "ktunnel"
@@ -24,6 +23,5 @@ class Ktunnel < Formula
 
   test do
     system "#{bin}/program version"
-    ...
   end
 end

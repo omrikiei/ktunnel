@@ -48,6 +48,7 @@ nfpms:
       386: 32-bit
       darwin: macOS
       linux: Tux
+      windows: Windows
     homepage: https://github.com/omrikiei/ktunnel
     maintainer: omrikiei <omrieival@gmail.com>
     description: Ktunnel is a network tunneling tool for kubernetes
@@ -85,9 +86,5 @@ brews:
     # Default is empty.
     custom_block: |
       head "https://github.com/omrikiei/ktunnel.git"
-      ...
-
     test: |
       system "#{bin}/program version"
-      ...
-
