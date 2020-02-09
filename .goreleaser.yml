@@ -56,6 +56,7 @@ nfpms:
     formats:
       - deb
       - rpm
+      - exe
 
     bindir: /usr/bin
     epoch: 1
