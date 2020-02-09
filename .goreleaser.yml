@@ -14,6 +14,15 @@ builds:
   - "-s -w"
   hooks:
     post: ./compress_binaries.sh
+  goos:
+    - darwin
+    - linux
+    - windows
+  goarch:
+    - amd64
+    - amd
+    - 386
+    - arm64
 archives:
 - replacements:
     darwin: Darwin
@@ -55,15 +64,6 @@ nfpms:
     formats:
       - deb
       - rpm
-    goos:
-      - darwin
-      - linux
-      - windows
-    goarch:
-      - amd64
-      - amd
-      - 386
-      - arm64
 
     bindir: /usr/bin
     epoch: 1
