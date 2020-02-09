@@ -48,7 +48,6 @@ nfpms:
       386: 32-bit
       darwin: macOS
       linux: Tux
-      windows: Windows
     homepage: https://github.com/omrikiei/ktunnel
     maintainer: omrikiei <omrieival@gmail.com>
     description: Ktunnel is a network tunneling tool for kubernetes
@@ -56,7 +55,15 @@ nfpms:
     formats:
       - deb
       - rpm
-      - exe
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - amd
+      - 386
+      - arm64
 
     bindir: /usr/bin
     epoch: 1
