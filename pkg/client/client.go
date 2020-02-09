@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	bufferSize = 1024*32
+	bufferSize = 1024 * 32
 )
 
 type Message struct {
@@ -47,7 +47,7 @@ func ReceiveData(st *pb.Tunnel_InitTunnelClient, closeStream <-chan bool, sessio
 				if m.ShouldClose != true {
 					log.Infof("%s; new session; connecting to port %d", m.RequestId, port)
 					// new session
-					conn ,err := net.Dial(strings.ToLower(scheme), fmt.Sprintf("localhost:%d", port))
+					conn, err := net.Dial(strings.ToLower(scheme), fmt.Sprintf("localhost:%d", port))
 					if err != nil {
 						log.Errorf("failed connecting to localhost on port %d scheme %s", port, scheme)
 						continue
@@ -187,9 +187,9 @@ func RunClient(host *string, port *int, scheme string, tls *bool, caFile, server
 				log.Fatalf("unsupported connection scheme %s", scheme)
 			}
 			req := &pb.SocketDataRequest{
-				Port:                 tunnelData.Source,
-				LogLevel:             0,
-				Scheme:               pb.TunnelScheme(tunnelScheme),
+				Port:     tunnelData.Source,
+				LogLevel: 0,
+				Scheme:   pb.TunnelScheme(tunnelScheme),
 			}
 			stream, err := client.InitTunnel(ctx)
 			if err != nil {
@@ -203,7 +203,7 @@ func RunClient(host *string, port *int, scheme string, tls *bool, caFile, server
 					//closeStream := make(chan bool, 1)
 					go ReceiveData(&stream, closeStream, sessions, tunnelData.Target, scheme)
 					go SendData(&stream, sessions, closeStream)
-					<- closeStream
+					<-closeStream
 					_ = stream.CloseSend()
 				}
 			}

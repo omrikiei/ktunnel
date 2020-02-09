@@ -10,13 +10,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
 )
 
 type Session struct {
-	Id uuid.UUID
+	Id   uuid.UUID
 	Conn *net.Conn
-	Buf *bytes.Buffer
+	Buf  *bytes.Buffer
 	Open bool
 	Lock sync.Mutex
 }
@@ -29,8 +28,8 @@ type RedirectRequest struct {
 func NewSession(conn *net.Conn) *Session {
 	r := &Session{
 		Id:   uuid.New(),
-		Conn:    conn,
-		Buf:   &bytes.Buffer{},
+		Conn: conn,
+		Buf:  &bytes.Buffer{},
 		Open: true,
 	}
 	ok, err := AddSession(r)
@@ -43,8 +42,8 @@ func NewSession(conn *net.Conn) *Session {
 func NewSessionFromStream(id *uuid.UUID, conn *net.Conn) *Session {
 	r := &Session{
 		Id:   *id,
-		Conn:    conn,
-		Buf:   &bytes.Buffer{},
+		Conn: conn,
+		Buf:  &bytes.Buffer{},
 		Open: true,
 	}
 	ok, err := AddSession(r)
@@ -62,7 +61,7 @@ func AddSession(r *Session) (bool, error) {
 	return true, nil
 }
 
-func GetSession(id *uuid.UUID) (*Session, bool){
+func GetSession(id *uuid.UUID) (*Session, bool) {
 	request, ok := openSessions[id.String()]
 	return request, ok
 }

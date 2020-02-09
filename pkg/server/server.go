@@ -15,10 +15,10 @@ import (
 )
 
 const (
-	bufferSize = 1024*32
+	bufferSize = 1024 * 32
 )
 
-type tunnelServer struct {}
+type tunnelServer struct{}
 
 func NewServer() *tunnelServer {
 	return &tunnelServer{}
@@ -101,8 +101,8 @@ func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 		err := stream.Send(&pb.SocketDataResponse{
 			HasErr: true,
 			LogMessage: &pb.LogMessage{
-				LogLevel:             pb.LogLevel_ERROR,
-				Message:              "missing port",
+				LogLevel: pb.LogLevel_ERROR,
+				Message:  "missing port",
 			},
 		})
 		if err != nil {
@@ -119,8 +119,8 @@ func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 		_ = stream.Send(&pb.SocketDataResponse{
 			HasErr: true,
 			LogMessage: &pb.LogMessage{
-				LogLevel:             pb.LogLevel_ERROR,
-				Message:              fmt.Sprintf("failed opening listener type %s on port %d: %v", request.GetScheme(), request.GetPort(), err),
+				LogLevel: pb.LogLevel_ERROR,
+				Message:  fmt.Sprintf("failed opening listener type %s on port %d: %v", request.GetScheme(), request.GetPort(), err),
 			},
 		})
 		return err
@@ -128,7 +128,7 @@ func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 
 	sessions := make(chan *common.Session)
 	closeChan := make(chan bool, 1)
-	go func(close <-chan bool){
+	go func(close <-chan bool) {
 		<-close
 		log.Infof("Closing connection on port %d", port)
 		_ = ln.Close()

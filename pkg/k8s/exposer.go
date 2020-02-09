@@ -32,7 +32,7 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 		}
 		ports[i] = v12.ServicePort{
 			Protocol: protocol,
-			Port: parsed.Source,
+			Port:     parsed.Source,
 			TargetPort: intstr.IntOrString{
 				Type:   intstr.Int,
 				IntVal: parsed.Target,
@@ -42,7 +42,7 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 	}
 
 	service := newService(*namespace, *name, ports)
-	creationTime := time.Now().Add(-1*time.Second)
+	creationTime := time.Now().Add(-1 * time.Second)
 	_, err := deploymentsClient.Create(deployment)
 	if err != nil {
 		return err

@@ -49,7 +49,7 @@ func getKubeConfig() *rest.Config {
 }
 
 func getClients(namespace *string) {
-	deploymentOnce.Do(func(){
+	deploymentOnce.Do(func() {
 		clientset, err := kubernetes.NewForConfig(kubeconfig)
 		if err != nil {
 			log.Errorf("Failed to get k8s client: %v", err)
@@ -72,24 +72,24 @@ func getAllPods(namespace, deployment *string) (*apiv1.PodList, error) {
 	return pods, nil
 }
 
-func waitForReady(name *string, ti *time.Time, numPods int32, readyChan chan<-bool) {
+func waitForReady(name *string, ti *time.Time, numPods int32, readyChan chan<- bool) {
 	go func() {
 		/*
-		watcher, err := podsClient.Watch(metav1.ListOptions{
-			TypeMeta:            metav1.TypeMeta{
-				Kind: "pod",
-			},
-			Watch:               true,
-		})
-		if err != nil {
-			return
-		}
-
-		for e := range watcher.ResultChan(){
-			if e.Type == watch.Deleted {
-				break
+			watcher, err := podsClient.Watch(metav1.ListOptions{
+				TypeMeta:            metav1.TypeMeta{
+					Kind: "pod",
+				},
+				Watch:               true,
+			})
+			if err != nil {
+				return
 			}
-		}*/
+
+			for e := range watcher.ResultChan(){
+				if e.Type == watch.Deleted {
+					break
+				}
+			}*/
 		for {
 			count := int32(0)
 			pods, err := podsClient.List(metav1.ListOptions{})
@@ -106,7 +106,7 @@ func waitForReady(name *string, ti *time.Time, numPods int32, readyChan chan<-bo
 					break
 				}
 			}
-			time.Sleep(time.Millisecond*300)
+			time.Sleep(time.Millisecond * 300)
 		}
 	}()
 }
@@ -120,16 +120,16 @@ func hasSidecar(podSpec apiv1.PodSpec) bool {
 	return false
 }
 
-func newContainer(port int) *apiv1.Container{
-	args := []string{ "server", "-p", strconv.FormatInt(int64(port), 10)}
+func newContainer(port int) *apiv1.Container {
+	args := []string{"server", "-p", strconv.FormatInt(int64(port), 10)}
 	if Verbose == true {
 		args = append(args, "-v")
 	}
 	return &apiv1.Container{
-		Name: "ktunnel",
-		Image: image,
+		Name:    "ktunnel",
+		Image:   image,
 		Command: []string{"/ktunnel/ktunnel"},
-		Args: args,
+		Args:    args,
 	}
 }
 
@@ -137,31 +137,31 @@ func newDeployment(namespace, name string, port int) *appsv1.Deployment {
 	replicas := int32(1)
 	co := newContainer(port)
 	return &appsv1.Deployment{
-		TypeMeta:   metav1.TypeMeta{},
+		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+			Name:      name,
 			Namespace: namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/name": name,
+				"app.kubernetes.io/name":     name,
 				"app.kubernetes.io/instance": name,
 			},
 		},
-		Spec:       appsv1.DeploymentSpec{
+		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels:      map[string]string{
-					"app.kubernetes.io/name": name,
+				MatchLabels: map[string]string{
+					"app.kubernetes.io/name":     name,
 					"app.kubernetes.io/instance": name,
 				},
 			},
 			Template: apiv1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						"app.kubernetes.io/name": name,
+						"app.kubernetes.io/name":     name,
 						"app.kubernetes.io/instance": name,
 					},
 				},
-				Spec:       apiv1.PodSpec{
+				Spec: apiv1.PodSpec{
 					Containers: []apiv1.Container{
 						*co,
 					},
@@ -173,19 +173,17 @@ func newDeployment(namespace, name string, port int) *appsv1.Deployment {
 
 func newService(namespace, name string, ports []apiv1.ServicePort) *apiv1.Service {
 	return &apiv1.Service{
-		TypeMeta:   metav1.TypeMeta{
+		TypeMeta: metav1.TypeMeta{
 			Kind: "Service",
-
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+			Name:      name,
 			Namespace: namespace,
-
 		},
-		Spec:       apiv1.ServiceSpec{
+		Spec: apiv1.ServiceSpec{
 			Ports: ports,
 			Selector: map[string]string{
-				"app.kubernetes.io/name": name,
+				"app.kubernetes.io/name":     name,
 				"app.kubernetes.io/instance": name,
 			},
 		},

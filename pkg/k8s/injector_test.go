@@ -12,9 +12,9 @@ import (
 
 type TestCase struct {
 	Containers []v14.Container
-	Replicas int32
+	Replicas   int32
 	BoolResult bool
-	ErrResult error
+	ErrResult  error
 }
 
 func createMockClient() {
@@ -27,10 +27,10 @@ func createMockClient() {
 
 func createDeployment(c v1.DeploymentInterface, replicas int32, containers *[]v14.Container) error {
 	d := v12.Deployment{
-		Spec:       v12.DeploymentSpec{
+		Spec: v12.DeploymentSpec{
 			Replicas: &replicas,
 			Template: v14.PodTemplateSpec{
-				Spec:       v14.PodSpec{
+				Spec: v14.PodSpec{
 					Containers: *containers,
 				},
 			},
@@ -44,34 +44,46 @@ func createDeployment(c v1.DeploymentInterface, replicas int32, containers *[]v1
 }
 
 func TestGetPortForwardUrl(t *testing.T) {
-	tables := []struct{
-		Config rest.Config
+	tables := []struct {
+		Config    rest.Config
 		Namespace string
-		Pod string
-		Expected *url.URL
+		Pod       string
+		Expected  *url.URL
 	}{
 		{
-			Config:	rest.Config{
+			Config: rest.Config{
 				Host: "https://api.qa.kube.com",
 			},
 			Namespace: "default",
-			Pod: "test",
+			Pod:       "test",
 			Expected: &url.URL{
-					Scheme: "https",
-					Host: "api.qa.kube.com",
-					Path: "/api/v1/namespaces/default/pods/test/portforward",
+				Scheme: "https",
+				Host:   "api.qa.kube.com",
+				Path:   "/api/v1/namespaces/default/pods/test/portforward",
 			},
 		},
 		{
-			Config:	rest.Config{
+			Config: rest.Config{
 				Host: "https://rancher.xyz.io/k8s/clusters/c-wfdqx",
 			},
 			Namespace: "default",
-			Pod: "test",
+			Pod:       "test",
 			Expected: &url.URL{
 				Scheme: "https",
-				Host: "rancher.xyz.io",
-				Path: "/k8s/clusters/c-wfdqx/api/v1/namespaces/default/pods/test/portforward",
+				Host:   "rancher.xyz.io",
+				Path:   "/k8s/clusters/c-wfdqx/api/v1/namespaces/default/pods/test/portforward",
+			},
+		},
+		{
+			Config: rest.Config{
+				Host: "https://srv01.mydomain.de:6443",
+			},
+			Pod:       "myapp-5b65c8777b-dd54r",
+			Namespace: "default",
+			Expected: &url.URL{
+				Scheme: "https",
+				Host:   "srv01.mydomain.de:6443",
+				Path:   "/api/v1/namespaces/default/pods/myapp-5b65c8777b-dd54r/portforward",
 			},
 		},
 	}

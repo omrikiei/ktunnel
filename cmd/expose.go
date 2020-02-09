@@ -15,9 +15,9 @@ import (
 var exposeCmd = &cobra.Command{
 	Use:   "expose [flags] SERVICE_NAME [ports]",
 	Short: "Expose local machine as a service on the kubernetes cluster",
-	Long:  `This command would inject a new service and deployment to the cluster, and open the tunnel to the server 
+	Long: `This command would inject a new service and deployment to the cluster, and open the tunnel to the server 
 			forwarding tunnel ingress traffic to the the same port on localhost`,
-	Args:  cobra.MinimumNArgs(2),
+	Args: cobra.MinimumNArgs(2),
 	Example: `
 # Expose a local application running on port 8000 via http
 ktunnel expose kewlapp 80:8000
@@ -55,7 +55,7 @@ ktunnel expose redis 6379
 		}()
 
 		log.Info("waiting for deployment to be ready")
-		<- readyChan
+		<-readyChan
 
 		// Port-Forward
 		strPort := strconv.FormatInt(int64(Port), 10)
@@ -75,7 +75,7 @@ ktunnel expose redis 6379
 					log.Fatalf("Failed to run client: %v", err)
 				}
 				prt := int(p)
-				err = client.RunClient(&Host, &prt, Scheme ,&Tls, &CaFile, &ServerHostOverride, args[1:], closeChan)
+				err = client.RunClient(&Host, &prt, Scheme, &Tls, &CaFile, &ServerHostOverride, args[1:], closeChan)
 				if err != nil {
 					log.Fatalf("Failed to run client: %v", err)
 				}
@@ -89,6 +89,6 @@ func init() {
 	exposeCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
 	exposeCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	exposeCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
-	exposeCmd.Flags().StringVarP(&Namespace, "namespace","n",  "default", "Namespace")
+	exposeCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
 	rootCmd.AddCommand(exposeCmd)
 }

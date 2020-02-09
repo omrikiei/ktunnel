@@ -19,7 +19,6 @@ import (
 	"time"
 )
 
-
 func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, readyChan chan<- bool) (bool, error) {
 	if hasSidecar(o.Spec.Template.Spec) {
 		log.Warn(fmt.Sprintf("%s already injected to the deplyoment", image))
@@ -38,7 +37,7 @@ func InjectSidecar(namespace, objectName *string, port *int, readyChan chan<- bo
 	log.Infof("Injecting tunnel sidecar to %s/%s", *namespace, *objectName)
 	getClients(namespace)
 	co := newContainer(*port)
-	creationTime := time.Now().Add(-1*time.Second)
+	creationTime := time.Now().Add(-1 * time.Second)
 	obj, err := deploymentsClient.Get(*objectName, metav1.GetOptions{})
 	if err != nil {
 		return false, err
@@ -69,7 +68,7 @@ func removeFromSpec(s *apiv1.PodSpec) (bool, error) {
 
 	if cIndex != -1 {
 		containers := s.Containers
-		s.Containers =  append(containers[:cIndex], containers[cIndex+1:]...)
+		s.Containers = append(containers[:cIndex], containers[cIndex+1:]...)
 		return true, nil
 	} else {
 		return false, errors.New("container not found on spec")
@@ -83,7 +82,7 @@ func RemoveSidecar(namespace, objectName *string, readyChan chan<- bool) (bool, 
 	if err != nil {
 		return false, err
 	}
-	deletionTime := time.Now().Add(-1*time.Second)
+	deletionTime := time.Now().Add(-1 * time.Second)
 	_, err = removeFromSpec(&obj.Spec.Template.Spec)
 	if err != nil {
 		return false, err
@@ -103,7 +102,7 @@ func getPodNames(namespace, deploymentName *string, podsPtr *[]string) error {
 	}
 	pods := *podsPtr
 	pIndex := 0
-	for _,p := range allPods.Items {
+	for _, p := range allPods.Items {
 		if pIndex >= len(pods) {
 			log.Info("All pods located for port-forwarding")
 			break
@@ -119,7 +118,7 @@ func getPodNames(namespace, deploymentName *string, podsPtr *[]string) error {
 }
 
 func getPortForwardUrl(config *rest.Config, namespace string, podName string) *url.URL {
-	host := strings.TrimLeft(config.Host, "https://")
+	host := strings.TrimPrefix(config.Host, "https://")
 	trailingHostPath := strings.Split(host, "/")
 	hostIp := trailingHostPath[0]
 	trailingPath := ""
@@ -129,8 +128,8 @@ func getPortForwardUrl(config *rest.Config, namespace string, podName string) *u
 	path := fmt.Sprintf("%s/api/v1/namespaces/%s/pods/%s/portforward", trailingPath, namespace, podName)
 	return &url.URL{
 		Scheme: "https",
-		Path: path,
-		Host: hostIp,
+		Path:   path,
+		Host:   hostIp,
 	}
 }
 

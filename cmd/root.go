@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	version = "1.1.8"
+	version = "1.1.9"
 )
 
 var Port int
