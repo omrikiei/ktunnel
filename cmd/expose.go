@@ -26,6 +26,10 @@ ktunnel expose kewlapp 80:8000
 ktunnel expose redis 6379
               `,
 	Run: func(cmd *cobra.Command, args []string) {
+		if Verbose {
+			log.SetLevel(log.DebugLevel)
+			k8s.Verbose = true
+		}
 		o := sync.Once{}
 		// Create service and deployment
 		svcName, ports := args[0], args[1:]

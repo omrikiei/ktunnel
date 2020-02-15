@@ -26,6 +26,9 @@ var clientCmd = &cobra.Command{
 ktunnel client --host ktunnel-server.yourcompany.com -s tcp 8000 8001:8432
 	`,
 	Run: func(cmd *cobra.Command, args []string) {
+		if Verbose {
+			log.SetLevel(log.DebugLevel)
+		}
 		o := sync.Once{}
 		closeChan := make(chan bool, 1)
 		// Run tunnel client and establish connection
@@ -52,5 +55,6 @@ func init() {
 	clientCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
 	clientCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	clientCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
+	clientCmd.PersistentFlags().BoolVarP(&Verbose, "verbose", "v", false, "Emit debug logs")
 	rootCmd.AddCommand(clientCmd)
 }

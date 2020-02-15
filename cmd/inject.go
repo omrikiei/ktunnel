@@ -30,6 +30,10 @@ var injectDeploymentCmd = &cobra.Command{
 ktunnel inject deploymeny mydeployment 3306 6379
 `,
 	Run: func(cmd *cobra.Command, args []string) {
+		if Verbose {
+			log.SetLevel(log.DebugLevel)
+			k8s.Verbose = true
+		}
 		o := sync.Once{}
 		// Inject
 		deployment := args[0]

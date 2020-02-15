@@ -7,18 +7,17 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"io"
 	"ktunnel/pkg/common"
 	pb "ktunnel/tunnel_pb"
 	"net"
 	"strings"
 )
 
-const (
-	bufferSize = 1024 * 32
-)
-
 type tunnelServer struct{}
+
+const (
+	bufferSize = 4096
+)
 
 func NewServer() *tunnelServer {
 	return &tunnelServer{}
@@ -27,6 +26,7 @@ func NewServer() *tunnelServer {
 func SendData(stream *pb.Tunnel_InitTunnelServer, sessions <-chan *common.Session, closeChan chan<- bool) {
 	for {
 		session := <-sessions
+		log.Debugf("%s sending %d bytes to client", session.Id, session.Buf.Len())
 		session.Lock.Lock()
 		st := *stream
 		resp := &pb.SocketDataResponse{
@@ -36,6 +36,16 @@ func SendData(stream *pb.Tunnel_InitTunnelServer, sessions <-chan *common.Sessio
 			Data:        session.Buf.Bytes(),
 			ShouldClose: false,
 		}
+		session.Buf.Reset()
+		session.Lock.Unlock()
+		log.Debugf("sending %d bytes to client: %s", len(resp.Data), session.Id.String())
+		err := st.Send(resp)
+		if err != nil {
+			log.Errorf("failed sending message to tunnel stream, exiting", err)
+			closeChan <- true
+			return
+		}
+		log.Debugf("%s sent to client", session.Id)
 		if session.Open == false {
 			resp.ShouldClose = true
 			ok, err := common.CloseSession(session.Id)
@@ -43,15 +53,6 @@ func SendData(stream *pb.Tunnel_InitTunnelServer, sessions <-chan *common.Sessio
 				log.Errorf("%s failed to close session: %v", session.Id.String(), err)
 			}
 		}
-		err := st.Send(resp)
-		if err != nil {
-			log.Errorf("failed sending message to tunnel stream, exiting", err)
-			session.Lock.Unlock()
-			closeChan <- true
-			return
-		}
-		session.Buf.Reset()
-		session.Lock.Unlock()
 	}
 }
 
@@ -68,13 +69,13 @@ func ReceiveData(stream *pb.Tunnel_InitTunnelServer, closeChan chan<- bool) {
 		if err != nil {
 			log.Errorf(" %s; failed to parse requestId, %v", message.GetRequestId(), err)
 		} else {
-			session, ok := common.GetSession(&reqId)
+			session, ok := common.GetSession(reqId)
 			if ok != true {
 				log.Errorf("%s; session not found in openRequests", reqId)
 			} else {
 				data := message.GetData()
 				if len(data) > 0 {
-					conn := *session.Conn
+					conn := session.Conn
 					_, err := conn.Write(data)
 					if err != nil {
 						log.Errorf("%s; failed writing data to socket", reqId)
@@ -87,6 +88,33 @@ func ReceiveData(stream *pb.Tunnel_InitTunnelServer, closeChan chan<- bool) {
 					}
 				}
 			}
+		}
+	}
+}
+
+func readConn(session *common.Session, sessions chan<- *common.Session) {
+	log.Debugf("got new session %s", session.Id.String())
+
+	sessions <- session
+	// We want to inform the client that we accepted a connection - some weird ass protocols wait for data from the server when connecting
+	// Read from socket in a loop and push messages to the sessions channel
+	// If the socket is closed, signal the channel to close connection
+	buff := make([]byte, bufferSize)
+	for {
+		br, err := session.Conn.Read(buff)
+		log.Debugf("read %d bytes from socket, err: %v", br, err)
+		if err != nil {
+			session.Open = false
+		}
+		if br > 0 {
+			session.Lock.Lock()
+			session.Buf.Write(buff)
+			session.Lock.Unlock()
+		}
+		sessions <- session
+		if !session.Open {
+			_, _ = common.CloseSession(session.Id)
+			return
 		}
 	}
 }
@@ -144,38 +172,8 @@ func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 			return err
 		}
 		// socket -> stream
-		go func(connection net.Conn) {
-			if err != nil {
-				log.Errorf("Failed accepting connection on port %d", port)
-				return
-			}
-			session := common.NewSession(&connection)
-			log.Debugf("got new session %s", session.Id.String())
-
-			sessions <- session // We want to inform the client that we accepted a connection - some weird ass protocols wait for data from the server when connecting
-			// Read from socket in a loop and push messages to the sessions channel
-			// If the socket is closed, signal the channel to close connection
-			for {
-				buff := make([]byte, bufferSize)
-				br, err := connection.Read(buff)
-				session.Lock.Lock()
-				if err != nil && err != io.EOF {
-					log.Errorf("%s; failed to read from server socket: %v", session.Id.String(), err)
-					session.Open = false
-					sessions <- session
-					session.Lock.Unlock()
-					break
-				} else if br > 0 {
-					log.Debugf("read %s from socket", buff[:br])
-					_, err := session.Buf.Write(buff[:br])
-					if err != nil {
-						log.Errorf("%s; failed to write to session buffer: %v", session.Id.String(), err)
-					}
-					sessions <- session
-				}
-				session.Lock.Unlock()
-			}
-		}(connection)
+		session := common.NewSession(connection)
+		go readConn(session, sessions)
 	}
 }
 

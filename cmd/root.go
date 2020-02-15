@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"ktunnel/pkg/k8s"
 	"os"
 
 	log "github.com/sirupsen/logrus"
@@ -11,7 +10,7 @@ import (
 )
 
 const (
-	version = "1.1.9"
+	version = "1.2.0"
 )
 
 var Port int
@@ -33,6 +32,12 @@ func Execute() {
 			log.Errorf("Failed generating docs: %v", err)
 		}
 	}
+	log.SetFormatter(&log.TextFormatter{
+		ForceColors:     true,
+		FullTimestamp:   true,
+		TimestampFormat: "2006-01-02 15:04:05",
+	})
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -44,8 +49,4 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&Tls, "tls", "t", false, "Connection uses TLS if true, else plain TCP")
 	rootCmd.PersistentFlags().BoolVarP(&Verbose, "verbose", "v", false, "Emit debug logs")
 	_ = rootCmd.MarkFlagRequired("port")
-	if Verbose == true {
-		log.SetLevel(log.DebugLevel)
-		k8s.Verbose = true
-	}
 }

@@ -18,6 +18,9 @@ var serverCmd = &cobra.Command{
 ktunnel server -p 8181
 `,
 	Run: func(cmd *cobra.Command, args []string) {
+		if Verbose {
+			log.SetLevel(log.DebugLevel)
+		}
 		err := server.RunServer(&Port, &Tls, &KeyFile, &CertFile)
 		if err != nil {
 			log.Fatalf("Error running server: %v", err)
@@ -28,5 +31,6 @@ ktunnel server -p 8181
 func init() {
 	serverCmd.Flags().StringVar(&CertFile, "cert", "", "tls certificate file")
 	serverCmd.Flags().StringVar(&KeyFile, "key", "", "tls key file")
+	serverCmd.PersistentFlags().BoolVarP(&Verbose, "verbose", "v", false, "Emit debug logs")
 	rootCmd.AddCommand(serverCmd)
 }
