@@ -108,7 +108,7 @@ func readConn(session *common.Session, sessions chan<- *common.Session) {
 		}
 		if br > 0 {
 			session.Lock.Lock()
-			session.Buf.Write(buff)
+			session.Buf.Write(buff[:br])
 			session.Lock.Unlock()
 		}
 		sessions <- session
