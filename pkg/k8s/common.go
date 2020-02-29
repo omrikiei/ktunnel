@@ -35,7 +35,7 @@ var kubeconfig = getKubeConfig()
 var Verbose = false
 
 func getKubeConfig() *rest.Config {
-	kconfig := os.Getenv("KUBE_CONFIG")
+	kconfig := os.Getenv("KUBECONFIG")
 	if home := homedir.HomeDir(); kconfig == "" && home != "" {
 		kconfig = filepath.Join(home, ".kube", "config")
 	}
