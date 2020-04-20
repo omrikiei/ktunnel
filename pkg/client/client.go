@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	bufferSize = 4096
+	bufferSize = 1024*32
 )
 
 type Message struct {
@@ -32,11 +32,11 @@ loop:
 		select {
 		case <-closeStream:
 			log.Infof("stopping to receive data on port %s", port)
+			_ = stream.CloseSend()
 			break loop
 		default:
 			log.Debugf("attempting to receive from stream")
 			m, err := stream.Recv()
-			log.Debugf("got new message from stream; %s", m.RequestId)
 			if err != nil {
 				log.Warn("error reading from stream: %v", err)
 				break loop
@@ -57,17 +57,18 @@ loop:
 						return
 					}
 					session = common.NewSessionFromStream(requestId, conn)
+					go ReadFromSession(session, sessionsOut)
 				} else {
 					session = common.NewSessionFromStream(requestId, nil)
 					session.Open = false
 				}
 			}
-			go handleStreamData(m, session, sessionsOut, port, scheme)
+			handleStreamData(m, session)
 		}
 	}
 }
 
-func handleStreamData(m *pb.SocketDataResponse, session *common.Session, sessionsOut chan<- *common.Session, port int32, scheme string) {
+func handleStreamData(m *pb.SocketDataResponse, session *common.Session) {
 	if session.Open == false {
 		if session.Conn != nil {
 			ok, err := common.CloseSession(session.Id)
@@ -79,15 +80,16 @@ func handleStreamData(m *pb.SocketDataResponse, session *common.Session, session
 		c := session.Conn
 		data := m.GetData()
 		log.Debugf("%s got %d bytes", session.Id, len(data))
-		session.Lock.Lock()
-		_, err := c.Write(data)
-		session.Lock.Unlock()
-		go ReadFromSession(session, sessionsOut)
-		if err != nil {
-			log.Printf("%s; failed writing to socket, closing session: %v", session.Id.String(), err)
-			ok, err := common.CloseSession(session.Id)
-			if ok != true {
-				log.Printf("%s; failed closing session: %v", session.Id.String(), err)
+		if len(data) > 0 {
+			session.Lock.Lock()
+			_, err := c.Write(data)
+			session.Lock.Unlock()
+			if err != nil {
+				log.Printf("%s; failed writing to socket, closing session: %v", session.Id.String(), err)
+				ok, err := common.CloseSession(session.Id)
+				if ok != true {
+					log.Printf("%s; failed closing session: %v", session.Id.String(), err)
+				}
 			}
 		}
 	}
@@ -103,16 +105,23 @@ func ReadFromSession(session *common.Session, sessionsOut chan<- *common.Session
 		if err != nil {
 			if err != io.EOF {
 				log.Errorf("%s; failed reading from socket, exiting: %v", session.Id.String(), err)
-				session.Open = false
-				sessionsOut <- session
 			}
+			session.Open = false
+			sessionsOut <- session
 			break
 		}
 		log.Debugf("read %d bytes from conn on session %s; err: %v", br, session.Id, err)
 		log.Debugf("locking: %s", session.Id)
-		session.Lock.Lock()
-		_, err = session.Buf.Write(buff[:br])
-		session.Lock.Unlock()
+		if br > 0 {
+			session.Lock.Lock()
+			_, err = session.Buf.Write(buff[:br])
+			session.Lock.Unlock()
+			if br == len(buff) {
+				newSize := len(buff)*2
+				log.Infof("increasing buffer size to %d", newSize)
+				buff = make([]byte, newSize)
+			}
+		}
 		log.Debugf("unlocked: %s", session.Id)
 		if err != nil {
 			log.Errorf("%s; failed writing to session buffer: %v", session.Id, err)
@@ -206,11 +215,9 @@ func RunClient(host *string, port *int, scheme string, tls *bool, caFile, server
 					log.Errorf("Failed to send initial tunnel request to server")
 				} else {
 					sessions := make(chan *common.Session)
-					//closeStream := make(chan bool, 1)
 					go ReceiveData(&stream, closeStream, sessions, tunnelData.Target, scheme)
 					go SendData(&stream, sessions, closeStream)
 					<-closeStream
-					_ = stream.CloseSend()
 				}
 			}
 			wg.Done()

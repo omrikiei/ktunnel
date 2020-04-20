@@ -56,15 +56,15 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 	return nil
 }
 
-func TeardownExposedService(namespace, name *string) error {
-	getClients(namespace)
-	log.Infof("Deleting service %s", *name)
-	err := svcClient.Delete(*name, &v1.DeleteOptions{})
+func TeardownExposedService(namespace, name string) error {
+	getClients(&namespace)
+	log.Infof("Deleting service %s", name)
+	err := svcClient.Delete(name, &v1.DeleteOptions{})
 	if err != nil {
 		return err
 	}
-	log.Infof("Deleting deployment %s", *name)
-	err = deploymentsClient.Delete(*name, &v1.DeleteOptions{})
+	log.Infof("Deleting deployment %s", name)
+	err = deploymentsClient.Delete(name, &v1.DeleteOptions{})
 	if err != nil {
 		return err
 	}

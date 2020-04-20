@@ -50,7 +50,7 @@ ktunnel expose redis 6379
 				_ = <-sigs
 				log.Info("Got exit signal, closing client tunnels and removing k8s objects")
 				close(closeChan)
-				err := k8s.TeardownExposedService(&Namespace, &svcName)
+				err := k8s.TeardownExposedService(Namespace, svcName)
 				if err != nil {
 					log.Errorf("Failed deleting k8s objects: %s", err)
 				}

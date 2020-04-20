@@ -16,7 +16,7 @@ import (
 type tunnelServer struct{}
 
 const (
-	bufferSize = 4096
+	bufferSize = 1024*32
 )
 
 func NewServer() *tunnelServer {
@@ -28,17 +28,17 @@ func SendData(stream *pb.Tunnel_InitTunnelServer, sessions <-chan *common.Sessio
 		session := <-sessions
 		log.Debugf("%s sending %d bytes to client", session.Id, session.Buf.Len())
 		session.Lock.Lock()
-		st := *stream
 		resp := &pb.SocketDataResponse{
 			HasErr:      false,
 			LogMessage:  nil,
 			RequestId:   session.Id.String(),
 			Data:        session.Buf.Bytes(),
-			ShouldClose: false,
+			ShouldClose: !session.Open,
 		}
 		session.Buf.Reset()
 		session.Lock.Unlock()
 		log.Debugf("sending %d bytes to client: %s", len(resp.Data), session.Id.String())
+		st := *stream
 		err := st.Send(resp)
 		if err != nil {
 			log.Errorf("failed sending message to tunnel stream, exiting", err)
@@ -46,13 +46,6 @@ func SendData(stream *pb.Tunnel_InitTunnelServer, sessions <-chan *common.Sessio
 			return
 		}
 		log.Debugf("%s sent to client", session.Id)
-		if session.Open == false {
-			resp.ShouldClose = true
-			ok, err := common.CloseSession(session.Id)
-			if ok != true {
-				log.Errorf("%s failed to close session: %v", session.Id.String(), err)
-			}
-		}
 	}
 }
 
@@ -102,20 +95,26 @@ func readConn(session *common.Session, sessions chan<- *common.Session) {
 	buff := make([]byte, bufferSize)
 	for {
 		br, err := session.Conn.Read(buff)
+		session.Lock.Lock()
 		log.Debugf("read %d bytes from socket, err: %v", br, err)
 		if err != nil {
+			log.Infof("closing session %s; err: %v", session.Id, err)
 			session.Open = false
 		}
 		if br > 0 {
-			session.Lock.Lock()
 			session.Buf.Write(buff[:br])
-			session.Lock.Unlock()
+			if br == len(buff) {
+				newSize := len(buff)*2
+				log.Infof("increasing buffer size to %d", newSize)
+				buff = make([]byte, newSize)
+			}
 		}
-		sessions <- session
+		session.Lock.Unlock()
 		if !session.Open {
 			_, _ = common.CloseSession(session.Id)
 			return
 		}
+		sessions <- session
 	}
 }
 
