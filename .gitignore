@@ -7,3 +7,4 @@ examples/pycharm-remote-debugging-on-k8s/.pyenv/
 releases/
 dist/
 ktunnel
+site/
