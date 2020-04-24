@@ -4,6 +4,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	v1 "k8s.io/client-go/kubernetes/typed/apps/v1"
@@ -125,11 +126,18 @@ func newContainer(port int) *apiv1.Container {
 	if Verbose == true {
 		args = append(args, "-v")
 	}
+	q := resource.Quantity{}
+	q.SetMilli(int64(500))
 	return &apiv1.Container{
 		Name:    "ktunnel",
 		Image:   image,
 		Command: []string{"/ktunnel/ktunnel"},
 		Args:    args,
+		Resources: apiv1.ResourceRequirements{
+			Requests: apiv1.ResourceList{
+				"cpu": q,
+			},
+		},
 	}
 }
 

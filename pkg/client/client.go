@@ -31,14 +31,14 @@ loop:
 	for {
 		select {
 		case <-closeStream:
-			log.Infof("stopping to receive data on port %s", port)
+			log.Infof("stopping to receive data on port %d", port)
 			_ = stream.CloseSend()
 			break loop
 		default:
 			log.Debugf("attempting to receive from stream")
 			m, err := stream.Recv()
 			if err != nil {
-				log.Warn("error reading from stream: %v", err)
+				log.Warnf("error reading from stream; %v", err)
 				break loop
 			}
 			log.Debugf("%s; got session from server: %s", m.RequestId, m.GetData())
@@ -153,7 +153,7 @@ func SendData(stream *pb.Tunnel_InitTunnelClient, sessions <-chan *common.Sessio
 			go func() {
 				err := st.Send(resp)
 				if err != nil {
-					log.Errorf("failed sending message to tunnel stream, exiting", err)
+					log.Errorf("failed sending message to tunnel stream, exiting; %v", err)
 				}
 			}()
 		}
