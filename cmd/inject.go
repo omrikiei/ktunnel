@@ -61,7 +61,7 @@ ktunnel inject deploymeny mydeployment 3306 6379
 				readyChan = make(chan bool, 1)
 				ok, err := k8s.RemoveSidecar(&Namespace, &deployment, readyChan)
 				if !ok {
-					log.Errorf("Failed removing tunnel sidecar", err)
+					log.Errorf("Failed removing tunnel sidecar; %v", err)
 				}
 				<-readyChan
 				log.Info("Finished, exiting")
