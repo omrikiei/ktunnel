@@ -126,8 +126,12 @@ func newContainer(port int) *apiv1.Container {
 	if Verbose == true {
 		args = append(args, "-v")
 	}
-	q := resource.Quantity{}
-	q.SetMilli(int64(500))
+	cpuRequest, cpuLimit, memRequest, memLimit := resource.Quantity{}, resource.Quantity{}, resource.Quantity{}, resource.Quantity{}
+	cpuRequest.SetMilli(int64(500))
+	cpuLimit.SetMilli(int64(1000))
+	memRequest.SetScaled(int64(100), resource.Mega)
+	memLimit.SetScaled(int64(1), resource.Giga)
+
 	return &apiv1.Container{
 		Name:    "ktunnel",
 		Image:   image,
@@ -135,7 +139,12 @@ func newContainer(port int) *apiv1.Container {
 		Args:    args,
 		Resources: apiv1.ResourceRequirements{
 			Requests: apiv1.ResourceList{
-				"cpu": q,
+				"cpu": cpuRequest,
+				"memory": memRequest,
+			},
+			Limits: apiv1.ResourceList{
+				"cpu": cpuLimit,
+				"memory": memLimit,
 			},
 		},
 	}

@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	bufferSize = 1024*32
+	bufferSize = 1024 * 32
 )
 
 type Message struct {
@@ -117,7 +117,7 @@ func ReadFromSession(session *common.Session, sessionsOut chan<- *common.Session
 			_, err = session.Buf.Write(buff[:br])
 			session.Lock.Unlock()
 			if br == len(buff) {
-				newSize := len(buff)*2
+				newSize := len(buff) * 2
 				log.Infof("increasing buffer size to %d", newSize)
 				buff = make([]byte, newSize)
 			}

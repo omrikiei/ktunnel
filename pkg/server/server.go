@@ -16,7 +16,7 @@ import (
 type tunnelServer struct{}
 
 const (
-	bufferSize = 1024*32
+	bufferSize = 1024 * 32
 )
 
 func NewServer() *tunnelServer {
@@ -104,7 +104,7 @@ func readConn(session *common.Session, sessions chan<- *common.Session) {
 		if br > 0 {
 			session.Buf.Write(buff[:br])
 			if br == len(buff) {
-				newSize := len(buff)*2
+				newSize := len(buff) * 2
 				log.Infof("increasing buffer size to %d", newSize)
 				buff = make([]byte, newSize)
 			}
