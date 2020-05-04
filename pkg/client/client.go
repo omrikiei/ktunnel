@@ -51,7 +51,7 @@ loop:
 				if m.ShouldClose != true {
 					log.Infof("%s; new session; connecting to port %d", m.RequestId, port)
 					// new session
-					conn, err := net.DialTimeout(strings.ToLower(scheme), fmt.Sprintf("localhost:%d", port), time.Millisecond*50)
+					conn, err := net.DialTimeout(strings.ToLower(scheme), fmt.Sprintf("localhost:%d", port), time.Millisecond*500)
 					if err != nil {
 						log.Errorf("failed connecting to localhost on port %d scheme %s: %v", port, scheme, err)
 						return
