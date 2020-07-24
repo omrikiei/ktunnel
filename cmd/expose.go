@@ -27,7 +27,6 @@ ktunnel expose redis 6379
               `,
 	Run: func(cmd *cobra.Command, args []string) {
 		if Verbose {
-			log.SetLevel(log.DebugLevel)
 			k8s.Verbose = true
 		}
 		o := sync.Once{}
@@ -79,7 +78,7 @@ ktunnel expose redis 6379
 					log.Fatalf("Failed to run client: %v", err)
 				}
 				prt := int(p)
-				err = client.RunClient(&Host, &prt, Scheme, &Tls, &CaFile, &ServerHostOverride, args[1:], closeChan)
+				err = client.RunClient(&Host, &prt, Scheme, &Tls, &CaFile, &ServerHostOverride, args[1:], closeChan, DialTimeout)
 				if err != nil {
 					log.Fatalf("Failed to run client: %v", err)
 				}
@@ -90,9 +89,5 @@ ktunnel expose redis 6379
 }
 
 func init() {
-	exposeCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
-	exposeCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
-	exposeCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
-	exposeCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
 	rootCmd.AddCommand(exposeCmd)
 }

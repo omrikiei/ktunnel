@@ -25,7 +25,7 @@ type Message struct {
 	d *[]byte
 }
 
-func ReceiveData(st *pb.Tunnel_InitTunnelClient, closeStream <-chan bool, sessionsOut chan<- *common.Session, port int32, scheme string) {
+func ReceiveData(st *pb.Tunnel_InitTunnelClient, closeStream <-chan bool, sessionsOut chan<- *common.Session, port int32, scheme string, dialTimeout int) {
 	stream := *st
 loop:
 	for {
@@ -51,7 +51,7 @@ loop:
 				if m.ShouldClose != true {
 					log.Infof("%s; new session; connecting to port %d", m.RequestId, port)
 					// new session
-					conn, err := net.DialTimeout(strings.ToLower(scheme), fmt.Sprintf("localhost:%d", port), time.Millisecond*500)
+					conn, err := net.DialTimeout(strings.ToLower(scheme), fmt.Sprintf("localhost:%d", port), time.Millisecond*time.Duration(dialTimeout))
 					if err != nil {
 						log.Errorf("failed connecting to localhost on port %d scheme %s: %v", port, scheme, err)
 						return
@@ -160,7 +160,7 @@ func SendData(stream *pb.Tunnel_InitTunnelClient, sessions <-chan *common.Sessio
 	}
 }
 
-func RunClient(host *string, port *int, scheme string, tls *bool, caFile, serverHostOverride *string, tunnels []string, stopChan <-chan bool) error {
+func RunClient(host *string, port *int, scheme string, tls *bool, caFile, serverHostOverride *string, tunnels []string, stopChan <-chan bool, dialTimeout int) error {
 	wg := sync.WaitGroup{}
 	closeStreams := make([]chan bool, len(tunnels))
 	go func() {
@@ -215,7 +215,7 @@ func RunClient(host *string, port *int, scheme string, tls *bool, caFile, server
 					log.Errorf("Failed to send initial tunnel request to server")
 				} else {
 					sessions := make(chan *common.Session)
-					go ReceiveData(&stream, closeStream, sessions, tunnelData.Target, scheme)
+					go ReceiveData(&stream, closeStream, sessions, tunnelData.Target, scheme, dialTimeout)
 					go SendData(&stream, sessions, closeStream)
 					<-closeStream
 				}

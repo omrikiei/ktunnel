@@ -139,11 +139,11 @@ func newContainer(port int) *apiv1.Container {
 		Args:    args,
 		Resources: apiv1.ResourceRequirements{
 			Requests: apiv1.ResourceList{
-				"cpu": cpuRequest,
+				"cpu":    cpuRequest,
 				"memory": memRequest,
 			},
 			Limits: apiv1.ResourceList{
-				"cpu": cpuLimit,
+				"cpu":    cpuLimit,
 				"memory": memLimit,
 			},
 		},

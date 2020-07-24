@@ -18,11 +18,7 @@ var serverCmd = &cobra.Command{
 ktunnel server -p 8181
 `,
 	Run: func(cmd *cobra.Command, args []string) {
-		if Verbose {
-			log.SetLevel(log.DebugLevel)
-		}
-		err := server.RunServer(&Port, &Tls, &KeyFile, &CertFile)
-		if err != nil {
+		if err := server.RunServer(&Port, &Tls, &KeyFile, &CertFile); err != nil {
 			log.Fatalf("Error running server: %v", err)
 		}
 	},

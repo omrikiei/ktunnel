@@ -19,19 +19,20 @@ var injectCmd = &cobra.Command{
 	Short: "Inject server sidecar to the cluster and run the ktunnel client to establish a connection",
 	Long: `This command accepts a pod/deployment and injects the tunnel sidecar to that artifact, 
 			it then establishes a reverse tunnel`,
+	TraverseChildren: true,
 }
 
 var injectDeploymentCmd = &cobra.Command{
-	Use:   "deployment [flags] DEPLOYMENT_NAME [ports]",
-	Short: "Inject server sidecar to a deployment and run the ktunnel client to establish a connection",
-	Args:  cobra.MinimumNArgs(2),
+	Use:              "deployment [flags] DEPLOYMENT_NAME [ports]",
+	Short:            "Inject server sidecar to a deployment and run the ktunnel client to establish a connection",
+	Args:             cobra.MinimumNArgs(2),
+	TraverseChildren: true,
 	Example: `
 # Inject a back tunnel from a running deployment to local mysql and redis 
 ktunnel inject deploymeny mydeployment 3306 6379
 `,
 	Run: func(cmd *cobra.Command, args []string) {
 		if Verbose {
-			log.SetLevel(log.DebugLevel)
 			k8s.Verbose = true
 		}
 		o := sync.Once{}
@@ -89,7 +90,7 @@ ktunnel inject deploymeny mydeployment 3306 6379
 					log.Fatalf("Failed to run client: %v", err)
 				}
 				prt := int(p)
-				err = client.RunClient(&Host, &prt, Scheme, &Tls, &CaFile, &ServerHostOverride, args[1:], closeChan)
+				err = client.RunClient(&Host, &prt, Scheme, &Tls, &CaFile, &ServerHostOverride, args[1:], closeChan, DialTimeout)
 				if err != nil {
 					log.Fatalf("Failed to run client: %v", err)
 				}
@@ -100,14 +101,6 @@ ktunnel inject deploymeny mydeployment 3306 6379
 }
 
 func init() {
-	injectCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
-	injectCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
-	injectCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
-	injectCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
-	injectDeploymentCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
-	injectDeploymentCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
-	injectDeploymentCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
-	injectDeploymentCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
 	injectCmd.AddCommand(injectDeploymentCmd)
 	rootCmd.AddCommand(injectCmd)
 }

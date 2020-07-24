@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 
 	log "github.com/sirupsen/logrus"
@@ -16,6 +15,11 @@ const (
 var Port int
 var Tls bool
 var Verbose bool
+var DialTimeout int
+var Host string
+var CaFile string
+var Scheme string
+var ServerHostOverride string
 
 var rootCmd = &cobra.Command{
 	Use:     "ktunnel",
@@ -23,6 +27,17 @@ var rootCmd = &cobra.Command{
 	Long:    `Built to ease development on kubernetes clusters and allow connectivity between dev machines and clusters`,
 	Version: version,
 	Args:    cobra.MinimumNArgs(1),
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		log.SetFormatter(&log.TextFormatter{
+			ForceColors:     true,
+			FullTimestamp:   true,
+			TimestampFormat: "2006-01-02 15:04:05",
+		})
+
+		if Verbose {
+			log.SetLevel(log.DebugLevel)
+		}
+	},
 }
 
 func Execute() {
@@ -32,14 +47,9 @@ func Execute() {
 			log.Errorf("Failed generating docs: %v", err)
 		}
 	}
-	log.SetFormatter(&log.TextFormatter{
-		ForceColors:     true,
-		FullTimestamp:   true,
-		TimestampFormat: "2006-01-02 15:04:05",
-	})
 
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
+		log.Error(err)
 		os.Exit(1)
 	}
 }
@@ -48,5 +58,11 @@ func init() {
 	rootCmd.PersistentFlags().IntVarP(&Port, "port", "p", 28688, "The port to use to establish the tunnel")
 	rootCmd.PersistentFlags().BoolVarP(&Tls, "tls", "t", false, "Connection uses TLS if true, else plain TCP")
 	rootCmd.PersistentFlags().BoolVarP(&Verbose, "verbose", "v", false, "Emit debug logs")
+	rootCmd.PersistentFlags().IntVarP(&DialTimeout, "dial-timeout", "d", 500, "Local dial timeout in milliseconds")
+	rootCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
+	rootCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
+	rootCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
+	rootCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
+
 	_ = rootCmd.MarkFlagRequired("port")
 }
