@@ -41,7 +41,7 @@ func SendData(stream *pb.Tunnel_InitTunnelServer, sessions <-chan *common.Sessio
 		st := *stream
 		err := st.Send(resp)
 		if err != nil {
-			log.Errorf("failed sending message to tunnel stream, exitin ; %v", err)
+			log.Errorf("failed sending message to tunnel stream, exiting ; %v", err)
 			closeChan <- true
 			return
 		}
@@ -111,6 +111,7 @@ func readConn(session *common.Session, sessions chan<- *common.Session) {
 		}
 		session.Lock.Unlock()
 		if !session.Open {
+			sessions <- session
 			_, _ = common.CloseSession(session.Id)
 			return
 		}
