@@ -12,12 +12,28 @@ import (
 	"sync"
 )
 
+const (
+	BufferSize = 1024 * 4
+	MaxBufferSize = 1024 * 64
+)
+
+var openSessions = sync.Map{}
+
 type Session struct {
 	Id   uuid.UUID
 	Conn net.Conn
 	Buf  bytes.Buffer
 	Open bool
 	Lock sync.RWMutex
+}
+
+func (s *Session) Close() {
+	if s.Conn != nil {
+		s.Lock.Lock()
+		_ = s.Conn.Close()
+		s.Lock.Unlock()
+	}
+	openSessions.Delete(s.Id)
 }
 
 type RedirectRequest struct {
@@ -32,7 +48,7 @@ func NewSession(conn net.Conn) *Session {
 		Buf:  bytes.Buffer{},
 		Open: true,
 	}
-	ok, err := AddSession(r)
+	ok, err := addSession(r)
 	if ok != true {
 		log.Printf("%s; failed registering request: %v", r.Id.String(), err)
 	}
@@ -46,14 +62,14 @@ func NewSessionFromStream(id uuid.UUID, conn net.Conn) *Session {
 		Buf:  bytes.Buffer{},
 		Open: true,
 	}
-	ok, err := AddSession(r)
+	ok, err := addSession(r)
 	if ok != true {
 		log.Errorf("%s; failed registering request: %v", r.Id.String(), err)
 	}
 	return r
 }
 
-func AddSession(r *Session) (bool, error) {
+func addSession(r *Session) (bool, error) {
 	if _, ok := GetSession(r.Id); ok != false {
 		return false, errors.New(fmt.Sprintf("Session %s already exists", r.Id.String()))
 	}
@@ -67,21 +83,6 @@ func GetSession(id uuid.UUID) (*Session, bool) {
 		return request.(*Session), ok
 	}
 	return nil, ok
-}
-
-var openSessions = sync.Map{}
-
-func CloseSession(id uuid.UUID) (bool, error) {
-	session, ok := GetSession(id)
-	if ok == false {
-		return true, nil
-	}
-	session.Lock.Lock()
-	conn := session.Conn
-	err := conn.Close()
-	session.Lock.Unlock()
-	openSessions.Delete(id)
-	return true, err
 }
 
 func ParsePorts(s string) (*RedirectRequest, error) {

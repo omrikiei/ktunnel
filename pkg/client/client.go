@@ -16,10 +16,6 @@ import (
 	"time"
 )
 
-const (
-	bufferSize = 1024 * 32
-)
-
 type Message struct {
 	c *net.Conn
 	d *[]byte
@@ -54,7 +50,7 @@ loop:
 					conn, err := net.DialTimeout(strings.ToLower(scheme), fmt.Sprintf("localhost:%d", port), time.Millisecond*500)
 					if err != nil {
 						log.Errorf("failed connecting to localhost on port %d scheme %s: %v", port, scheme, err)
-						return
+						break loop
 					}
 					session = common.NewSessionFromStream(requestId, conn)
 					go ReadFromSession(session, sessionsOut)
@@ -70,12 +66,7 @@ loop:
 
 func handleStreamData(m *pb.SocketDataResponse, session *common.Session) {
 	if session.Open == false {
-		if session.Conn != nil {
-			ok, err := common.CloseSession(session.Id)
-			if ok != true {
-				log.Printf("%s; failed closing session: %v", session.Id.String(), err)
-			}
-		}
+		session.Close()
 	} else {
 		c := session.Conn
 		data := m.GetData()
@@ -86,10 +77,7 @@ func handleStreamData(m *pb.SocketDataResponse, session *common.Session) {
 			session.Lock.Unlock()
 			if err != nil {
 				log.Printf("%s; failed writing to socket, closing session: %v", session.Id.String(), err)
-				ok, err := common.CloseSession(session.Id)
-				if ok != true {
-					log.Printf("%s; failed closing session: %v", session.Id.String(), err)
-				}
+				session.Close()
 			}
 		}
 	}
@@ -98,7 +86,7 @@ func handleStreamData(m *pb.SocketDataResponse, session *common.Session) {
 func ReadFromSession(session *common.Session, sessionsOut chan<- *common.Session) {
 	conn := session.Conn
 	log.Debugf("started reading from session %s", session.Id)
-	buff := make([]byte, bufferSize)
+	buff := make([]byte, common.BufferSize)
 	for {
 		//_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 		br, err := conn.Read(buff)
@@ -116,7 +104,7 @@ func ReadFromSession(session *common.Session, sessionsOut chan<- *common.Session
 			session.Lock.Lock()
 			_, err = session.Buf.Write(buff[:br])
 			session.Lock.Unlock()
-			if br == len(buff) {
+			if br == len(buff) && len(buff) < common.MaxBufferSize {
 				newSize := len(buff) * 2
 				log.Infof("increasing buffer size to %d", newSize)
 				buff = make([]byte, newSize)
