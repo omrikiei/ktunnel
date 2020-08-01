@@ -34,7 +34,7 @@ ktunnel expose redis 6379
 		// Create service and deployment
 		svcName, ports := args[0], args[1:]
 		readyChan := make(chan bool, 1)
-		err := k8s.ExposeAsService(&Namespace, &svcName, Port, Scheme, ports, readyChan)
+		err := k8s.ExposeAsService(&Namespace, &svcName, Port, Scheme, ports, ServerImage, readyChan)
 		if err != nil {
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
 		}
@@ -94,5 +94,6 @@ func init() {
 	exposeCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	exposeCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	exposeCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
+	rootCmd.PersistentFlags().StringVarP(&ServerImage, "server-image", "t", k8s.Image, "Ktunnel server image to use")
 	rootCmd.AddCommand(exposeCmd)
 }

@@ -13,6 +13,7 @@ import (
 )
 
 var Namespace string
+var ServerImage string
 
 var injectCmd = &cobra.Command{
 	Use:   "inject",
@@ -39,7 +40,7 @@ ktunnel inject deploymeny mydeployment 3306 6379
 		deployment := args[0]
 		readyChan := make(chan bool, 1)
 		closeChan := make(chan bool, 1)
-		_, err := k8s.InjectSidecar(&Namespace, &deployment, &Port, readyChan)
+		_, err := k8s.InjectSidecar(&Namespace, &deployment, &Port, ServerImage ,readyChan)
 		if err != nil {
 			log.Fatalf("failed injecting sidecar: %v", err)
 		}
@@ -59,7 +60,7 @@ ktunnel inject deploymeny mydeployment 3306 6379
 				close(stopChan)
 				wg.Wait()
 				readyChan = make(chan bool, 1)
-				ok, err := k8s.RemoveSidecar(&Namespace, &deployment, readyChan)
+				ok, err := k8s.RemoveSidecar(&Namespace, &deployment, ServerImage, readyChan)
 				if !ok {
 					log.Errorf("Failed removing tunnel sidecar; %v", err)
 				}
@@ -108,6 +109,7 @@ func init() {
 	injectDeploymentCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	injectDeploymentCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	injectDeploymentCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
+	rootCmd.PersistentFlags().StringVarP(&ServerImage, "server-image", "t", k8s.Image, "Ktunnel server image to use")
 	injectCmd.AddCommand(injectDeploymentCmd)
 	rootCmd.AddCommand(injectCmd)
 }

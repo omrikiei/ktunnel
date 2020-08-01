@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	image = "quay.io/omrikiei/ktunnel:latest"
+	Image = "quay.io/omrikiei/ktunnel:latest"
 )
 
 var deploymentOnce = sync.Once{}
@@ -63,7 +63,7 @@ func getClients(namespace *string) {
 	})
 }
 
-func getAllPods(namespace, deployment *string) (*apiv1.PodList, error) {
+func getAllPods(namespace *string) (*apiv1.PodList, error) {
 	getClients(namespace)
 	// TODO: filter pod list
 	pods, err := podsClient.List(metav1.ListOptions{})
@@ -75,22 +75,6 @@ func getAllPods(namespace, deployment *string) (*apiv1.PodList, error) {
 
 func waitForReady(name *string, ti *time.Time, numPods int32, readyChan chan<- bool) {
 	go func() {
-		/*
-			watcher, err := podsClient.Watch(metav1.ListOptions{
-				TypeMeta:            metav1.TypeMeta{
-					Kind: "pod",
-				},
-				Watch:               true,
-			})
-			if err != nil {
-				return
-			}
-
-			for e := range watcher.ResultChan(){
-				if e.Type == watch.Deleted {
-					break
-				}
-			}*/
 		for {
 			count := int32(0)
 			pods, err := podsClient.List(metav1.ListOptions{})
@@ -112,7 +96,7 @@ func waitForReady(name *string, ti *time.Time, numPods int32, readyChan chan<- b
 	}()
 }
 
-func hasSidecar(podSpec apiv1.PodSpec) bool {
+func hasSidecar(podSpec apiv1.PodSpec, image string) bool {
 	for _, c := range podSpec.Containers {
 		if c.Image == image {
 			return true
@@ -121,7 +105,7 @@ func hasSidecar(podSpec apiv1.PodSpec) bool {
 	return false
 }
 
-func newContainer(port int) *apiv1.Container {
+func newContainer(port int, image string) *apiv1.Container {
 	args := []string{"server", "-p", strconv.FormatInt(int64(port), 10)}
 	if Verbose == true {
 		args = append(args, "-v")
@@ -150,9 +134,9 @@ func newContainer(port int) *apiv1.Container {
 	}
 }
 
-func newDeployment(namespace, name string, port int) *appsv1.Deployment {
+func newDeployment(namespace, name string, port int, image string) *appsv1.Deployment {
 	replicas := int32(1)
-	co := newContainer(port)
+	co := newContainer(port, image)
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{

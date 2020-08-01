@@ -19,8 +19,8 @@ import (
 	"time"
 )
 
-func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, readyChan chan<- bool) (bool, error) {
-	if hasSidecar(o.Spec.Template.Spec) {
+func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, readyChan chan<- bool) (bool, error) {
+	if hasSidecar(o.Spec.Template.Spec, image) {
 		log.Warn(fmt.Sprintf("%s already injected to the deplyoment", image))
 		readyChan <- true
 		return true, nil
@@ -33,10 +33,10 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, readyChan chan
 	return true, nil
 }
 
-func InjectSidecar(namespace, objectName *string, port *int, readyChan chan<- bool) (bool, error) {
+func InjectSidecar(namespace, objectName *string, port *int, image string, readyChan chan<- bool) (bool, error) {
 	log.Infof("Injecting tunnel sidecar to %s/%s", *namespace, *objectName)
 	getClients(namespace)
-	co := newContainer(*port)
+	co := newContainer(*port, image)
 	creationTime := time.Now().Add(-1 * time.Second)
 	obj, err := deploymentsClient.Get(*objectName, metav1.GetOptions{})
 	if err != nil {
@@ -45,7 +45,7 @@ func InjectSidecar(namespace, objectName *string, port *int, readyChan chan<- bo
 	if *obj.Spec.Replicas > int32(1) {
 		return false, errors.New("sidecar injection only support deployments with one replica")
 	}
-	_, err = injectToDeployment(obj, co, readyChan)
+	_, err = injectToDeployment(obj, co, image, readyChan)
 	if err != nil {
 		return false, err
 	}
@@ -54,8 +54,8 @@ func InjectSidecar(namespace, objectName *string, port *int, readyChan chan<- bo
 	return true, nil
 }
 
-func removeFromSpec(s *apiv1.PodSpec) (bool, error) {
-	if !hasSidecar(*s) {
+func removeFromSpec(s *apiv1.PodSpec, image string) (bool, error) {
+	if !hasSidecar(*s, image) {
 		return true, errors.New(fmt.Sprintf("%s is not present on spec", image))
 	}
 	cIndex := -1
@@ -75,7 +75,7 @@ func removeFromSpec(s *apiv1.PodSpec) (bool, error) {
 	}
 }
 
-func RemoveSidecar(namespace, objectName *string, readyChan chan<- bool) (bool, error) {
+func RemoveSidecar(namespace, objectName *string, image string, readyChan chan<- bool) (bool, error) {
 	log.Infof("Removing tunnel sidecar from %s/%s", *namespace, *objectName)
 	getClients(namespace)
 	obj, err := deploymentsClient.Get(*objectName, metav1.GetOptions{})
@@ -83,7 +83,7 @@ func RemoveSidecar(namespace, objectName *string, readyChan chan<- bool) (bool, 
 		return false, err
 	}
 	deletionTime := time.Now().Add(-1 * time.Second)
-	_, err = removeFromSpec(&obj.Spec.Template.Spec)
+	_, err = removeFromSpec(&obj.Spec.Template.Spec, image)
 	if err != nil {
 		return false, err
 	}
@@ -96,7 +96,7 @@ func RemoveSidecar(namespace, objectName *string, readyChan chan<- bool) (bool, 
 }
 
 func getPodNames(namespace, deploymentName *string, podsPtr *[]string) error {
-	allPods, err := getAllPods(namespace, deploymentName)
+	allPods, err := getAllPods(namespace)
 	if err != nil {
 		return err
 	}
