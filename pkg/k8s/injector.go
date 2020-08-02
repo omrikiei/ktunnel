@@ -1,7 +1,6 @@
 package k8s
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	log "github.com/sirupsen/logrus"
@@ -9,13 +8,8 @@ import (
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/portforward"
-	"k8s.io/client-go/transport/spdy"
-	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -50,7 +44,7 @@ func InjectSidecar(namespace, objectName *string, port *int, image string, ready
 		return false, err
 	}
 
-	waitForReady(objectName, &creationTime, *obj.Spec.Replicas, readyChan)
+	waitForReady(objectName, creationTime, *obj.Spec.Replicas, readyChan)
 	return true, nil
 }
 
@@ -91,30 +85,8 @@ func RemoveSidecar(namespace, objectName *string, image string, readyChan chan<-
 	if updateErr != nil {
 		return false, updateErr
 	}
-	waitForReady(objectName, &deletionTime, *obj.Spec.Replicas, readyChan)
+	waitForReady(objectName, deletionTime, *obj.Spec.Replicas, readyChan)
 	return true, nil
-}
-
-func getPodNames(namespace, deploymentName *string, podsPtr *[]string) error {
-	allPods, err := getAllPods(namespace)
-	if err != nil {
-		return err
-	}
-	pods := *podsPtr
-	pIndex := 0
-	for _, p := range allPods.Items {
-		if pIndex >= len(pods) {
-			log.Info("All pods located for port-forwarding")
-			break
-		}
-		if strings.HasPrefix(p.Name, *deploymentName) && p.Status.Phase == apiv1.PodRunning {
-			pods[pIndex] = p.Name
-			pIndex += 1
-		}
-	}
-
-	return nil
-
 }
 
 func getPortForwardUrl(config *rest.Config, namespace string, podName string) *url.URL {
@@ -131,65 +103,4 @@ func getPortForwardUrl(config *rest.Config, namespace string, podName string) *u
 		Path:   path,
 		Host:   hostIp,
 	}
-}
-
-func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGroup *sync.WaitGroup, stopChan <-chan struct{}) (*[]string, error) {
-	getClients(namespace)
-
-	out, errOut := new(bytes.Buffer), new(bytes.Buffer)
-	deployment, err := deploymentsClient.Get(*deploymentName, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-	podNames := make([]string, *deployment.Spec.Replicas)
-	err = getPodNames(namespace, deploymentName, &podNames)
-	fwdWaitGroup.Add(int(*deployment.Spec.Replicas))
-
-	if err != nil {
-		return nil, err
-	}
-	log.Debugf("Injecting to this pods: %v", podNames)
-	sourcePorts := make([]string, *deployment.Spec.Replicas)
-	numPort, err := strconv.ParseInt(targetPort, 10, 32)
-	if err != nil {
-		return nil, err
-	}
-	for i := 0; i < len(sourcePorts); i++ {
-		sourcePorts[i] = strconv.FormatInt(numPort+int64(i), 10)
-	}
-	for i, podName := range podNames {
-		readyChan := make(chan struct{}, 1)
-		ports := []string{fmt.Sprintf("%s:%s", sourcePorts[i], targetPort)}
-		serverURL := getPortForwardUrl(kubeconfig, *namespace, podName)
-
-		transport, upgrader, err := spdy.RoundTripperFor(kubeconfig)
-		if err != nil {
-			return nil, err
-		}
-		dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, serverURL)
-
-		forwarder, err := portforward.New(dialer, ports, stopChan, readyChan, out, errOut)
-		if err != nil {
-			log.Error(err)
-		}
-
-		go func() {
-			for range readyChan { // Kubernetes will close this channel when it has something to tell us.
-			}
-			if len(errOut.String()) != 0 {
-				log.Error(errOut.String())
-			} else if len(out.String()) != 0 {
-				log.Info(out.String())
-				if strings.HasPrefix(out.String(), "Forwarding") {
-					fwdWaitGroup.Done()
-				}
-			}
-		}()
-		go func() {
-			if err = forwarder.ForwardPorts(); err != nil { // Locks until stopChan is closed.
-				log.Error(err)
-			}
-		}()
-	}
-	return &sourcePorts, nil
 }

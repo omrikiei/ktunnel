@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	version = "1.2.8b"
+	version = "1.3.0"
 )
 
 var Port int
@@ -38,6 +38,10 @@ func Execute() {
 		TimestampFormat: "2006-01-02 15:04:05",
 	})
 
+	if Verbose {
+		log.SetLevel(log.DebugLevel)
+	}
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -47,5 +51,6 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().IntVarP(&Port, "port", "p", 28688, "The port to use to establish the tunnel")
 	rootCmd.PersistentFlags().BoolVarP(&Tls, "tls", "t", false, "Connection uses TLS if true, else plain TCP")
+	rootCmd.PersistentFlags().BoolVarP(&Verbose, "verbose", "v", false, "Verbose mode")
 	_ = rootCmd.MarkFlagRequired("port")
 }

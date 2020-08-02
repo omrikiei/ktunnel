@@ -40,7 +40,7 @@ ktunnel inject deploymeny mydeployment 3306 6379
 		deployment := args[0]
 		readyChan := make(chan bool, 1)
 		closeChan := make(chan bool, 1)
-		_, err := k8s.InjectSidecar(&Namespace, &deployment, &Port, ServerImage ,readyChan)
+		_, err := k8s.InjectSidecar(&Namespace, &deployment, &Port, ServerImage, readyChan)
 		if err != nil {
 			log.Fatalf("failed injecting sidecar: %v", err)
 		}

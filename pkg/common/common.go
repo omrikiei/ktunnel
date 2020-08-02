@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	BufferSize = 1024 * 4
+	BufferSize    = 1024 * 4
 	MaxBufferSize = 1024 * 64
 )
 
