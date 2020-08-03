@@ -90,7 +90,10 @@ func readConn(session *common.Session, sessions chan<- *common.Session) {
 		br, err := session.Conn.Read(buff)
 		session.Lock.Lock()
 		log.Debugf("read %d bytes from socket, err: %v", br, err)
-		if err != nil && err != io.EOF {
+		if err != nil {
+			if err == io.EOF {
+				return
+			}
 			log.Infof("closing session %s; err: %v", session.Id, err)
 			session.Open = false
 		}
