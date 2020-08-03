@@ -7,6 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"io"
 	"ktunnel/pkg/common"
 	pb "ktunnel/tunnel_pb"
 	"net"
@@ -89,7 +90,7 @@ func readConn(session *common.Session, sessions chan<- *common.Session) {
 		br, err := session.Conn.Read(buff)
 		session.Lock.Lock()
 		log.Debugf("read %d bytes from socket, err: %v", br, err)
-		if err != nil {
+		if err != nil && err != io.EOF {
 			log.Infof("closing session %s; err: %v", session.Id, err)
 			session.Open = false
 		}
