@@ -1,9 +1,9 @@
 package cmd
 
 import (
+	"github.com/omrikiei/ktunnel/pkg/server"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"ktunnel/pkg/server"
 )
 
 var CertFile string

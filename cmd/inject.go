@@ -1,10 +1,10 @@
 package cmd
 
 import (
+	"github.com/omrikiei/ktunnel/pkg/client"
+	"github.com/omrikiei/ktunnel/pkg/k8s"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"ktunnel/pkg/client"
-	"ktunnel/pkg/k8s"
 	"os"
 	"os/signal"
 	"strconv"

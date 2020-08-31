@@ -1,4 +1,4 @@
-module ktunnel
+module github.com/omrikiei/ktunnel
 
 go 1.12
 
