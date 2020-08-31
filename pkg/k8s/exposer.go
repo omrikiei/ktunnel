@@ -2,11 +2,11 @@ package k8s
 
 import (
 	"errors"
+	"github.com/omrikiei/ktunnel/pkg/common"
 	log "github.com/sirupsen/logrus"
 	v12 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"ktunnel/pkg/common"
 	"time"
 )
 

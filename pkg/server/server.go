@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/omrikiei/ktunnel/pkg/common"
+	pb "github.com/omrikiei/ktunnel/tunnel_pb"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"ktunnel/pkg/common"
-	pb "ktunnel/tunnel_pb"
 	"net"
 	"strings"
 )

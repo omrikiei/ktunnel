@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"ktunnel/pkg/client"
+	"github.com/omrikiei/ktunnel/pkg/client"
 	"os"
 	"os/signal"
 	"sync"
