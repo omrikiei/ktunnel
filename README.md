@@ -36,7 +36,7 @@ You can also use the client and server without the orchestration part.
 *Although ktunnel is identified with kubernetes, it can also be used as a reverse tunnel on any other remote system*
 
 Ktunnel was born out of the need to access my development host when running applications on kubernetes. 
-The aim of this project is to be a holistic solution to this specific problem (accessing the local machine from a kubernetes pod) - although there are partial solutions to this problem such as [inlets](https://github.com/inlets/inlets) and [ngrok](https://ngrok.com/) I found them to be unsuitable and insecure for the task at hand.
+The aim of this project is to be a holistic solution to this specific problem (accessing the local machine from a kubernetes pod).
 If you found this tool to be helpful on other scenarios, or have any suggesstions for new features - I would love to get in touch.
 
 <p align="center">
