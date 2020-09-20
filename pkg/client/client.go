@@ -2,6 +2,12 @@ package client
 
 import (
 	"fmt"
+	"io"
+	"net"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/omrikiei/ktunnel/pkg/common"
 	pb "github.com/omrikiei/ktunnel/tunnel_pb"
@@ -9,11 +15,6 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"io"
-	"net"
-	"strings"
-	"sync"
-	"time"
 )
 
 const (
@@ -25,7 +26,7 @@ type Message struct {
 	d *[]byte
 }
 
-func ReceiveData(st *pb.Tunnel_InitTunnelClient, closeStream <-chan bool, sessionsOut chan<- *common.Session, port int32, scheme string) {
+func ReceiveData(st *pb.Tunnel_InitTunnelClient, closeStream <-chan struct{}, sessionsOut chan<- *common.Session, port int32, scheme string) {
 	stream := *st
 loop:
 	for {
@@ -132,7 +133,7 @@ func ReadFromSession(session *common.Session, sessionsOut chan<- *common.Session
 	log.Debugf("finished reading from session %s", session.Id)
 }
 
-func SendData(stream *pb.Tunnel_InitTunnelClient, sessions <-chan *common.Session, closeChan <-chan bool) {
+func SendData(stream *pb.Tunnel_InitTunnelClient, sessions <-chan *common.Session, closeChan <-chan struct{}) {
 	for {
 		select {
 		case <-closeChan:
@@ -160,11 +161,11 @@ func SendData(stream *pb.Tunnel_InitTunnelClient, sessions <-chan *common.Sessio
 	}
 }
 
-func RunClient(host *string, port *int, scheme string, tls *bool, caFile, serverHostOverride *string, tunnels []string, stopChan <-chan bool) error {
+func RunClient(ctx context.Context, host *string, port *int, scheme string, tls *bool, caFile, serverHostOverride *string, tunnels []string) error {
 	wg := sync.WaitGroup{}
-	closeStreams := make([]chan bool, len(tunnels))
+	closeStreams := make([]chan struct{}, len(tunnels))
 	go func() {
-		<-stopChan
+		<-ctx.Done()
 		for _, c := range closeStreams {
 			close(c)
 		}
@@ -193,8 +194,8 @@ func RunClient(host *string, port *int, scheme string, tls *bool, caFile, server
 			log.Error(err)
 		}
 		wg.Add(1)
-		c := make(chan bool, 1)
-		go func(closeStream chan bool) {
+		c := make(chan struct{}, 1)
+		go func(closeStream chan struct{}) {
 			log.Println(fmt.Sprintf("starting %s tunnel from source %d to target %d", scheme, tunnelData.Source, tunnelData.Target))
 			ctx := context.Background()
 			tunnelScheme, ok := pb.TunnelScheme_value[scheme]

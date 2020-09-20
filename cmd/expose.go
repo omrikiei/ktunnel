@@ -1,15 +1,17 @@
 package cmd
 
 import (
-	"github.com/omrikiei/ktunnel/pkg/client"
-	"github.com/omrikiei/ktunnel/pkg/k8s"
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cobra"
+	"context"
 	"os"
 	"os/signal"
 	"strconv"
 	"sync"
 	"syscall"
+
+	"github.com/omrikiei/ktunnel/pkg/client"
+	"github.com/omrikiei/ktunnel/pkg/k8s"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
 )
 
 var exposeCmd = &cobra.Command{
@@ -26,11 +28,13 @@ ktunnel expose kewlapp 80:8000
 ktunnel expose redis 6379
               `,
 	Run: func(cmd *cobra.Command, args []string) {
+		ctx, cancel := context.WithCancel(context.Background())
 		if Verbose {
 			log.SetLevel(log.DebugLevel)
 			k8s.Verbose = true
 		}
 		o := sync.Once{}
+
 		// Create service and deployment
 		svcName, ports := args[0], args[1:]
 		readyChan := make(chan bool, 1)
@@ -41,7 +45,6 @@ ktunnel expose redis 6379
 		sigs := make(chan os.Signal, 1)
 		wg := &sync.WaitGroup{}
 		done := make(chan bool, 1)
-		closeChan := make(chan bool, 1)
 		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
 
 		// Teardown
@@ -49,7 +52,7 @@ ktunnel expose redis 6379
 			o.Do(func() {
 				_ = <-sigs
 				log.Info("Got exit signal, closing client tunnels and removing k8s objects")
-				close(closeChan)
+				cancel()
 				err := k8s.TeardownExposedService(Namespace, svcName)
 				if err != nil {
 					log.Errorf("Failed deleting k8s objects: %s", err)
@@ -79,7 +82,7 @@ ktunnel expose redis 6379
 					log.Fatalf("Failed to run client: %v", err)
 				}
 				prt := int(p)
-				err = client.RunClient(&Host, &prt, Scheme, &Tls, &CaFile, &ServerHostOverride, args[1:], closeChan)
+				err = client.RunClient(ctx, &Host, &prt, Scheme, &Tls, &CaFile, &ServerHostOverride, args[1:])
 				if err != nil {
 					log.Fatalf("Failed to run client: %v", err)
 				}

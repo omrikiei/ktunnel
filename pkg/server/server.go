@@ -1,16 +1,18 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
+	"strings"
+
 	"github.com/google/uuid"
 	"github.com/omrikiei/ktunnel/pkg/common"
 	pb "github.com/omrikiei/ktunnel/tunnel_pb"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"net"
-	"strings"
 )
 
 type tunnelServer struct{}
@@ -177,12 +179,19 @@ func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 	}
 }
 
-func RunServer(port *int, tls *bool, keyFile, certFile *string) error {
+func RunServer(ctx context.Context, port *int, tls *bool, keyFile, certFile *string) error {
 	log.Infof("Starting to listen on port %d", *port)
 	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", *port))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
+
+	// handle context cancellation, shut down the server
+	go func() {
+		<-ctx.Done()
+		lis.Close()
+	}()
+
 	var opts []grpc.ServerOption
 	if *tls {
 		creds, err := credentials.NewServerTLSFromFile(*certFile, *keyFile)
@@ -191,8 +200,8 @@ func RunServer(port *int, tls *bool, keyFile, certFile *string) error {
 		}
 		opts = []grpc.ServerOption{grpc.Creds(creds)}
 	}
+
 	grpcServer := grpc.NewServer(opts...)
 	pb.RegisterTunnelServer(grpcServer, NewServer())
-	err = grpcServer.Serve(lis)
-	return err
+	return grpcServer.Serve(lis)
 }
