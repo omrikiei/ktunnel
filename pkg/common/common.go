@@ -4,17 +4,18 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
-	BufferSize    = 1024 * 4
-	MaxBufferSize = 1024 * 64
+	BufferSize    = 1024 * 1
+	MaxBufferSize = 1024 * 3
 )
 
 var openSessions = sync.Map{}
