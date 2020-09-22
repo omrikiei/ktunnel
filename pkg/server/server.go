@@ -7,6 +7,8 @@ import (
 	"net"
 	"strings"
 
+	"io"
+
 	"github.com/google/uuid"
 	"github.com/omrikiei/ktunnel/pkg/common"
 	pb "github.com/omrikiei/ktunnel/tunnel_pb"
@@ -16,10 +18,6 @@ import (
 )
 
 type tunnelServer struct{}
-
-const (
-	bufferSize = 1024 * 32
-)
 
 func NewServer() *tunnelServer {
 	return &tunnelServer{}
@@ -70,17 +68,13 @@ func ReceiveData(stream *pb.Tunnel_InitTunnelServer, closeChan chan<- bool) {
 			} else {
 				data := message.GetData()
 				if len(data) > 0 {
-					conn := session.Conn
-					_, err := conn.Write(data)
+					_, err := session.Conn.Write(data)
 					if err != nil {
 						log.Errorf("%s; failed writing data to socket", reqId)
 					}
 				}
 				if message.ShouldClose == true {
-					ok, _ := common.CloseSession(reqId)
-					if ok != true {
-						log.Errorf("%s; failed closing session", reqId)
-					}
+					session.Close()
 				}
 			}
 		}
@@ -94,30 +88,31 @@ func readConn(session *common.Session, sessions chan<- *common.Session) {
 	// We want to inform the client that we accepted a connection - some weird ass protocols wait for data from the server when connecting
 	// Read from socket in a loop and push messages to the sessions channel
 	// If the socket is closed, signal the channel to close connection
-	buff := make([]byte, bufferSize)
+	buff := make([]byte, common.BufferSize)
 	for {
 		br, err := session.Conn.Read(buff)
 		session.Lock.Lock()
 		log.Debugf("read %d bytes from socket, err: %v", br, err)
 		if err != nil {
+			if err == io.EOF {
+				return
+			}
 			log.Infof("closing session %s; err: %v", session.Id, err)
 			session.Open = false
 		}
 		if br > 0 {
 			session.Buf.Write(buff[:br])
-			if br == len(buff) {
+			if br == len(buff) && len(buff) < common.MaxBufferSize {
 				newSize := len(buff) * 2
 				log.Infof("increasing buffer size to %d", newSize)
 				buff = make([]byte, newSize)
 			}
 		}
 		session.Lock.Unlock()
-		if !session.Open {
-			sessions <- session
-			_, _ = common.CloseSession(session.Id)
+		sessions <- session
+		if session.Open == false {
 			return
 		}
-		sessions <- session
 	}
 }
 
