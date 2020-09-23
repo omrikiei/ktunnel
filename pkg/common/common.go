@@ -24,15 +24,13 @@ type Session struct {
 	Conn net.Conn
 	Buf  bytes.Buffer
 	Open bool
-	Lock sync.RWMutex
+	Lock sync.Mutex
 }
 
 func (s *Session) Close() {
 	if s.Conn != nil {
-		s.Lock.Lock()
 		_ = s.Conn.Close()
 		s.Open = false
-		s.Lock.Unlock()
 	}
 	openSessions.Delete(s.Id)
 }

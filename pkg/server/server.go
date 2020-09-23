@@ -7,8 +7,6 @@ import (
 	"net"
 	"strings"
 
-	"io"
-
 	"github.com/google/uuid"
 	"github.com/omrikiei/ktunnel/pkg/common"
 	pb "github.com/omrikiei/ktunnel/tunnel_pb"
@@ -117,15 +115,14 @@ func readConn(session *common.Session, sessions chan<- *common.Session) {
 
 		session.Lock.Lock()
 		if err != nil {
-			if err == io.EOF {
-				return
-			}
 			log.WithError(err).WithField("session", session.Id).Infof("failed to read from conn")
 
 			// setting Open to false triggers SendData() to
 			// send ShouldClose
 			session.Open = false
 		}
+
+		// write the data to the session buffer, if we have data
 		if br > 0 {
 			session.Buf.Write(buff[0:br])
 		}
