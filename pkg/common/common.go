@@ -14,8 +14,7 @@ import (
 )
 
 const (
-	BufferSize    = 1024 * 1
-	MaxBufferSize = 1024 * 3
+	BufferSize = 1024 * 3
 )
 
 var openSessions = sync.Map{}
@@ -32,6 +31,7 @@ func (s *Session) Close() {
 	if s.Conn != nil {
 		s.Lock.Lock()
 		_ = s.Conn.Close()
+		s.Open = false
 		s.Lock.Unlock()
 	}
 	openSessions.Delete(s.Id)
