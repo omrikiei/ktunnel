@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -47,10 +46,7 @@ func NewSession(conn net.Conn) *Session {
 		Buf:  bytes.Buffer{},
 		Open: true,
 	}
-	ok, err := addSession(r)
-	if ok != true {
-		log.Printf("%s; failed registering request: %v", r.Id.String(), err)
-	}
+	addSession(r)
 	return r
 }
 
@@ -61,10 +57,7 @@ func NewSessionFromStream(id uuid.UUID, conn net.Conn) *Session {
 		Buf:  bytes.Buffer{},
 		Open: true,
 	}
-	ok, err := addSession(r)
-	if ok != true {
-		log.Errorf("%s; failed registering request: %v", r.Id.String(), err)
-	}
+	addSession(r)
 	return r
 }
 

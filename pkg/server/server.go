@@ -2,11 +2,13 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"strings"
+
+	"github.com/pkg/errors"
 
 	"github.com/google/uuid"
 	"github.com/omrikiei/ktunnel/pkg/common"
@@ -16,13 +18,19 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-type tunnelServer struct{}
-
-func NewServer() *tunnelServer {
-	return &tunnelServer{}
+type tunnelServer struct {
+	conf *ServerConfig
 }
 
-func SendData(stream pb.Tunnel_InitTunnelServer, sessions <-chan *common.Session, closeChan chan<- bool) {
+// NewServer creates a new GRPC handler instance that
+// can be attached to a GRPC server
+func NewServer(conf *ServerConfig) *tunnelServer {
+	return &tunnelServer{conf}
+}
+
+// SendData handles data coming from our TCP listener, via the sessions channel, and
+// republishes it over GRPC
+func SendData(conf *ServerConfig, stream pb.Tunnel_InitTunnelServer, sessions <-chan *common.Session, closeChan chan<- bool) {
 	for {
 		session := <-sessions
 
@@ -42,84 +50,84 @@ func SendData(stream pb.Tunnel_InitTunnelServer, sessions <-chan *common.Session
 		}
 		session.Lock.Unlock()
 
-		log.WithFields(log.Fields{
+		conf.log.WithFields(log.Fields{
 			"session": session.Id,
 			"close":   resp.ShouldClose,
-		}).Infof("sending %d bytes to client", len(bytes))
+		}).Debugf("sending %d bytes to client", len(bytes))
 		err := stream.Send(resp)
 		if err != nil {
-			log.WithError(err).Errorf("failed sending message to tunnel stream, exiting")
-			return
+			conf.log.WithError(err).Errorf("failed sending message to tunnel stream")
+			continue
 		}
-		log.WithFields(log.Fields{
+		conf.log.WithFields(log.Fields{
 			"session": session.Id,
 			"close":   resp.ShouldClose,
-		}).Infof("sent %d bytes to client", len(bytes))
+		}).Debugf("sent %d bytes to client", len(bytes))
 	}
 }
 
-func ReceiveData(stream pb.Tunnel_InitTunnelServer, closeChan chan<- bool) {
+func ReceiveData(conf *ServerConfig, stream pb.Tunnel_InitTunnelServer, closeChan chan<- bool) {
 	for {
 		message, err := stream.Recv()
 		if err != nil {
-			log.WithError(err).Warnf("failed receiving message from stream")
+			conf.log.WithError(err).Warnf("failed receiving message from stream")
 			continue
 		}
 
 		reqId, err := uuid.Parse(message.GetRequestId())
 		if err != nil {
-			log.WithError(err).WithField("session", message.GetRequestId()).Errorf("failed to parse requestId")
+			conf.log.WithError(err).WithField("session", message.GetRequestId()).Errorf("failed to parse requestId")
 			continue
 		}
 
 		session, ok := common.GetSession(reqId)
 		if ok != true {
-			log.WithField("session", reqId).Errorf("session not found in openRequests")
+			conf.log.WithField("session", reqId).Errorf("session not found in openRequests")
 			continue
 		}
 
 		data := message.GetData()
 		br := len(data)
 
-		log.WithFields(log.Fields{
+		conf.log.WithFields(log.Fields{
 			"session": session.Id,
 			"close":   message.ShouldClose,
 		}).Infof("received %d bytes from client", len(data))
 
 		// send data if we received any
 		if br > 0 {
-			log.WithField("session", reqId).Infof("writing %d bytes to conn", br)
+			conf.log.WithField("session", reqId).Debugf("writing %d bytes to conn", br)
 			_, err := session.Conn.Write(data)
 			if err != nil {
-				log.WithError(err).WithField("session", reqId).Errorf("failed writing data to socket")
+				conf.log.WithError(err).WithField("session", reqId).Errorf("failed writing data to socket")
 				message.ShouldClose = true
 			} else {
-				log.WithField("session", reqId).Infof("wrote %d bytes to conn", br)
+				conf.log.WithField("session", reqId).Infof("wrote %d bytes to conn", br)
 			}
 		}
 
 		if message.ShouldClose == true {
-			log.WithField("session", reqId).Infof("closing session")
+			conf.log.WithField("session", reqId).Debug("closing session")
 			session.Close()
-			log.WithField("session", reqId).Infof("closed session")
+			conf.log.WithField("session", reqId).Debug("closed session")
 		}
 	}
 }
 
-func readConn(session *common.Session, sessions chan<- *common.Session) {
-	log.WithField("session", session.Id.String()).Info("new conn connection")
+func readConn(conf *ServerConfig, session *common.Session, sessions chan<- *common.Session) {
+	conf.log.WithField("session", session.Id.String()).Info("new conn connection")
 
 	for {
 		buff := make([]byte, common.BufferSize)
 		br, err := session.Conn.Read(buff)
-		log.WithError(err).Infof("read %d bytes from conn", br)
+		conf.log.WithError(err).Infof("read %d bytes from conn", br)
 
 		session.Lock.Lock()
 		if err != nil {
 			if err == io.EOF {
 				return
 			}
-			log.WithError(err).WithField("session", session.Id).Infof("failed to read from conn")
+			conf.log.WithError(err).WithField("session", session.Id).Infof("failed to read from conn")
 
 			// setting Open to false triggers SendData() to
 			// send ShouldClose
@@ -142,7 +150,7 @@ func readConn(session *common.Session, sessions chan<- *common.Session) {
 func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 	request, err := stream.Recv()
 	if err != nil {
-		log.Fatalf("Failed receiving initial connection from tunnel")
+		return errors.Wrap(err, "failed to read handshake")
 	}
 
 	port := request.GetPort()
@@ -157,17 +165,18 @@ func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 		if err != nil {
 			return err
 		}
-		return errors.New("missing port")
+
+		return fmt.Errorf("missing port")
 	}
 
-	log.WithFields(log.Fields{
+	t.conf.log.WithFields(log.Fields{
 		"port":   port,
 		"schema": request.GetScheme(),
 	}).Infof("opening connection")
 	ln, err := net.Listen(strings.ToLower(request.GetScheme().String()), fmt.Sprintf(":%d", port))
 	if err != nil {
 		defer func() {
-			log.WithError(err).Errorf("Failed listening on port %d", port)
+			t.conf.log.WithError(err).Errorf("Failed listening on port %d", port)
 		}()
 		_ = stream.Send(&pb.SocketDataResponse{
 			HasErr: true,
@@ -183,36 +192,52 @@ func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 	closeChan := make(chan bool, 1)
 	go func(close <-chan bool) {
 		<-close
-		log.WithField("port", port).Infof("closing connection")
+		t.conf.log.WithField("port", port).Infof("closing connection")
 		_ = ln.Close()
 	}(closeChan)
 
 	go func() {
-		ReceiveData(stream, closeChan)
-		log.WithField("port", port).Warnf("client receiver died (client -> conn)")
+		ReceiveData(t.conf, stream, closeChan)
+		t.conf.log.WithField("port", port).Debug("client receiver died (client -> conn)")
 	}()
 	go func() {
-		SendData(stream, sessions, closeChan)
-		log.WithField("port", port).Warnf("conn receiver died (conn -> client)")
+		SendData(t.conf, stream, sessions, closeChan)
+		t.conf.log.WithField("port", port).Debug("conn receiver died (conn -> client)")
 	}()
 
 	for {
 		connection, err := ln.Accept()
-		log.Debugf("Accepted new connection %v; %v", connection, err)
+		t.conf.log.WithError(err).Debugf("Accepted new connection %v", connection)
 		if err != nil {
 			return err
 		}
+
 		// socket -> stream
 		session := common.NewSession(connection)
-		go readConn(session, sessions)
+		go readConn(t.conf, session, sessions)
 	}
 }
 
-func RunServer(ctx context.Context, port *int, tls *bool, keyFile, certFile *string) error {
-	log.Infof("Starting to listen on port %d", *port)
-	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", *port))
+// RunServer creates a GRPC tunnel
+func RunServer(ctx context.Context, opts ...ServerOption) error {
+	conf, err := processArgs(opts)
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		return errors.Wrap(err, "failed to parse arguments")
+	}
+
+	var grpcOpts []grpc.ServerOption
+	if conf.TLS {
+		creds, err := credentials.NewServerTLSFromFile(conf.certFile, conf.keyFile)
+		if err != nil {
+			conf.log.Fatalf("Failed to generate credentials %v", err)
+		}
+		grpcOpts = []grpc.ServerOption{grpc.Creds(creds)}
+	}
+
+	conf.log.Infof("Starting to listen on port %d", conf.port)
+	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", conf.port))
+	if err != nil {
+		return errors.Wrap(err, "failed to start GRPC listener")
 	}
 
 	// handle context cancellation, shut down the server
@@ -221,16 +246,70 @@ func RunServer(ctx context.Context, port *int, tls *bool, keyFile, certFile *str
 		lis.Close()
 	}()
 
-	var opts []grpc.ServerOption
-	if *tls {
-		creds, err := credentials.NewServerTLSFromFile(*certFile, *keyFile)
-		if err != nil {
-			log.Fatalf("Failed to generate credentials %v", err)
-		}
-		opts = []grpc.ServerOption{grpc.Creds(creds)}
+	grpcServer := grpc.NewServer(grpcOpts...)
+	pb.RegisterTunnelServer(grpcServer, NewServer(conf))
+	return grpcServer.Serve(lis)
+}
+
+// processArgs processes functional args
+func processArgs(opts []ServerOption) (*ServerConfig, error) {
+	// default arguments
+	opt := &ServerConfig{
+		port: 5000,
+		log: &log.Logger{
+			Out: ioutil.Discard,
+		},
+		TLS: false,
 	}
 
-	grpcServer := grpc.NewServer(opts...)
-	pb.RegisterTunnelServer(grpcServer, NewServer())
-	return grpcServer.Serve(lis)
+	for _, f := range opts {
+		if err := f(opt); err != nil {
+			return nil, err
+		}
+	}
+
+	return opt, nil
+}
+
+// WithPort configures the GRPC tunnel server
+// to listen on a given port.
+func WithPort(p int) ServerOption {
+	return func(opt *ServerConfig) error {
+		opt.port = p
+		return nil
+	}
+}
+
+// WithTLS configures the GRPC tunnel server
+// to use TLS
+func WithTLS(cert, key string) ServerOption {
+	return func(opt *ServerConfig) error {
+		opt.TLS = true
+		opt.certFile = cert
+		opt.keyFile = key
+		return nil
+	}
+}
+
+// WithLogger sets the logger to be used by the server.
+// if not set, output will be discarded
+func WithLogger(l log.FieldLogger) ServerOption {
+	return func(opt *ServerConfig) error {
+		opt.log = l
+		return nil
+	}
+}
+
+// ServerOption is an option able to be configured
+type ServerOption func(*ServerConfig) error
+
+// ServerConfig is a config object used to
+// configure a GRPC Server. ServerOption should
+// be used to modify this
+type ServerConfig struct {
+	port     int
+	TLS      bool
+	keyFile  string
+	log      log.FieldLogger
+	certFile string
 }
