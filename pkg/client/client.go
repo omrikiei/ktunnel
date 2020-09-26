@@ -53,9 +53,17 @@ loop:
 				conn, err := net.DialTimeout(strings.ToLower(scheme), fmt.Sprintf("localhost:%d", port), time.Millisecond*500)
 				if err != nil {
 					log.WithError(err).Errorf("failed connecting to localhost on port %d scheme %s", port, scheme)
-					session = &common.Session{
-						Open: false,
+					// close the remote connection
+					resp := &pb.SocketDataRequest{
+						RequestId:   requestId.String(),
+						ShouldClose: true,
 					}
+					err := st.Send(resp)
+					if err != nil {
+						log.WithError(err).Errorf("failed sending close message to tunnel stream")
+					}
+
+					continue
 				} else {
 					session = common.NewSessionFromStream(requestId, conn)
 					go ReadFromSession(session, sessionsOut)
