@@ -88,10 +88,10 @@ func handleStreamData(conf *ClientConfig, m *pb.SocketDataResponse, session *com
 	}
 
 	data := m.GetData()
-	conf.log.WithField("session", session.Id).Infof("received %d bytes from server", len(data))
+	conf.log.WithField("session", session.Id).Debugf("received %d bytes from server", len(data))
 	if len(data) > 0 {
 		session.Lock.Lock()
-		conf.log.WithField("session", session.Id).Infof("wrote %d bytes to conn", len(data))
+		conf.log.WithField("session", session.Id).Debugf("wrote %d bytes to conn", len(data))
 		_, err := session.Conn.Write(data)
 		session.Lock.Unlock()
 		if err != nil {
