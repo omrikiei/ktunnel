@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 
@@ -115,6 +116,9 @@ func readConn(session *common.Session, sessions chan<- *common.Session) {
 
 		session.Lock.Lock()
 		if err != nil {
+			if err == io.EOF {
+				return
+			}
 			log.WithError(err).WithField("session", session.Id).Infof("failed to read from conn")
 
 			// setting Open to false triggers SendData() to
