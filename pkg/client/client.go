@@ -111,7 +111,7 @@ func ReadFromSession(conf *ClientConfig, session *common.Session, sessionsOut ch
 		br, err := conn.Read(buff)
 
 		if err != nil {
-			if err != io.EOF {
+			if err == io.EOF {
 				break
 			}
 
