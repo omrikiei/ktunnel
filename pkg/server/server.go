@@ -92,7 +92,7 @@ func ReceiveData(conf *ServerConfig, stream pb.Tunnel_InitTunnelServer, closeCha
 		conf.log.WithFields(log.Fields{
 			"session": session.Id,
 			"close":   message.ShouldClose,
-		}).Infof("received %d bytes from client", len(data))
+		}).Debugf("received %d bytes from client", len(data))
 
 		// send data if we received any
 		if br > 0 {
@@ -102,7 +102,7 @@ func ReceiveData(conf *ServerConfig, stream pb.Tunnel_InitTunnelServer, closeCha
 				conf.log.WithError(err).WithField("session", reqId).Errorf("failed writing data to socket")
 				message.ShouldClose = true
 			} else {
-				conf.log.WithField("session", reqId).Infof("wrote %d bytes to conn", br)
+				conf.log.WithField("session", reqId).Debugf("wrote %d bytes to conn", br)
 			}
 		}
 
