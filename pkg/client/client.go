@@ -53,10 +53,13 @@ loop:
 				conn, err := net.DialTimeout(strings.ToLower(scheme), fmt.Sprintf("localhost:%d", port), time.Millisecond*500)
 				if err != nil {
 					log.WithError(err).Errorf("failed connecting to localhost on port %d scheme %s", port, scheme)
-					break loop
+					session = &common.Session{
+						Open: false,
+					}
+				} else {
+					session = common.NewSessionFromStream(requestId, conn)
+					go ReadFromSession(session, sessionsOut)
 				}
-				session = common.NewSessionFromStream(requestId, conn)
-				go ReadFromSession(session, sessionsOut)
 			} else if m.ShouldClose {
 				session.Open = false
 			}
@@ -208,12 +211,13 @@ func RunClient(ctx context.Context, host *string, port *int, scheme string, tls 
 				err := stream.Send(req)
 				if err != nil {
 					log.WithError(err).Errorf("Failed to send initial tunnel request to server")
-				} else {
-					sessions := make(chan *common.Session)
-					go ReceiveData(ctx, stream, sessions, tunnelData.Target, scheme)
-					go SendData(ctx, stream, sessions)
-					<-ctx.Done()
+					return
 				}
+
+				sessions := make(chan *common.Session)
+				go ReceiveData(ctx, stream, sessions, tunnelData.Target, scheme)
+				go SendData(ctx, stream, sessions)
+				<-ctx.Done()
 			}
 
 		}()
