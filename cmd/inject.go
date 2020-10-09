@@ -1,18 +1,21 @@
 package cmd
 
 import (
-	"github.com/omrikiei/ktunnel/pkg/client"
-	"github.com/omrikiei/ktunnel/pkg/k8s"
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cobra"
+	"context"
 	"os"
 	"os/signal"
 	"strconv"
 	"sync"
 	"syscall"
+
+	"github.com/omrikiei/ktunnel/pkg/client"
+	"github.com/omrikiei/ktunnel/pkg/k8s"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
 )
 
 var Namespace string
+var ServerImage string
 
 var injectCmd = &cobra.Command{
 	Use:   "inject",
@@ -30,6 +33,7 @@ var injectDeploymentCmd = &cobra.Command{
 ktunnel inject deploymeny mydeployment 3306 6379
 `,
 	Run: func(cmd *cobra.Command, args []string) {
+		ctx, cancel := context.WithCancel(context.Background())
 		if Verbose {
 			log.SetLevel(log.DebugLevel)
 			k8s.Verbose = true
@@ -38,15 +42,13 @@ ktunnel inject deploymeny mydeployment 3306 6379
 		// Inject
 		deployment := args[0]
 		readyChan := make(chan bool, 1)
-		closeChan := make(chan bool, 1)
-		_, err := k8s.InjectSidecar(&Namespace, &deployment, &Port, readyChan)
+		_, err := k8s.InjectSidecar(&Namespace, &deployment, &Port, ServerImage, readyChan)
 		if err != nil {
 			log.Fatalf("failed injecting sidecar: %v", err)
 		}
 
 		// Signal hook to remove sidecar
 		sigs := make(chan os.Signal, 1)
-		done := make(chan bool, 1)
 		wg := &sync.WaitGroup{}
 		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
 		stopChan := make(chan struct{}, 1)
@@ -55,17 +57,15 @@ ktunnel inject deploymeny mydeployment 3306 6379
 			o.Do(func() {
 				<-sigs
 				log.Info("Stopping streams")
-				close(closeChan)
-				close(stopChan)
+				cancel()
 				wg.Wait()
 				readyChan = make(chan bool, 1)
-				ok, err := k8s.RemoveSidecar(&Namespace, &deployment, readyChan)
+				ok, err := k8s.RemoveSidecar(&Namespace, &deployment, ServerImage, readyChan)
 				if !ok {
 					log.Errorf("Failed removing tunnel sidecar; %v", err)
 				}
 				<-readyChan
 				log.Info("Finished, exiting")
-				close(done)
 			})
 		}()
 
@@ -89,13 +89,12 @@ ktunnel inject deploymeny mydeployment 3306 6379
 					log.Fatalf("Failed to run client: %v", err)
 				}
 				prt := int(p)
-				err = client.RunClient(&Host, &prt, Scheme, &Tls, &CaFile, &ServerHostOverride, args[1:], closeChan)
+				err = client.RunClient(ctx, &Host, &prt, Scheme, &Tls, &CaFile, &ServerHostOverride, args[1:])
 				if err != nil {
 					log.Fatalf("Failed to run client: %v", err)
 				}
 			}()
 		}
-		<-done
 	},
 }
 
@@ -108,6 +107,7 @@ func init() {
 	injectDeploymentCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	injectDeploymentCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	injectDeploymentCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
+	injectDeploymentCmd.Flags().StringVarP(&ServerImage, "server-image", "i", k8s.Image, "Ktunnel server image to use")
 	injectCmd.AddCommand(injectDeploymentCmd)
 	rootCmd.AddCommand(injectCmd)
 }

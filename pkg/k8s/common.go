@@ -1,6 +1,8 @@
 package k8s
 
 import (
+	"bytes"
+	"fmt"
 	log "github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
@@ -15,9 +17,13 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth/openstack"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/portforward"
+	"k8s.io/client-go/transport/spdy"
 	"k8s.io/client-go/util/homedir"
+	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,8 +31,16 @@ import (
 )
 
 const (
-	image = "quay.io/omrikiei/ktunnel:latest"
+	Image = "quay.io/omrikiei/ktunnel:latest"
 )
+
+type ByCreationTime []apiv1.Pod
+
+func (a ByCreationTime) Len() int { return len(a) }
+func (a ByCreationTime) Less(i, j int) bool {
+	return a[i].CreationTimestamp.After(a[j].CreationTimestamp.Time)
+}
+func (a ByCreationTime) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 
 var deploymentOnce = sync.Once{}
 var deploymentsClient v1.DeploymentInterface
@@ -63,7 +77,7 @@ func getClients(namespace *string) {
 	})
 }
 
-func getAllPods(namespace, deployment *string) (*apiv1.PodList, error) {
+func getAllPods(namespace *string) (*apiv1.PodList, error) {
 	getClients(namespace)
 	// TODO: filter pod list
 	pods, err := podsClient.List(metav1.ListOptions{})
@@ -73,24 +87,8 @@ func getAllPods(namespace, deployment *string) (*apiv1.PodList, error) {
 	return pods, nil
 }
 
-func waitForReady(name *string, ti *time.Time, numPods int32, readyChan chan<- bool) {
+func waitForReady(name *string, ti time.Time, numPods int32, readyChan chan<- bool) {
 	go func() {
-		/*
-			watcher, err := podsClient.Watch(metav1.ListOptions{
-				TypeMeta:            metav1.TypeMeta{
-					Kind: "pod",
-				},
-				Watch:               true,
-			})
-			if err != nil {
-				return
-			}
-
-			for e := range watcher.ResultChan(){
-				if e.Type == watch.Deleted {
-					break
-				}
-			}*/
 		for {
 			count := int32(0)
 			pods, err := podsClient.List(metav1.ListOptions{})
@@ -99,10 +97,10 @@ func waitForReady(name *string, ti *time.Time, numPods int32, readyChan chan<- b
 				os.Exit(1)
 			}
 			for _, p := range pods.Items {
-				if strings.HasPrefix(p.Name, *name) && p.CreationTimestamp.After(*ti) && p.Status.Phase == apiv1.PodRunning {
+				if strings.HasPrefix(p.Name, *name) && p.CreationTimestamp.After(ti) && p.Status.Phase == apiv1.PodRunning {
 					count += 1
 				}
-				if count >= numPods {
+				if count == numPods {
 					readyChan <- true
 					break
 				}
@@ -112,7 +110,7 @@ func waitForReady(name *string, ti *time.Time, numPods int32, readyChan chan<- b
 	}()
 }
 
-func hasSidecar(podSpec apiv1.PodSpec) bool {
+func hasSidecar(podSpec apiv1.PodSpec, image string) bool {
 	for _, c := range podSpec.Containers {
 		if c.Image == image {
 			return true
@@ -121,7 +119,7 @@ func hasSidecar(podSpec apiv1.PodSpec) bool {
 	return false
 }
 
-func newContainer(port int) *apiv1.Container {
+func newContainer(port int, image string) *apiv1.Container {
 	args := []string{"server", "-p", strconv.FormatInt(int64(port), 10)}
 	if Verbose == true {
 		args = append(args, "-v")
@@ -139,20 +137,20 @@ func newContainer(port int) *apiv1.Container {
 		Args:    args,
 		Resources: apiv1.ResourceRequirements{
 			Requests: apiv1.ResourceList{
-				"cpu": cpuRequest,
+				"cpu":    cpuRequest,
 				"memory": memRequest,
 			},
 			Limits: apiv1.ResourceList{
-				"cpu": cpuLimit,
+				"cpu":    cpuLimit,
 				"memory": memLimit,
 			},
 		},
 	}
 }
 
-func newDeployment(namespace, name string, port int) *appsv1.Deployment {
+func newDeployment(namespace, name string, port int, image string) *appsv1.Deployment {
 	replicas := int32(1)
-	co := newContainer(port)
+	co := newContainer(port, image)
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
@@ -205,4 +203,91 @@ func newService(namespace, name string, ports []apiv1.ServicePort) *apiv1.Servic
 			},
 		},
 	}
+}
+
+func getPodNames(namespace, deploymentName *string, podsPtr *[]string) error {
+	allPods, err := getAllPods(namespace)
+	if err != nil {
+		return err
+	}
+	pods := *podsPtr
+	matchinePods := ByCreationTime{}
+	pIndex := 0
+	for _, p := range allPods.Items {
+		if pIndex >= len(pods) {
+			log.Info("All pods located for port-forwarding")
+			break
+		}
+		if strings.HasPrefix(p.Name, *deploymentName) && p.Status.Phase == apiv1.PodRunning {
+			matchinePods = append(matchinePods, p)
+		}
+	}
+	sort.Sort(matchinePods)
+	for i := 0; i < len(pods); i++ {
+		pods[i] = matchinePods[i].Name
+	}
+
+	return nil
+
+}
+
+func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGroup *sync.WaitGroup, stopChan <-chan struct{}) (*[]string, error) {
+	getClients(namespace)
+
+	out, errOut := new(bytes.Buffer), new(bytes.Buffer)
+	deployment, err := deploymentsClient.Get(*deploymentName, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	podNames := make([]string, *deployment.Spec.Replicas)
+	err = getPodNames(namespace, deploymentName, &podNames)
+	fwdWaitGroup.Add(int(*deployment.Spec.Replicas))
+
+	if err != nil {
+		return nil, err
+	}
+	log.Debugf("Injecting to this pods: %v", podNames)
+	sourcePorts := make([]string, *deployment.Spec.Replicas)
+	numPort, err := strconv.ParseInt(targetPort, 10, 32)
+	if err != nil {
+		return nil, err
+	}
+	for i := 0; i < len(sourcePorts); i++ {
+		sourcePorts[i] = strconv.FormatInt(numPort+int64(i), 10)
+	}
+	for i, podName := range podNames {
+		readyChan := make(chan struct{}, 1)
+		ports := []string{fmt.Sprintf("%s:%s", sourcePorts[i], targetPort)}
+		serverURL := getPortForwardUrl(kubeconfig, *namespace, podName)
+
+		transport, upgrader, err := spdy.RoundTripperFor(kubeconfig)
+		if err != nil {
+			return nil, err
+		}
+		dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, serverURL)
+
+		forwarder, err := portforward.New(dialer, ports, stopChan, readyChan, out, errOut)
+		if err != nil {
+			log.Error(err)
+		}
+
+		go func() {
+			for range readyChan { // Kubernetes will close this channel when it has something to tell us.
+			}
+			if len(errOut.String()) != 0 {
+				log.Error(errOut.String())
+			} else if len(out.String()) != 0 {
+				log.Info(out.String())
+				if strings.HasPrefix(out.String(), "Forwarding") {
+					fwdWaitGroup.Done()
+				}
+			}
+		}()
+		go func() {
+			if err = forwarder.ForwardPorts(); err != nil { // Locks until stopChan is closed.
+				log.Error(err)
+			}
+		}()
+	}
+	return &sourcePorts, nil
 }
