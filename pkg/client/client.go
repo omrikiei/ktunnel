@@ -3,8 +3,8 @@ package client
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -150,7 +150,11 @@ func SendData(ctx context.Context, conf *ClientConfig, stream pb.Tunnel_InitTunn
 			session.Lock.Lock()
 			bys := session.Buf.Len()
 			bytes := make([]byte, bys)
-			session.Buf.Read(bytes)
+			_, err := session.Buf.Read(bytes)
+			if err != nil {
+				conf.log.WithError(err).Errorf("failed reading stream from session %v, exiting", err)
+				return
+			}
 
 			conf.log.WithField("session", session.Id).Debugf("read %d from buffer out of %d available", len(bytes), bys)
 
@@ -165,7 +169,7 @@ func SendData(ctx context.Context, conf *ClientConfig, stream pb.Tunnel_InitTunn
 				"session": session.Id,
 				"close":   resp.ShouldClose,
 			}).Debugf("sending %d bytes to server", len(bytes))
-			err := stream.Send(resp)
+			err = stream.Send(resp)
 			if err != nil {
 				conf.log.WithError(err).Errorf("failed sending message to tunnel stream, exiting")
 				return
@@ -250,7 +254,7 @@ func processArgs(opts []ClientOption) (*ClientConfig, error) {
 	// default arguments
 	opt := &ClientConfig{
 		log: &log.Logger{
-			Out: ioutil.Discard,
+			Out: os.Stdout,
 		},
 		scheme: "tcp",
 		TLS:    false,

@@ -40,7 +40,11 @@ ktunnel server -p 8181
 				cancel()
 			})
 		}()
-		err := server.RunServer(ctx, &Port, &Tls, &KeyFile, &CertFile)
+		config := []server.ServerOption{server.WithPort(Port)}
+		if CertFile != "" && KeyFile != "" {
+			config = append(config, server.WithTLS(CertFile, KeyFile))
+		}
+		err := server.RunServer(ctx, config...)
 		if err != nil {
 			log.Fatalf("Error running server: %v", err)
 		}

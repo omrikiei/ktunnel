@@ -45,7 +45,14 @@ ktunnel client --host ktunnel-server.yourcompany.com -s tcp 8000 8001:8432
 			})
 		}()
 
-		err := client.RunClient(ctx, &Host, &Port, Scheme, &Tls, &CaFile, &ServerHostOverride, args)
+		opts := []client.ClientOption{
+			client.WithServer(Host, Port),
+			client.WithTunnels(Scheme, args...),
+			client.WithTLS(CertFile, ServerHostOverride),
+
+		}
+
+		err := client.RunClient(ctx, opts...)
 		if err != nil {
 			log.Fatalf("Failed to run client: %v", err)
 		}

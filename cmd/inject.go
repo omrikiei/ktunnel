@@ -89,7 +89,14 @@ ktunnel inject deploymeny mydeployment 3306 6379
 					log.Fatalf("Failed to run client: %v", err)
 				}
 				prt := int(p)
-				err = client.RunClient(ctx, &Host, &prt, Scheme, &Tls, &CaFile, &ServerHostOverride, args[1:])
+				opts := []client.ClientOption{
+					client.WithServer(Host, prt),
+					client.WithTunnels(Scheme, args[1:]...),
+				}
+				if Tls {
+					opts = append(opts, client.WithTLS(CertFile, ServerHostOverride))
+				}
+				err = client.RunClient(ctx, opts...)
 				if err != nil {
 					log.Fatalf("Failed to run client: %v", err)
 				}

@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net"
+	"os"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -243,7 +244,7 @@ func RunServer(ctx context.Context, opts ...ServerOption) error {
 	// handle context cancellation, shut down the server
 	go func() {
 		<-ctx.Done()
-		lis.Close()
+		_ = lis.Close()
 	}()
 
 	grpcServer := grpc.NewServer(grpcOpts...)
@@ -257,7 +258,7 @@ func processArgs(opts []ServerOption) (*ServerConfig, error) {
 	opt := &ServerConfig{
 		port: 5000,
 		log: &log.Logger{
-			Out: ioutil.Discard,
+			Out: os.Stdout,
 		},
 		TLS: false,
 	}
