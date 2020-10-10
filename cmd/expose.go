@@ -29,8 +29,8 @@ ktunnel expose redis 6379
               `,
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx, cancel := context.WithCancel(context.Background())
-		if Verbose {
-			log.SetLevel(log.DebugLevel)
+		if verbose {
+			logger.SetLevel(log.DebugLevel)
 			k8s.Verbose = true
 		}
 		o := sync.Once{}
@@ -38,7 +38,7 @@ ktunnel expose redis 6379
 		// Create service and deployment
 		svcName, ports := args[0], args[1:]
 		readyChan := make(chan bool, 1)
-		err := k8s.ExposeAsService(&Namespace, &svcName, Port, Scheme, ports, ServerImage, readyChan)
+		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, ServerImage, readyChan)
 		if err != nil {
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
 		}
@@ -64,8 +64,8 @@ ktunnel expose redis 6379
 		log.Info("waiting for deployment to be ready")
 		<-readyChan
 
-		// Port-Forward
-		strPort := strconv.FormatInt(int64(Port), 10)
+		// port-Forward
+		strPort := strconv.FormatInt(int64(port), 10)
 		stopChan := make(chan struct{}, 1)
 		// Create a tunnel client for each replica
 		sourcePorts, err := k8s.PortForward(&Namespace, &svcName, strPort, wg, stopChan)
@@ -85,8 +85,9 @@ ktunnel expose redis 6379
 				opts := []client.ClientOption{
 					client.WithServer(Host, prt),
 					client.WithTunnels(Scheme, args[1:]...),
+					client.WithLogger(&logger),
 				}
-				if Tls {
+				if tls {
 					opts = append(opts, client.WithTLS(CertFile, ServerHostOverride))
 				}
 				err = client.RunClient(ctx, opts...)

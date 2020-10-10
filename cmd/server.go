@@ -25,8 +25,8 @@ ktunnel server -p 8181
 `,
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx, cancel := context.WithCancel(context.Background())
-		if Verbose {
-			log.SetLevel(log.DebugLevel)
+		if verbose {
+			logger.SetLevel(log.DebugLevel)
 		}
 		o := sync.Once{}
 		// Run tunnel client and establish connection
@@ -40,8 +40,8 @@ ktunnel server -p 8181
 				cancel()
 			})
 		}()
-		config := []server.ServerOption{server.WithPort(Port)}
-		if CertFile != "" && KeyFile != "" {
+		config := []server.ServerOption{server.WithPort(port), server.WithLogger(&logger),}
+		if tls {
 			config = append(config, server.WithTLS(CertFile, KeyFile))
 		}
 		err := server.RunServer(ctx, config...)
@@ -52,8 +52,7 @@ ktunnel server -p 8181
 }
 
 func init() {
-	serverCmd.Flags().StringVar(&CertFile, "cert", "", "tls certificate file")
-	serverCmd.Flags().StringVar(&KeyFile, "key", "", "tls key file")
-	serverCmd.PersistentFlags().BoolVarP(&Verbose, "verbose", "v", false, "Emit debug logs")
+	serverCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
+	serverCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
 	rootCmd.AddCommand(serverCmd)
 }

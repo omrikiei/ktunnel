@@ -3,8 +3,8 @@ package client
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
-	"os"
 	"strings"
 	"time"
 
@@ -23,17 +23,17 @@ type Message struct {
 	d *[]byte
 }
 
-func ReceiveData(ctx context.Context, conf *ClientConfig, st pb.Tunnel_InitTunnelClient, sessionsOut chan<- *common.Session, port int32, scheme string) {
+func ReceiveData(conf *ClientConfig, st pb.Tunnel_InitTunnelClient, sessionsOut chan<- *common.Session, port int32, scheme string) {
 loop:
 	for {
+		conf.log.Debugf("attempting to receive from stream")
+		m, err := st.Recv()
 		select {
-		case <-ctx.Done():
-			conf.log.WithError(ctx.Err()).Infof("closing listener on %d", port)
+		case <-st.Context().Done():
+			conf.log.WithError(st.Context().Err()).Infof("closing listener on %d", port)
 			_ = st.CloseSend()
 			break loop
 		default:
-			conf.log.Debugf("attempting to receive from stream")
-			m, err := st.Recv()
 			if err != nil {
 				conf.log.WithError(err).Warnf("error reading from stream")
 				break loop
@@ -105,44 +105,50 @@ func handleStreamData(conf *ClientConfig, m *pb.SocketDataResponse, session *com
 func ReadFromSession(conf *ClientConfig, session *common.Session, sessionsOut chan<- *common.Session) {
 	conn := session.Conn
 	conf.log.WithField("session", session.Id).Debugf("started reading conn")
+	buff := make([]byte, common.BufferSize)
 
+loop:
 	for {
-		buff := make([]byte, common.BufferSize)
 		br, err := conn.Read(buff)
+		select {
+		case <-session.Context.Done():
+			return
+		default:
+			if err != nil {
+				if err == io.EOF {
+					break loop
+				}
 
-		if err != nil {
-			if err == io.EOF {
-				break
+				conf.log.WithError(err).WithField("session", session.Id).Errorf("failed reading from socket")
+				session.Open = false
+				sessionsOut <- session
+				break loop
 			}
 
-			conf.log.WithError(err).WithField("session", session.Id).Errorf("failed reading from socket")
-			session.Open = false
+			conf.log.WithField("session", session.Id).WithError(err).Debugf("read %d bytes from conn", br)
+
+			session.Lock()
+			if br > 0 {
+				conf.log.WithField("session", session.Id).WithError(err).Debugf("wrote %d bytes to session buf", br)
+				_, err = session.Buf.Write(buff[0:br])
+			}
+			session.Unlock()
+
+			if err != nil {
+				conf.log.WithField("session", session.Id).WithError(err).Errorf("failed writing to session buffer")
+				break loop
+			}
 			sessionsOut <- session
-			break
 		}
 
-		conf.log.WithField("session", session.Id).WithError(err).Debugf("read %d bytes from conn", br)
-
-		session.Lock()
-		if br > 0 {
-			conf.log.WithField("session", session.Id).WithError(err).Debugf("wrote %d bytes to session buf", br)
-			_, err = session.Buf.Write(buff[0:br])
-		}
-		session.Unlock()
-
-		if err != nil {
-			conf.log.WithField("session", session.Id).WithError(err).Errorf("failed writing to session buffer")
-			break
-		}
-		sessionsOut <- session
 	}
 	conf.log.WithField("session", session.Id).Debugf("finished reading session")
 }
 
-func SendData(ctx context.Context, conf *ClientConfig, stream pb.Tunnel_InitTunnelClient, sessions <-chan *common.Session) {
+func SendData(conf *ClientConfig, stream pb.Tunnel_InitTunnelClient, sessions <-chan *common.Session) {
 	for {
 		select {
-		case <-ctx.Done():
+		case <-stream.Context().Done():
 			return
 		case session := <-sessions:
 			// read the bytes from the buffer
@@ -238,8 +244,8 @@ func RunClient(ctx context.Context, opts ...ClientOption) error {
 				}
 
 				sessions := make(chan *common.Session)
-				go ReceiveData(ctx, conf, stream, sessions, tunnelData.Target, conf.scheme)
-				go SendData(ctx, conf, stream, sessions)
+				go ReceiveData(conf, stream, sessions, tunnelData.Target, conf.scheme)
+				go SendData(conf, stream, sessions)
 			}
 		}()
 	}
@@ -254,9 +260,7 @@ func processArgs(opts []ClientOption) (*ClientConfig, error) {
 	// default arguments
 	opt := &ClientConfig{
 		log: &log.Logger{
-			Out: os.Stdout,
-			Level: log.InfoLevel,
-			Formatter: &log.TextFormatter{},
+			Out: ioutil.Discard,
 		},
 		scheme: "tcp",
 		TLS:    false,

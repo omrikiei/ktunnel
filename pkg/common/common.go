@@ -2,12 +2,14 @@ package common
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -22,16 +24,22 @@ type Session struct {
 	Id   uuid.UUID
 	Conn net.Conn
 	Buf  bytes.Buffer
+	Context context.Context
+	cancelFunc context.CancelFunc
 	Open bool
 	sync.Mutex
 }
 
 func (s *Session) Close() {
+	s.cancelFunc()
 	if s.Conn != nil {
 		_ = s.Conn.Close()
 		s.Open = false
 	}
-	openSessions.Delete(s.Id)
+	go func() {
+		<-time.After(5*time.Second)
+		openSessions.Delete(s.Id)
+	}()
 }
 
 type RedirectRequest struct {
@@ -40,9 +48,12 @@ type RedirectRequest struct {
 }
 
 func NewSession(conn net.Conn) *Session {
+	ctx, cancel := context.WithCancel(context.Background())
 	r := &Session{
 		Id:   uuid.New(),
 		Conn: conn,
+		Context: ctx,
+		cancelFunc: cancel,
 		Buf:  bytes.Buffer{},
 		Open: true,
 	}
@@ -51,9 +62,12 @@ func NewSession(conn net.Conn) *Session {
 }
 
 func NewSessionFromStream(id uuid.UUID, conn net.Conn) *Session {
+	ctx, cancel := context.WithCancel(context.Background())
 	r := &Session{
 		Id:   id,
 		Conn: conn,
+		Context: ctx,
+		cancelFunc: cancel,
 		Buf:  bytes.Buffer{},
 		Open: true,
 	}

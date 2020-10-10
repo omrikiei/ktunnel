@@ -34,15 +34,15 @@ ktunnel inject deploymeny mydeployment 3306 6379
 `,
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx, cancel := context.WithCancel(context.Background())
-		if Verbose {
-			log.SetLevel(log.DebugLevel)
+		if verbose {
+			logger.SetLevel(log.DebugLevel)
 			k8s.Verbose = true
 		}
 		o := sync.Once{}
 		// Inject
 		deployment := args[0]
 		readyChan := make(chan bool, 1)
-		_, err := k8s.InjectSidecar(&Namespace, &deployment, &Port, ServerImage, readyChan)
+		_, err := k8s.InjectSidecar(&Namespace, &deployment, &port, ServerImage, readyChan)
 		if err != nil {
 			log.Fatalf("failed injecting sidecar: %v", err)
 		}
@@ -72,8 +72,8 @@ ktunnel inject deploymeny mydeployment 3306 6379
 		log.Info("Waiting for deployment to be ready")
 		<-readyChan
 
-		// Port-Forward
-		strPort := strconv.FormatInt(int64(Port), 10)
+		// port-Forward
+		strPort := strconv.FormatInt(int64(port), 10)
 		// Create a tunnel client for each replica
 		sourcePorts, err := k8s.PortForward(&Namespace, &deployment, strPort, wg, stopChan)
 		if err != nil {
@@ -92,8 +92,9 @@ ktunnel inject deploymeny mydeployment 3306 6379
 				opts := []client.ClientOption{
 					client.WithServer(Host, prt),
 					client.WithTunnels(Scheme, args[1:]...),
+					client.WithLogger(&logger),
 				}
-				if Tls {
+				if tls {
 					opts = append(opts, client.WithTLS(CertFile, ServerHostOverride))
 				}
 				err = client.RunClient(ctx, opts...)
@@ -110,7 +111,7 @@ func init() {
 	injectCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	injectCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	injectCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
-	injectDeploymentCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
+	injectDeploymentCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "tls cert auth file")
 	injectDeploymentCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	injectDeploymentCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	injectDeploymentCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
