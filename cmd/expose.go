@@ -1,15 +1,17 @@
 package cmd
 
 import (
-	"github.com/omrikiei/ktunnel/pkg/client"
-	"github.com/omrikiei/ktunnel/pkg/k8s"
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cobra"
+	"context"
 	"os"
 	"os/signal"
 	"strconv"
 	"sync"
 	"syscall"
+
+	"github.com/omrikiei/ktunnel/pkg/client"
+	"github.com/omrikiei/ktunnel/pkg/k8s"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
 )
 
 var exposeCmd = &cobra.Command{
@@ -26,22 +28,23 @@ ktunnel expose kewlapp 80:8000
 ktunnel expose redis 6379
               `,
 	Run: func(cmd *cobra.Command, args []string) {
-		if Verbose {
-			log.SetLevel(log.DebugLevel)
+		ctx, cancel := context.WithCancel(context.Background())
+		if verbose {
+			logger.SetLevel(log.DebugLevel)
 			k8s.Verbose = true
 		}
 		o := sync.Once{}
+
 		// Create service and deployment
 		svcName, ports := args[0], args[1:]
 		readyChan := make(chan bool, 1)
-		err := k8s.ExposeAsService(&Namespace, &svcName, Port, Scheme, ports, readyChan)
+		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, ServerImage, readyChan)
 		if err != nil {
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
 		}
 		sigs := make(chan os.Signal, 1)
 		wg := &sync.WaitGroup{}
 		done := make(chan bool, 1)
-		closeChan := make(chan bool, 1)
 		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
 
 		// Teardown
@@ -49,7 +52,7 @@ ktunnel expose redis 6379
 			o.Do(func() {
 				_ = <-sigs
 				log.Info("Got exit signal, closing client tunnels and removing k8s objects")
-				close(closeChan)
+				cancel()
 				err := k8s.TeardownExposedService(Namespace, svcName)
 				if err != nil {
 					log.Errorf("Failed deleting k8s objects: %s", err)
@@ -61,8 +64,8 @@ ktunnel expose redis 6379
 		log.Info("waiting for deployment to be ready")
 		<-readyChan
 
-		// Port-Forward
-		strPort := strconv.FormatInt(int64(Port), 10)
+		// port-Forward
+		strPort := strconv.FormatInt(int64(port), 10)
 		stopChan := make(chan struct{}, 1)
 		// Create a tunnel client for each replica
 		sourcePorts, err := k8s.PortForward(&Namespace, &svcName, strPort, wg, stopChan)
@@ -79,7 +82,15 @@ ktunnel expose redis 6379
 					log.Fatalf("Failed to run client: %v", err)
 				}
 				prt := int(p)
-				err = client.RunClient(&Host, &prt, Scheme, &Tls, &CaFile, &ServerHostOverride, args[1:], closeChan)
+				opts := []client.ClientOption{
+					client.WithServer(Host, prt),
+					client.WithTunnels(Scheme, args[1:]...),
+					client.WithLogger(&logger),
+				}
+				if tls {
+					opts = append(opts, client.WithTLS(CertFile, ServerHostOverride))
+				}
+				err = client.RunClient(ctx, opts...)
 				if err != nil {
 					log.Fatalf("Failed to run client: %v", err)
 				}
@@ -94,5 +105,6 @@ func init() {
 	exposeCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	exposeCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	exposeCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
+	exposeCmd.Flags().StringVarP(&ServerImage, "server-image", "i", k8s.Image, "Ktunnel server image to use")
 	rootCmd.AddCommand(exposeCmd)
 }

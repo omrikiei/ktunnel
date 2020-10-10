@@ -1,6 +1,12 @@
 package cmd
 
 import (
+	"context"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+
 	"github.com/omrikiei/ktunnel/pkg/server"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -18,10 +24,27 @@ var serverCmd = &cobra.Command{
 ktunnel server -p 8181
 `,
 	Run: func(cmd *cobra.Command, args []string) {
-		if Verbose {
-			log.SetLevel(log.DebugLevel)
+		ctx, cancel := context.WithCancel(context.Background())
+		if verbose {
+			logger.SetLevel(log.DebugLevel)
 		}
-		err := server.RunServer(&Port, &Tls, &KeyFile, &CertFile)
+		o := sync.Once{}
+		// Run tunnel client and establish connection
+
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
+		go func() {
+			o.Do(func() {
+				_ = <-sigs
+				log.Info("Got exit signal, closing client tunnels")
+				cancel()
+			})
+		}()
+		config := []server.ServerOption{server.WithPort(port), server.WithLogger(&logger),}
+		if tls {
+			config = append(config, server.WithTLS(CertFile, KeyFile))
+		}
+		err := server.RunServer(ctx, config...)
 		if err != nil {
 			log.Fatalf("Error running server: %v", err)
 		}
@@ -29,8 +52,7 @@ ktunnel server -p 8181
 }
 
 func init() {
-	serverCmd.Flags().StringVar(&CertFile, "cert", "", "tls certificate file")
-	serverCmd.Flags().StringVar(&KeyFile, "key", "", "tls key file")
-	serverCmd.PersistentFlags().BoolVarP(&Verbose, "verbose", "v", false, "Emit debug logs")
+	serverCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
+	serverCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
 	rootCmd.AddCommand(serverCmd)
 }

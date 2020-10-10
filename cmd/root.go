@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 
 	log "github.com/sirupsen/logrus"
@@ -10,12 +9,12 @@ import (
 )
 
 const (
-	version = "1.2.8b"
+	version = "1.3.0"
 )
 
-var Port int
-var Tls bool
-var Verbose bool
+var port int
+var tls bool
+var verbose bool
 
 var rootCmd = &cobra.Command{
 	Use:     "ktunnel",
@@ -25,6 +24,16 @@ var rootCmd = &cobra.Command{
 	Args:    cobra.MinimumNArgs(1),
 }
 
+var logger = log.Logger{
+	Out:       os.Stdout,
+	Formatter: &log.TextFormatter{
+		ForceColors:     true,
+		FullTimestamp:   true,
+		TimestampFormat: "2006-01-02 15:04:05.000",
+	},
+	Level:     log.InfoLevel,
+}
+
 func Execute() {
 	if genDoc := os.Getenv("GEN_DOC"); genDoc == "true" {
 		err := doc.GenMarkdownTree(rootCmd, "./docs")
@@ -32,21 +41,16 @@ func Execute() {
 			log.Errorf("Failed generating docs: %v", err)
 		}
 	}
-	log.SetFormatter(&log.TextFormatter{
-		ForceColors:     true,
-		FullTimestamp:   true,
-		TimestampFormat: "2006-01-02 15:04:05",
-	})
 
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
+		logger.WithError(err).Errorf("error executing command")
 		os.Exit(1)
 	}
 }
 
 func init() {
-	rootCmd.PersistentFlags().IntVarP(&Port, "port", "p", 28688, "The port to use to establish the tunnel")
-	rootCmd.PersistentFlags().BoolVarP(&Tls, "tls", "t", false, "Connection uses TLS if true, else plain TCP")
-	rootCmd.PersistentFlags().BoolVarP(&Verbose, "verbose", "v", false, "Emit debug logs")
+	rootCmd.PersistentFlags().IntVarP(&port, "port", "p", 28688, "The port to use to establish the tunnel")
+	rootCmd.PersistentFlags().BoolVarP(&tls, "tls", "t", false, "Connection uses tls if true, else plain TCP")
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose mode")
 	_ = rootCmd.MarkFlagRequired("port")
 }

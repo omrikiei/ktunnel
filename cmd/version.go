@@ -15,7 +15,7 @@ var versionCmd = &cobra.Command{
 	Short: "Print the version number of Ktunnel",
 	Long:  `All software has versions. This is Ktunnel's`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if Verbose {
+		if verbose {
 			log.SetLevel(log.DebugLevel)
 		}
 		fmt.Println(version)

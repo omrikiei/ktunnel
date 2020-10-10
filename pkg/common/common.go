@@ -2,22 +2,44 @@ package common
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/google/uuid"
 )
+
+const (
+   BufferSize = 1024 * 3
+)
+
+var openSessions = sync.Map{}
 
 type Session struct {
 	Id   uuid.UUID
 	Conn net.Conn
 	Buf  bytes.Buffer
+	Context context.Context
+	cancelFunc context.CancelFunc
 	Open bool
-	Lock sync.RWMutex
+	sync.Mutex
+}
+
+func (s *Session) Close() {
+	s.cancelFunc()
+	if s.Conn != nil {
+		_ = s.Conn.Close()
+		s.Open = false
+	}
+	go func() {
+		<-time.After(5*time.Second)
+		openSessions.Delete(s.Id)
+	}()
 }
 
 type RedirectRequest struct {
@@ -26,34 +48,34 @@ type RedirectRequest struct {
 }
 
 func NewSession(conn net.Conn) *Session {
+	ctx, cancel := context.WithCancel(context.Background())
 	r := &Session{
 		Id:   uuid.New(),
 		Conn: conn,
+		Context: ctx,
+		cancelFunc: cancel,
 		Buf:  bytes.Buffer{},
 		Open: true,
 	}
-	ok, err := AddSession(r)
-	if ok != true {
-		log.Printf("%s; failed registering request: %v", r.Id.String(), err)
-	}
+	addSession(r)
 	return r
 }
 
 func NewSessionFromStream(id uuid.UUID, conn net.Conn) *Session {
+	ctx, cancel := context.WithCancel(context.Background())
 	r := &Session{
 		Id:   id,
 		Conn: conn,
+		Context: ctx,
+		cancelFunc: cancel,
 		Buf:  bytes.Buffer{},
 		Open: true,
 	}
-	ok, err := AddSession(r)
-	if ok != true {
-		log.Errorf("%s; failed registering request: %v", r.Id.String(), err)
-	}
+	addSession(r)
 	return r
 }
 
-func AddSession(r *Session) (bool, error) {
+func addSession(r *Session) (bool, error) {
 	if _, ok := GetSession(r.Id); ok != false {
 		return false, errors.New(fmt.Sprintf("Session %s already exists", r.Id.String()))
 	}
@@ -67,21 +89,6 @@ func GetSession(id uuid.UUID) (*Session, bool) {
 		return request.(*Session), ok
 	}
 	return nil, ok
-}
-
-var openSessions = sync.Map{}
-
-func CloseSession(id uuid.UUID) (bool, error) {
-	session, ok := GetSession(id)
-	if ok == false {
-		return true, nil
-	}
-	session.Lock.Lock()
-	conn := session.Conn
-	err := conn.Close()
-	session.Lock.Unlock()
-	openSessions.Delete(id)
-	return true, err
 }
 
 func ParsePorts(s string) (*RedirectRequest, error) {

@@ -1,11 +1,13 @@
 package cmd
 
 import (
-	"github.com/omrikiei/ktunnel/pkg/client"
+	"context"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
+
+	"github.com/omrikiei/ktunnel/pkg/client"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -26,24 +28,32 @@ var clientCmd = &cobra.Command{
 ktunnel client --host ktunnel-server.yourcompany.com -s tcp 8000 8001:8432
 	`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if Verbose {
-			log.SetLevel(log.DebugLevel)
+		ctx, cancel := context.WithCancel(context.Background())
+		if verbose {
+			logger.SetLevel(log.DebugLevel)
 		}
 		o := sync.Once{}
-		closeChan := make(chan bool, 1)
 		// Run tunnel client and establish connection
 
 		sigs := make(chan os.Signal, 1)
 		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
-
 		go func() {
 			o.Do(func() {
 				_ = <-sigs
 				log.Info("Got exit signal, closing client tunnels")
-				close(closeChan)
+				cancel()
 			})
 		}()
-		err := client.RunClient(&Host, &Port, Scheme, &Tls, &CaFile, &ServerHostOverride, args, closeChan)
+
+		opts := []client.ClientOption{
+			client.WithServer(Host, port),
+			client.WithTunnels(Scheme, args...),
+			client.WithLogger(&logger),
+			client.WithTLS(CertFile, ServerHostOverride),
+
+		}
+
+		err := client.RunClient(ctx, opts...)
 		if err != nil {
 			log.Fatalf("Failed to run client: %v", err)
 		}
@@ -55,6 +65,5 @@ func init() {
 	clientCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
 	clientCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	clientCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
-	clientCmd.PersistentFlags().BoolVarP(&Verbose, "verbose", "v", false, "Emit debug logs")
 	rootCmd.AddCommand(clientCmd)
 }
