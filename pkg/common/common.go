@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	BufferSize = 1024 * 3
+   BufferSize = 1024 * 3
 )
 
 var openSessions = sync.Map{}
@@ -23,7 +23,7 @@ type Session struct {
 	Conn net.Conn
 	Buf  bytes.Buffer
 	Open bool
-	Lock sync.Mutex
+	sync.Mutex
 }
 
 func (s *Session) Close() {

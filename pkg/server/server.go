@@ -36,7 +36,7 @@ func SendData(conf *ServerConfig, stream pb.Tunnel_InitTunnelServer, sessions <-
 
 		// read the bytes from the buffer
 		// but allow it to keep growing while we send the response
-		session.Lock.Lock()
+		session.Lock()
 		bys := session.Buf.Len()
 		bytes := make([]byte, bys)
 		session.Buf.Read(bytes)
@@ -48,7 +48,7 @@ func SendData(conf *ServerConfig, stream pb.Tunnel_InitTunnelServer, sessions <-
 			RequestId:   session.Id.String(),
 			ShouldClose: !session.Open,
 		}
-		session.Lock.Unlock()
+		session.Unlock()
 
 		conf.log.WithFields(log.Fields{
 			"session": session.Id,
@@ -122,7 +122,7 @@ func readConn(conf *ServerConfig, session *common.Session, sessions chan<- *comm
 		br, err := session.Conn.Read(buff)
 		conf.log.WithError(err).Infof("read %d bytes from conn", br)
 
-		session.Lock.Lock()
+		session.Lock()
 		if err != nil {
 			if err == io.EOF {
 				return
@@ -138,7 +138,7 @@ func readConn(conf *ServerConfig, session *common.Session, sessions chan<- *comm
 		if br > 0 {
 			session.Buf.Write(buff[0:br])
 		}
-		session.Lock.Unlock()
+		session.Unlock()
 
 		sessions <- session
 		if session.Open == false {
@@ -258,6 +258,8 @@ func processArgs(opts []ServerOption) (*ServerConfig, error) {
 		port: 5000,
 		log: &log.Logger{
 			Out: os.Stdout,
+			Level: log.InfoLevel,
+			Formatter: &log.TextFormatter{},
 		},
 		TLS: false,
 	}

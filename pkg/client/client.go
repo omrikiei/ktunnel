@@ -90,10 +90,10 @@ func handleStreamData(conf *ClientConfig, m *pb.SocketDataResponse, session *com
 	data := m.GetData()
 	conf.log.WithField("session", session.Id).Debugf("received %d bytes from server", len(data))
 	if len(data) > 0 {
-		session.Lock.Lock()
+		session.Lock()
 		conf.log.WithField("session", session.Id).Debugf("wrote %d bytes to conn", len(data))
 		_, err := session.Conn.Write(data)
-		session.Lock.Unlock()
+		session.Unlock()
 		if err != nil {
 			conf.log.WithError(err).WithField("session", session.Id).Errorf("failed writing to socket, closing session")
 			session.Close()
@@ -123,12 +123,12 @@ func ReadFromSession(conf *ClientConfig, session *common.Session, sessionsOut ch
 
 		conf.log.WithField("session", session.Id).WithError(err).Debugf("read %d bytes from conn", br)
 
-		session.Lock.Lock()
+		session.Lock()
 		if br > 0 {
 			conf.log.WithField("session", session.Id).WithError(err).Debugf("wrote %d bytes to session buf", br)
 			_, err = session.Buf.Write(buff[0:br])
 		}
-		session.Lock.Unlock()
+		session.Unlock()
 
 		if err != nil {
 			conf.log.WithField("session", session.Id).WithError(err).Errorf("failed writing to session buffer")
@@ -147,7 +147,7 @@ func SendData(ctx context.Context, conf *ClientConfig, stream pb.Tunnel_InitTunn
 		case session := <-sessions:
 			// read the bytes from the buffer
 			// but allow it to keep growing while we send the response
-			session.Lock.Lock()
+			session.Lock()
 			bys := session.Buf.Len()
 			bytes := make([]byte, bys)
 			_, err := session.Buf.Read(bytes)
@@ -163,7 +163,7 @@ func SendData(ctx context.Context, conf *ClientConfig, stream pb.Tunnel_InitTunn
 				Data:        bytes,
 				ShouldClose: !session.Open,
 			}
-			session.Lock.Unlock()
+			session.Unlock()
 
 			conf.log.WithFields(log.Fields{
 				"session": session.Id,
@@ -255,6 +255,8 @@ func processArgs(opts []ClientOption) (*ClientConfig, error) {
 	opt := &ClientConfig{
 		log: &log.Logger{
 			Out: os.Stdout,
+			Level: log.InfoLevel,
+			Formatter: &log.TextFormatter{},
 		},
 		scheme: "tcp",
 		TLS:    false,
@@ -291,7 +293,9 @@ func WithServer(host string, p int) ClientOption {
 // tls hostname override.
 func WithTLS(cert, tlsHostOverride string) ClientOption {
 	return func(opt *ClientConfig) error {
-		opt.TLS = true
+		if opt.certFile != "" {
+			opt.TLS = true
+		}
 		opt.certFile = cert
 		opt.tlsHostOverride = tlsHostOverride
 		return nil
