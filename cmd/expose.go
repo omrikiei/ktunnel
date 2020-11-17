@@ -84,7 +84,7 @@ ktunnel expose redis 6379
 				prt := int(p)
 				opts := []client.ClientOption{
 					client.WithServer(Host, prt),
-					client.WithTunnels(Scheme, args[1:]...),
+					client.WithTunnels(Scheme, ports...),
 					client.WithLogger(&logger),
 				}
 				if tls {

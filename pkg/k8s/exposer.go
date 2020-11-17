@@ -35,7 +35,7 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 			Port:     parsed.Source,
 			TargetPort: intstr.IntOrString{
 				Type:   intstr.Int,
-				IntVal: parsed.Target,
+				IntVal: parsed.Source,
 				StrVal: "",
 			},
 		}
