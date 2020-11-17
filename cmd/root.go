@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	version = "1.3.0"
+	version = "1.3.1"
 )
 
 var port int
@@ -25,13 +25,13 @@ var rootCmd = &cobra.Command{
 }
 
 var logger = log.Logger{
-	Out:       os.Stdout,
+	Out: os.Stdout,
 	Formatter: &log.TextFormatter{
 		ForceColors:     true,
 		FullTimestamp:   true,
 		TimestampFormat: "2006-01-02 15:04:05.000",
 	},
-	Level:     log.InfoLevel,
+	Level: log.InfoLevel,
 }
 
 func Execute() {
