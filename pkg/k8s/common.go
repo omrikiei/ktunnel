@@ -46,26 +46,29 @@ var deploymentOnce = sync.Once{}
 var deploymentsClient v1.DeploymentInterface
 var podsClient v12.PodInterface
 var svcClient v12.ServiceInterface
-var kubeconfig = getKubeConfig()
+var kubeconfig *rest.Config
+var o = sync.Once{}
 var Verbose = false
 
 func getKubeConfig() *rest.Config {
-	kconfig := os.Getenv("KUBECONFIG")
-	if home := homedir.HomeDir(); kconfig == "" && home != "" {
-		kconfig = filepath.Join(home, ".kube", "config")
-	}
+	o.Do(func(){
+		kconfig := os.Getenv("KUBECONFIG")
+		if home := homedir.HomeDir(); kconfig == "" && home != "" {
+			kconfig = filepath.Join(home, ".kube", "config")
+		}
 
-	config, err := clientcmd.BuildConfigFromFlags("", kconfig)
-	if err != nil {
-		log.Errorf("Failed getting kubernetes config: %v", err)
-		return nil
-	}
-	return config
+		config, err := clientcmd.BuildConfigFromFlags("", kconfig)
+		if err != nil {
+			log.Errorf("Failed getting kubernetes config: %v", err)
+		}
+		kubeconfig = config
+	})
+	return kubeconfig
 }
 
 func getClients(namespace *string) {
 	deploymentOnce.Do(func() {
-		clientset, err := kubernetes.NewForConfig(kubeconfig)
+		clientset, err := kubernetes.NewForConfig(getKubeConfig())
 		if err != nil {
 			log.Errorf("Failed to get k8s client: %v", err)
 			os.Exit(1)
@@ -258,9 +261,9 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 	for i, podName := range podNames {
 		readyChan := make(chan struct{}, 1)
 		ports := []string{fmt.Sprintf("%s:%s", sourcePorts[i], targetPort)}
-		serverURL := getPortForwardUrl(kubeconfig, *namespace, podName)
+		serverURL := getPortForwardUrl(getKubeConfig(), *namespace, podName)
 
-		transport, upgrader, err := spdy.RoundTripperFor(kubeconfig)
+		transport, upgrader, err := spdy.RoundTripperFor(getKubeConfig())
 		if err != nil {
 			return nil, err
 		}

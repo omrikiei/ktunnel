@@ -47,6 +47,8 @@ ktunnel inject deploymeny mydeployment 3306 6379
 			log.Fatalf("failed injecting sidecar: %v", err)
 		}
 
+		done := make(chan bool, 1)
+
 		// Signal hook to remove sidecar
 		sigs := make(chan os.Signal, 1)
 		wg := &sync.WaitGroup{}
@@ -66,6 +68,8 @@ ktunnel inject deploymeny mydeployment 3306 6379
 				}
 				<-readyChan
 				log.Info("Finished, exiting")
+				done <- true
+
 			})
 		}()
 
@@ -103,6 +107,7 @@ ktunnel inject deploymeny mydeployment 3306 6379
 				}
 			}()
 		}
+		_ = <-done
 	},
 }
 
