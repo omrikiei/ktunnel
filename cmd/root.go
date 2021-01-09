@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	version = "1.3.3b"
+	version = "1.3.3-beta"
 )
 
 var port int
