@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	Image = "quay.io/omrikiei/ktunnel:latest"
+	Image = "quay.io/omrikiei/ktunnel"
 )
 
 type ByCreationTime []apiv1.Pod

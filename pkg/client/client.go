@@ -115,11 +115,13 @@ loop:
 			return
 		default:
 			if err != nil {
-				if err == io.EOF {
-					break loop
+				if err != io.EOF {
+					conf.log.WithError(err).WithField("session", session.Id).Errorf("failed reading from socket")
+
+				} else {
+					conf.log.WithField("session", session.Id).Debugf("got EOF from connection")
 				}
 
-				conf.log.WithError(err).WithField("session", session.Id).Errorf("failed reading from socket")
 				session.Open = false
 				sessionsOut <- session
 				break loop

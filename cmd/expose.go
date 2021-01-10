@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"strconv"
@@ -105,6 +106,6 @@ func init() {
 	exposeCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	exposeCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	exposeCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
-	exposeCmd.Flags().StringVarP(&ServerImage, "server-image", "i", k8s.Image, "Ktunnel server image to use")
+	exposeCmd.Flags().StringVarP(&ServerImage, "server-image", "i", fmt.Sprintf("%s:v%s", k8s.Image, version), "Ktunnel server image to use")
 	rootCmd.AddCommand(exposeCmd)
 }
