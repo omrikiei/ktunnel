@@ -12,7 +12,7 @@ import (
 
 var supportedSchemes = map[string]v12.Protocol{
 	"tcp": v12.ProtocolTCP,
-	"ufp": v12.ProtocolUDP,
+	"udp": v12.ProtocolUDP,
 }
 
 func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, rawPorts []string, image string, readyChan chan<- bool) error {
