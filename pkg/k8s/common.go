@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
@@ -21,6 +22,7 @@ import (
 	"k8s.io/client-go/transport/spdy"
 	"k8s.io/client-go/util/homedir"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -83,7 +85,7 @@ func getClients(namespace *string) {
 func getAllPods(namespace *string) (*apiv1.PodList, error) {
 	getClients(namespace)
 	// TODO: filter pod list
-	pods, err := podsClient.List(metav1.ListOptions{})
+	pods, err := podsClient.List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +96,7 @@ func waitForReady(name *string, ti time.Time, numPods int32, readyChan chan<- bo
 	go func() {
 		for {
 			count := int32(0)
-			pods, err := podsClient.List(metav1.ListOptions{})
+			pods, err := podsClient.List(context.Background(), metav1.ListOptions{})
 			if err != nil {
 				log.Error(err)
 				os.Exit(1)
@@ -238,7 +240,7 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 	getClients(namespace)
 
 	out, errOut := new(bytes.Buffer), new(bytes.Buffer)
-	deployment, err := deploymentsClient.Get(*deploymentName, metav1.GetOptions{})
+	deployment, err := deploymentsClient.Get(context.Background(), *deploymentName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -267,6 +269,7 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 		if err != nil {
 			return nil, err
 		}
+		log.Infof("port forwarding to %s", serverURL)
 		dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, serverURL)
 
 		forwarder, err := portforward.New(dialer, ports, stopChan, readyChan, out, errOut)
@@ -278,7 +281,8 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 			for range readyChan { // Kubernetes will close this channel when it has something to tell us.
 			}
 			if len(errOut.String()) != 0 {
-				log.Error(errOut.String())
+				log.Errorf("Failed forwarding. %s", errOut.String())
+				fwdWaitGroup.Done()
 			} else if len(out.String()) != 0 {
 				log.Info(out.String())
 				if strings.HasPrefix(out.String(), "Forwarding") {
@@ -293,4 +297,20 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 		}()
 	}
 	return &sourcePorts, nil
+}
+
+func getPortForwardUrl(config *rest.Config, namespace string, podName string) *url.URL {
+	host := strings.TrimPrefix(config.Host, "https://")
+	trailingHostPath := strings.Split(host, "/")
+	hostIp := trailingHostPath[0]
+	trailingPath := ""
+	if len(trailingHostPath) > 1 && trailingHostPath[1] != "" {
+		trailingPath = fmt.Sprintf("/%s/", strings.Join(trailingHostPath[1:], "/"))
+	}
+	path := fmt.Sprintf("%sapi/v1/namespaces/%s/pods/%s/portforward", trailingPath, namespace, podName)
+	return &url.URL{
+		Scheme: "https",
+		Path:   path,
+		Host:   hostIp,
+	}
 }

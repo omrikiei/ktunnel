@@ -1,15 +1,13 @@
 package k8s
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/rest"
-	"net/url"
-	"strings"
 	"time"
 )
 
@@ -20,7 +18,11 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 		return true, nil
 	}
 	o.Spec.Template.Spec.Containers = append(o.Spec.Template.Spec.Containers, *c)
-	_, updateErr := deploymentsClient.Update(o)
+	_, updateErr := deploymentsClient.Update(context.Background(), o, metav1.UpdateOptions{
+		TypeMeta:     metav1.TypeMeta{},
+		DryRun:       nil,
+		FieldManager: "",
+	})
 	if updateErr != nil {
 		return false, updateErr
 	}
@@ -32,7 +34,7 @@ func InjectSidecar(namespace, objectName *string, port *int, image string, ready
 	getClients(namespace)
 	co := newContainer(*port, image)
 	creationTime := time.Now().Add(-1 * time.Second)
-	obj, err := deploymentsClient.Get(*objectName, metav1.GetOptions{})
+	obj, err := deploymentsClient.Get(context.Background(), *objectName, metav1.GetOptions{})
 	if err != nil {
 		return false, err
 	}
@@ -72,7 +74,7 @@ func removeFromSpec(s *apiv1.PodSpec, image string) (bool, error) {
 func RemoveSidecar(namespace, objectName *string, image string, readyChan chan<- bool) (bool, error) {
 	log.Infof("Removing tunnel sidecar from %s/%s", *namespace, *objectName)
 	getClients(namespace)
-	obj, err := deploymentsClient.Get(*objectName, metav1.GetOptions{})
+	obj, err := deploymentsClient.Get(context.Background(), *objectName, metav1.GetOptions{})
 	if err != nil {
 		return false, err
 	}
@@ -81,26 +83,14 @@ func RemoveSidecar(namespace, objectName *string, image string, readyChan chan<-
 	if err != nil {
 		return false, err
 	}
-	_, updateErr := deploymentsClient.Update(obj)
+	_, updateErr := deploymentsClient.Update(context.Background(), obj, metav1.UpdateOptions{
+		TypeMeta:     metav1.TypeMeta{},
+		DryRun:       nil,
+		FieldManager: "",
+	})
 	if updateErr != nil {
 		return false, updateErr
 	}
 	waitForReady(objectName, deletionTime, *obj.Spec.Replicas, readyChan)
 	return true, nil
-}
-
-func getPortForwardUrl(config *rest.Config, namespace string, podName string) *url.URL {
-	host := strings.TrimPrefix(config.Host, "https://")
-	trailingHostPath := strings.Split(host, "/")
-	hostIp := trailingHostPath[0]
-	trailingPath := ""
-	if len(trailingHostPath) > 1 {
-		trailingPath = fmt.Sprintf("/%s", strings.Join(trailingHostPath[1:], "/"))
-	}
-	path := fmt.Sprintf("%s/api/v1/namespaces/%s/pods/%s/portforward", trailingPath, namespace, podName)
-	return &url.URL{
-		Scheme: "https",
-		Path:   path,
-		Host:   hostIp,
-	}
 }
