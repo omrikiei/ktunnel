@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"context"
 	"errors"
 	"github.com/omrikiei/ktunnel/pkg/common"
 	log "github.com/sirupsen/logrus"
@@ -43,11 +44,19 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 
 	service := newService(*namespace, *name, ports)
 	creationTime := time.Now().Add(-1 * time.Second)
-	_, err := deploymentsClient.Create(deployment)
+	_, err := deploymentsClient.Create(context.Background(), deployment, v1.CreateOptions{
+		TypeMeta:     v1.TypeMeta{},
+		DryRun:       nil,
+		FieldManager: "",
+	})
 	if err != nil {
 		return err
 	}
-	newSvc, err := svcClient.Create(service)
+	newSvc, err := svcClient.Create(context.Background(), service, v1.CreateOptions{
+		TypeMeta:     v1.TypeMeta{},
+		DryRun:       nil,
+		FieldManager: "",
+	})
 	if err != nil {
 		return err
 	}
@@ -59,12 +68,12 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 func TeardownExposedService(namespace, name string) error {
 	getClients(&namespace)
 	log.Infof("Deleting service %s", name)
-	err := svcClient.Delete(name, &v1.DeleteOptions{})
+	err := svcClient.Delete(context.Background(), name, v1.DeleteOptions{})
 	if err != nil {
 		return err
 	}
 	log.Infof("Deleting deployment %s", name)
-	err = deploymentsClient.Delete(name, &v1.DeleteOptions{})
+	err = deploymentsClient.Delete(context.Background(), name, v1.DeleteOptions{})
 	if err != nil {
 		return err
 	}
