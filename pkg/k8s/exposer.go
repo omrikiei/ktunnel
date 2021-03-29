@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/omrikiei/ktunnel/pkg/common"
 	log "github.com/sirupsen/logrus"
 	v12 "k8s.io/api/core/v1"
@@ -18,9 +19,9 @@ var supportedSchemes = map[string]v12.Protocol{
 
 func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, rawPorts []string, image string, readyChan chan<- bool) error {
 	getClients(namespace)
-	deployment := newDeployment(*namespace, *name, tunnelPort, image)
 
 	ports := make([]v12.ServicePort, len(rawPorts))
+	ctrPorts := make([]v12.ContainerPort, len(ports))
 	protocol, ok := supportedSchemes[scheme]
 	if ok == false {
 		return errors.New("unsupported scheme")
@@ -31,8 +32,10 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 			log.Errorf("Failed to parse %s, skipping", p)
 			continue
 		}
+		portname := fmt.Sprintf("%s-%d", scheme, parsed.Source)
 		ports[i] = v12.ServicePort{
 			Protocol: protocol,
+			Name:     portname,
 			Port:     parsed.Source,
 			TargetPort: intstr.IntOrString{
 				Type:   intstr.Int,
@@ -40,7 +43,14 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 				StrVal: "",
 			},
 		}
+		ctrPorts[i] = v12.ContainerPort{
+			ContainerPort: parsed.Source,
+			Protocol:      protocol,
+			Name:          portname,
+		}
 	}
+
+	deployment := newDeployment(*namespace, *name, tunnelPort, image, ctrPorts)
 
 	service := newService(*namespace, *name, ports)
 	creationTime := time.Now().Add(-1 * time.Second)

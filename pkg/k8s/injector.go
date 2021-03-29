@@ -32,7 +32,7 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 func InjectSidecar(namespace, objectName *string, port *int, image string, readyChan chan<- bool) (bool, error) {
 	log.Infof("Injecting tunnel sidecar to %s/%s", *namespace, *objectName)
 	getClients(namespace)
-	co := newContainer(*port, image)
+	co := newContainer(*port, image, []apiv1.ContainerPort{})
 	creationTime := time.Now().Add(-1 * time.Second)
 	obj, err := deploymentsClient.Get(context.Background(), *objectName, metav1.GetOptions{})
 	if err != nil {
