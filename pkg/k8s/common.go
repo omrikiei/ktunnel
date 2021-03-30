@@ -53,7 +53,7 @@ var o = sync.Once{}
 var Verbose = false
 
 func getKubeConfig() *rest.Config {
-	o.Do(func(){
+	o.Do(func() {
 		kconfig := os.Getenv("KUBECONFIG")
 		if home := homedir.HomeDir(); kconfig == "" && home != "" {
 			kconfig = filepath.Join(home, ".kube", "config")
@@ -124,7 +124,7 @@ func hasSidecar(podSpec apiv1.PodSpec, image string) bool {
 	return false
 }
 
-func newContainer(port int, image string) *apiv1.Container {
+func newContainer(port int, image string, containerPorts []apiv1.ContainerPort) *apiv1.Container {
 	args := []string{"server", "-p", strconv.FormatInt(int64(port), 10)}
 	if Verbose == true {
 		args = append(args, "-v")
@@ -140,6 +140,7 @@ func newContainer(port int, image string) *apiv1.Container {
 		Image:   image,
 		Command: []string{"/ktunnel/ktunnel"},
 		Args:    args,
+		Ports:   containerPorts,
 		Resources: apiv1.ResourceRequirements{
 			Requests: apiv1.ResourceList{
 				"cpu":    cpuRequest,
@@ -153,9 +154,9 @@ func newContainer(port int, image string) *apiv1.Container {
 	}
 }
 
-func newDeployment(namespace, name string, port int, image string) *appsv1.Deployment {
+func newDeployment(namespace, name string, port int, image string, ports []apiv1.ContainerPort) *appsv1.Deployment {
 	replicas := int32(1)
-	co := newContainer(port, image)
+	co := newContainer(port, image, ports)
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
@@ -199,6 +200,10 @@ func newService(namespace, name string, ports []apiv1.ServicePort) *apiv1.Servic
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":     name,
+				"app.kubernetes.io/instance": name,
+			},
 		},
 		Spec: apiv1.ServiceSpec{
 			Ports: ports,
