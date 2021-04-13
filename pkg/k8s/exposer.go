@@ -9,7 +9,6 @@ import (
 	v12 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"time"
 )
 
 var supportedSchemes = map[string]v12.Protocol{
@@ -53,8 +52,7 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 	deployment := newDeployment(*namespace, *name, tunnelPort, image, ctrPorts)
 
 	service := newService(*namespace, *name, ports)
-	creationTime := time.Now().Add(-1 * time.Second)
-	_, err := deploymentsClient.Create(context.Background(), deployment, v1.CreateOptions{
+	d, err := deploymentsClient.Create(context.Background(), deployment, v1.CreateOptions{
 		TypeMeta:     v1.TypeMeta{},
 		DryRun:       nil,
 		FieldManager: "",
@@ -71,7 +69,7 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 		return err
 	}
 	log.Infof("Exposed service's cluster ip is: %s", newSvc.Spec.ClusterIP)
-	waitForReady(name, creationTime, *deployment.Spec.Replicas, readyChan)
+	waitForReady(name, d.GetCreationTimestamp().Time, *deployment.Spec.Replicas, readyChan)
 	return nil
 }
 

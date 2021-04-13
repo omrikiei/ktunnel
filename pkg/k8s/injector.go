@@ -8,7 +8,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"time"
 )
 
 func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, readyChan chan<- bool) (bool, error) {
@@ -26,6 +25,7 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 	if updateErr != nil {
 		return false, updateErr
 	}
+	waitForReady(&o.Name, o.GetCreationTimestamp().Time, *o.Spec.Replicas, readyChan)
 	return true, nil
 }
 
@@ -33,7 +33,6 @@ func InjectSidecar(namespace, objectName *string, port *int, image string, ready
 	log.Infof("Injecting tunnel sidecar to %s/%s", *namespace, *objectName)
 	getClients(namespace)
 	co := newContainer(*port, image, []apiv1.ContainerPort{})
-	creationTime := time.Now().Add(-1 * time.Second)
 	obj, err := deploymentsClient.Get(context.Background(), *objectName, metav1.GetOptions{})
 	if err != nil {
 		return false, err
@@ -45,8 +44,6 @@ func InjectSidecar(namespace, objectName *string, port *int, image string, ready
 	if err != nil {
 		return false, err
 	}
-
-	waitForReady(objectName, creationTime, *obj.Spec.Replicas, readyChan)
 	return true, nil
 }
 
@@ -78,12 +75,11 @@ func RemoveSidecar(namespace, objectName *string, image string, readyChan chan<-
 	if err != nil {
 		return false, err
 	}
-	deletionTime := time.Now().Add(-1 * time.Second)
 	_, err = removeFromSpec(&obj.Spec.Template.Spec, image)
 	if err != nil {
 		return false, err
 	}
-	_, updateErr := deploymentsClient.Update(context.Background(), obj, metav1.UpdateOptions{
+	u, updateErr := deploymentsClient.Update(context.Background(), obj, metav1.UpdateOptions{
 		TypeMeta:     metav1.TypeMeta{},
 		DryRun:       nil,
 		FieldManager: "",
@@ -91,6 +87,6 @@ func RemoveSidecar(namespace, objectName *string, image string, readyChan chan<-
 	if updateErr != nil {
 		return false, updateErr
 	}
-	waitForReady(objectName, deletionTime, *obj.Spec.Replicas, readyChan)
+	waitForReady(objectName, u.GetCreationTimestamp().Time, *obj.Spec.Replicas, readyChan)
 	return true, nil
 }
