@@ -2,21 +2,21 @@
 class Ktunnel < Formula
   desc "Network tunneling tool for kubernetes."
   homepage "https://github.com/omrikiei/ktunnel"
-  version "1.3.6"
+  version "1.3.7"
   bottle :unneeded
 
   if OS.mac?
-    url "https://github.com/omrikiei/ktunnel/releases/download/v1.3.6/ktunnel_1.3.6_Darwin_x86_64.tar.gz"
-    sha256 "1c7d1d51610418bdfc3664db78a23d3c05d34b632a370e2e5dd4e6ff8d6335e7"
+    url "https://github.com/omrikiei/ktunnel/releases/download/v1.3.7/ktunnel_1.3.7_Darwin_x86_64.tar.gz"
+    sha256 "a84eb1c9bfed902c3062b93261604f18fa0a2ea9d17e468af61800bda7c009a8"
   elsif OS.linux?
     if Hardware::CPU.intel?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.3.6/ktunnel_1.3.6_Linux_x86_64.tar.gz"
-      sha256 "0f79fd64eea7f56bf8fec71d28e55841e8b983a3cf63b3fd1b40c1ef053f7e3d"
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.3.7/ktunnel_1.3.7_Linux_x86_64.tar.gz"
+      sha256 "b1d8274353c9ba12bc5a3bce7282b8bea91a02be455226994023a8bcbc2db2b1"
     end
     if Hardware::CPU.arm?
       if Hardware::CPU.is_64_bit?
-        url "https://github.com/omrikiei/ktunnel/releases/download/v1.3.6/ktunnel_1.3.6_Linux_arm64.tar.gz"
-        sha256 "88eb631dc1ad8bffe2b584f7a14f40213b7beb7c17ccdeff8194958e8bcff123"
+        url "https://github.com/omrikiei/ktunnel/releases/download/v1.3.7/ktunnel_1.3.7_Linux_arm64.tar.gz"
+        sha256 "786bfb871f597a9763cd62093fe5a74ff49378bca02fb7b790566b2b35463e74"
       else
       end
     end
