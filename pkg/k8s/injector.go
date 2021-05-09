@@ -25,7 +25,8 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 	if updateErr != nil {
 		return false, updateErr
 	}
-	waitForReady(&o.Name, o.GetCreationTimestamp().Time, *o.Spec.Replicas, readyChan)
+	numContainers := len(o.Spec.Template.Spec.Containers)
+	waitForReady(&o.Name, o.GetCreationTimestamp().Time, numContainers, *o.Spec.Replicas, readyChan)
 	return true, nil
 }
 
@@ -87,6 +88,7 @@ func RemoveSidecar(namespace, objectName *string, image string, readyChan chan<-
 	if updateErr != nil {
 		return false, updateErr
 	}
-	waitForReady(objectName, u.GetCreationTimestamp().Time, *obj.Spec.Replicas, readyChan)
+	numContainers := len(obj.Spec.Template.Spec.Containers)
+	waitForReady(objectName, u.GetCreationTimestamp().Time, numContainers, *obj.Spec.Replicas, readyChan)
 	return true, nil
 }

@@ -69,7 +69,8 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 		return err
 	}
 	log.Infof("Exposed service's cluster ip is: %s", newSvc.Spec.ClusterIP)
-	waitForReady(name, d.GetCreationTimestamp().Time, *deployment.Spec.Replicas, readyChan)
+	numContainers := len(deployment.Spec.Template.Spec.Containers)
+	waitForReady(name, d.GetCreationTimestamp().Time, numContainers, *deployment.Spec.Replicas, readyChan)
 	return nil
 }
 

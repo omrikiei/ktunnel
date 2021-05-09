@@ -92,10 +92,9 @@ func getAllPods(namespace *string) (*apiv1.PodList, error) {
 	return pods, nil
 }
 
-func waitForReady(name *string, ti time.Time, numPods int32, readyChan chan<- bool) {
+func waitForReady(name *string, ti time.Time, numContainers int, numPods int32, readyChan chan<- bool) {
 	go func() {
 		for {
-			print(".")
 			count := int32(0)
 			pods, err := podsClient.List(context.Background(), metav1.ListOptions{})
 			if err != nil {
@@ -103,15 +102,17 @@ func waitForReady(name *string, ti time.Time, numPods int32, readyChan chan<- bo
 				os.Exit(1)
 			}
 			for _, p := range pods.Items {
-				if strings.HasPrefix(p.Name, *name) && p.CreationTimestamp.After(ti.Add(-time.Second)) && p.Status.Phase == apiv1.PodRunning {
+				if strings.HasPrefix(p.Name, *name) && p.CreationTimestamp.After(ti.Add(-time.Second)) &&
+					p.Status.Phase == apiv1.PodRunning && len(p.Spec.Containers) == numContainers {
 					count += 1
 				}
 				if count == numPods {
-					readyChan <- true
 					println()
+					readyChan <- true
 					return
 				}
 			}
+			print(".")
 			time.Sleep(time.Millisecond * 300)
 		}
 	}()
