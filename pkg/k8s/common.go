@@ -4,6 +4,16 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
 	log "github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
@@ -21,15 +31,6 @@ import (
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
 	"k8s.io/client-go/util/homedir"
-	"net/http"
-	"net/url"
-	"os"
-	"path/filepath"
-	"sort"
-	"strconv"
-	"strings"
-	"sync"
-	"time"
 )
 
 const (
@@ -320,4 +321,48 @@ func getPortForwardUrl(config *rest.Config, namespace string, podName string) *u
 		Path:   path,
 		Host:   hostIp,
 	}
+}
+
+func watchForReady(deploymentName *string, readyChan chan<- bool) {
+	go func() {
+		for {
+			deployment, err := deploymentsClient.Get(context.Background(), *deploymentName, metav1.GetOptions{})
+			if err != nil {
+				log.Error(err)
+				os.Exit(1)
+			}
+			msg, done, err := deploymentStatus(deployment)
+			print(msg)
+			if done {
+				readyChan <- true
+				return
+			} else if err != nil {
+				log.Error(err)
+				os.Exit(1)
+			}
+			time.Sleep(time.Millisecond * 300)
+		}
+	}()
+}
+
+func deploymentStatus(deployment *appsv1.Deployment) (string, bool, error) {
+	if deployment.Generation <= deployment.Status.ObservedGeneration {
+		for _, cond := range deployment.Status.Conditions {
+			if cond.Type == "ProgressDeadlineExceeded" {
+				return "", false, fmt.Errorf("deployment %q exceeded its progress deadline", deployment.Name)
+			}
+		}
+
+		if deployment.Spec.Replicas != nil && deployment.Status.UpdatedReplicas < *deployment.Spec.Replicas {
+			return fmt.Sprintf("Waiting for deployment %q rollout to finish: %d out of %d new replicas have been updated...\n", deployment.Name, deployment.Status.UpdatedReplicas, *deployment.Spec.Replicas), false, nil
+		}
+		if deployment.Status.Replicas > deployment.Status.UpdatedReplicas {
+			return fmt.Sprintf("Waiting for deployment %q rollout to finish: %d old replicas are pending termination...\n", deployment.Name, deployment.Status.Replicas-deployment.Status.UpdatedReplicas), false, nil
+		}
+		if deployment.Status.AvailableReplicas < deployment.Status.UpdatedReplicas {
+			return fmt.Sprintf("Waiting for deployment %q rollout to finish: %d of %d updated replicas are available...\n", deployment.Name, deployment.Status.AvailableReplicas, deployment.Status.UpdatedReplicas), false, nil
+		}
+		return fmt.Sprintf("deployment %q successfully rolled out\n", deployment.Name), true, nil
+	}
+	return fmt.Sprintf("Waiting for deployment spec update to be observed...\n"), false, nil
 }
