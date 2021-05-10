@@ -75,7 +75,12 @@ ktunnel inject deploymeny mydeployment 3306 6379
 		}()
 
 		log.Info("Waiting for deployment to be ready")
-		<-readyChan
+		success := <-readyChan
+		if !success {
+			sigs <- syscall.SIGQUIT
+			<-done
+			return
+		}
 
 		// port-Forward
 		strPort := strconv.FormatInt(int64(port), 10)

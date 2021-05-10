@@ -328,19 +328,26 @@ func watchForReady(deploymentName *string, readyChan chan<- bool) {
 		for {
 			deployment, err := deploymentsClient.Get(context.Background(), *deploymentName, metav1.GetOptions{})
 			if err != nil {
-				log.Error(err)
-				os.Exit(1)
+				log.Errorf("Failed fetching deployment; %v", err)
+				readyChan <- false
+				return
 			}
 			msg, done, err := deploymentStatus(deployment)
-			print(msg)
+
 			if done {
+				print("\n")
+				log.Info(msg)
 				readyChan <- true
 				return
 			} else if err != nil {
-				log.Error(err)
-				os.Exit(1)
+				print("\n")
+				log.Errorf("Failed deploying tunnel sidecar; %v", err)
+				readyChan <- false
+				return
+			} else {
+				print(".")
+				time.Sleep(time.Millisecond * 300)
 			}
-			time.Sleep(time.Millisecond * 300)
 		}
 	}()
 }
