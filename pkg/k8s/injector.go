@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
-
 	log "github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
@@ -19,7 +17,6 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 		return true, nil
 	}
 	o.Spec.Template.Spec.Containers = append(o.Spec.Template.Spec.Containers, *c)
-	ti := time.Now()
 	_, updateErr := deploymentsClient.Update(context.Background(), o, metav1.UpdateOptions{
 		TypeMeta:     metav1.TypeMeta{},
 		DryRun:       nil,
@@ -28,7 +25,7 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 	if updateErr != nil {
 		return false, updateErr
 	}
-	waitForReady(&o.Name, ti, *o.Spec.Replicas, readyChan)
+	waitForReady(&o.Name, o.GetCreationTimestamp().Time, *o.Spec.Replicas, readyChan)
 	return true, nil
 }
 
@@ -82,8 +79,7 @@ func RemoveSidecar(namespace, objectName *string, image string, readyChan chan<-
 	if err != nil {
 		return false, err
 	}
-	ti := time.Now()
-	_, updateErr := deploymentsClient.Update(context.Background(), obj, metav1.UpdateOptions{
+	u, updateErr := deploymentsClient.Update(context.Background(), obj, metav1.UpdateOptions{
 		TypeMeta:     metav1.TypeMeta{},
 		DryRun:       nil,
 		FieldManager: "",
@@ -91,6 +87,6 @@ func RemoveSidecar(namespace, objectName *string, image string, readyChan chan<-
 	if updateErr != nil {
 		return false, updateErr
 	}
-	waitForReady(objectName, ti, *obj.Spec.Replicas, readyChan)
+	waitForReady(objectName, u.GetCreationTimestamp().Time, *obj.Spec.Replicas, readyChan)
 	return true, nil
 }
