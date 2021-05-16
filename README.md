@@ -21,13 +21,37 @@
 </p>
 
 ## 📝 Table of Contents
+- [Installation](#installation)
 - [About](#about)
-- [Getting Started](#getting_started)
 - [Usage](#usage)
-- [Documentation](./docs/ktunnel.md)
-- [Contributing](../CONTRIBUTING.md)
-- [Authors](#authors)
-- [Acknowledgments](#acknowledgement)
+- [Documentation](./docs/index.md)
+- [Authors](https://github.com/omrikiei/ktunnel/contributors)
+
+## 🏁 Installation <a name = "installation"></a>
+| Distribution                                        | Command / Link                                                                          |
+|-----------------------------------------------------|-----------------------------------------------------------------------------------------|
+| Pre-built binaries for macOS, Linux, and Windows    | [GitHub releases](https://github.com/omrikiei/ktunnel/releases)                         |
+| Homebrew  (macOS and Linux)                         | `brew tap omrikiei/ktunnel; brew install ktunnel`                                       |
+| [Krew](https://krew.sigs.k8s.io/)                   | `kubectl krew install tunnel`                                                           |
+
+### Building from source
+
+Clone the project
+```
+git clone https://github.com/omrikiei/ktunnel; cd ktunnel
+```
+Build the binary
+```
+CGO_ENABLED=0 go build -ldflags="-s -w"
+```
+You can them move it to your bin path
+```
+sudo mv ./ktunnel /usr/local/bin/ktunnel
+```
+Test the commamd
+```
+ktunnel -h
+```
 
 ## 🧐 About <a name = "about"></a>
 Ktunnel is a CLI tool that establishes a reverse tunnel between a kubernetes cluster and your local machine.
@@ -47,35 +71,6 @@ If you found this tool to be helpful on other scenarios, or have any suggesstion
 <img src="./docs/ktunnel diagram.png" alt="Ktunnel schema">
 </p>
 
-## 🏁 Getting Started <a name = "getting_started"></a>
-These instructions will get you a copy of the project up and running on your local machine for development and testing purposes. See [deployment](#deployment) for notes on how to deploy the project on a live system.
-
-### Installation
-#### Homebrew ####
-```
-brew tap omrikiei/ktunnel
-brew install ktunnel
-```
-#### From the releases page
-Download [here](https://github.com/omrikiei/ktunnel/releases/) and extract it to a local bin path
-#### Building from source
-Clone the project
-```
-git clone https://github.com/omrikiei/ktunnel; cd ktunnel
-```
-Build the binary
-```
-CGO_ENABLED=0 go build -ldflags="-s -w"
-```
-You can them move it to your bin path
-```
-sudo mv ./ktunnel /usr/local/bin/ktunnel
-```
-Test the commamd
-```
-ktunnel -h
-```
-
 ## 🎈 Usage <a name="usage"></a>
 ### Expose your local machine as a service in the cluster
 This will allow pods in the cluster to access your local web app (listening on port 8000) via 
@@ -90,7 +85,3 @@ This will currently only work for deployments with 1 replica - it will expose a 
 ktunnel inject deployment mydeployment 3306
 ``` 
 
-## ✍️ Authors <a name = "authors"></a>
-- [@omrikiei](https://github.com/omrikiei)
-
-See also the list of [contributors](https://github.com/omrikiei/ktunnel/contributors) who participated in this project.
