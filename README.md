@@ -31,7 +31,7 @@
 | Distribution                                        | Command / Link                                                                          |
 |-----------------------------------------------------|-----------------------------------------------------------------------------------------|
 | Pre-built binaries for macOS, Linux, and Windows    | [GitHub releases](https://github.com/omrikiei/ktunnel/releases)                         |
-| Homebrew  (macOS and Linux)                         | `brew tap omrikiei/ktunnel; brew install ktunnel`                                       |
+| Homebrew  (macOS and Linux)                         | `brew tap omrikiei/ktunnel && brew install ktunnel`                                     |
 | [Krew](https://krew.sigs.k8s.io/)                   | `kubectl krew install tunnel`                                                           |
 
 ### Building from source
