@@ -24,8 +24,7 @@
 - [Installation](#installation)
 - [About](#about)
 - [Usage](#usage)
-- [Documentation](./docs/ktunnel.md)
-- [Contributing](../CONTRIBUTING.md)
+- [Documentation](./docs/index.md)
 - [Authors](https://github.com/omrikiei/ktunnel/contributors)
 
 ## 🏁 Installation <a name = "installation"></a>
