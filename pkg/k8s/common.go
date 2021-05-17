@@ -328,12 +328,20 @@ func watchForReady(deployment *appsv1.Deployment, readyChan chan<- bool) {
 	go func() {
 		lastMsg := ""
 
-		maxUnavailable := deployment.Spec.Strategy.RollingUpdate.MaxUnavailable.IntValue()
-		if maxUnavailable > 0 {
-			log.Warnf("RollingUpdate.MaxUnavailable: %v. This may prevent deployment failures from being detected. Set to 0 to ensure ProgressDeadlineInSeconds is enforced.", maxUnavailable)
+		if deployment.Spec.Strategy.RollingUpdate != nil &&
+			deployment.Spec.Strategy.RollingUpdate.MaxUnavailable != nil {
+			maxUnavailable := deployment.Spec.Strategy.RollingUpdate.MaxUnavailable.IntValue()
+			if maxUnavailable > 0 {
+				log.Warnf("RollingUpdate.MaxUnavailable: %v. This may prevent deployment failures from being detected. Set to 0 to ensure ProgressDeadlineInSeconds is enforced.", maxUnavailable)
+			}
 		}
 
-		progressDeadlineSeconds := int64(*deployment.Spec.ProgressDeadlineSeconds)
+		//spec.progressDeadlineSeconds defaults to 600
+		progressDeadlineSeconds := int64(600)
+		if deployment.Spec.ProgressDeadlineSeconds != nil {
+			progressDeadlineSeconds = int64(*deployment.Spec.ProgressDeadlineSeconds)
+		}
+
 		log.Infof("ProgressDeadlineInSeconds is currently %vs. It may take this long to detect a deployment failure.", progressDeadlineSeconds)
 		progressDeadlineSeconds += 5
 
@@ -353,14 +361,13 @@ func watchForReady(deployment *appsv1.Deployment, readyChan chan<- bool) {
 			event, ok := <-resultChan
 			if !ok {
 				log.Error("Timeout exceeded waiting for deployment to be ready")
-				watch.Stop()
 				readyChan <- false
 				return
 			}
 
 			deployment, ok := event.Object.(*appsv1.Deployment)
 			if !ok {
-				log.Warn("Watch Received Not Deployment")
+				log.Warn("Watcher received event for non-deployment object")
 				continue
 			}
 
@@ -378,7 +385,7 @@ func watchForReady(deployment *appsv1.Deployment, readyChan chan<- bool) {
 				return
 			} else {
 				if lastMsg != msg {
-					log.Info(msg)
+					log.Debug(msg)
 				}
 				lastMsg = msg
 			}
