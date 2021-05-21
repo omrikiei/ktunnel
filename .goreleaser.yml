@@ -47,7 +47,7 @@ nfpms:
   # note that this is an array of nfpm configs
   -
     id: ktunnel
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     builds:
     - ktunnel
 
@@ -69,7 +69,7 @@ nfpms:
 
 brews:
   -
-    github:
+    tap:
       owner: omrikiei
       name: ktunnel
 
