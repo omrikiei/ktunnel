@@ -19,6 +19,7 @@ import (
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	v1 "k8s.io/client-go/kubernetes/typed/apps/v1"
 	v12 "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -323,30 +324,70 @@ func getPortForwardUrl(config *rest.Config, namespace string, podName string) *u
 	}
 }
 
-func watchForReady(deploymentName *string, readyChan chan<- bool) {
+func watchForReady(deployment *appsv1.Deployment, readyChan chan<- bool) {
 	go func() {
+		lastMsg := ""
+
+		if deployment.Spec.Strategy.RollingUpdate != nil &&
+			deployment.Spec.Strategy.RollingUpdate.MaxUnavailable != nil {
+			maxUnavailable := deployment.Spec.Strategy.RollingUpdate.MaxUnavailable.IntValue()
+			if maxUnavailable > 0 {
+				log.Warnf("RollingUpdate.MaxUnavailable: %v. This may prevent deployment failures from being detected. Set to 0 to ensure ProgressDeadlineInSeconds is enforced.", maxUnavailable)
+			}
+		}
+
+		//spec.progressDeadlineSeconds defaults to 600
+		progressDeadlineSeconds := int64(600)
+		if deployment.Spec.ProgressDeadlineSeconds != nil {
+			progressDeadlineSeconds = int64(*deployment.Spec.ProgressDeadlineSeconds)
+		}
+
+		log.Infof("ProgressDeadlineInSeconds is currently %vs. It may take this long to detect a deployment failure.", progressDeadlineSeconds)
+		progressDeadlineSeconds += 5
+
+		watch, err := deploymentsClient.Watch(context.Background(), metav1.ListOptions{
+			LabelSelector:  labels.Set(deployment.Labels).String(),
+			TimeoutSeconds: &progressDeadlineSeconds,
+		})
+
+		if err != nil {
+			log.Error(err)
+			readyChan <- false
+			return
+		}
+		resultChan := watch.ResultChan()
+
 		for {
-			deployment, err := deploymentsClient.Get(context.Background(), *deploymentName, metav1.GetOptions{})
-			if err != nil {
-				log.Errorf("Failed fetching deployment; %v", err)
+			event, ok := <-resultChan
+			if !ok {
+				log.Error("Timeout exceeded waiting for deployment to be ready")
 				readyChan <- false
 				return
 			}
+
+			deployment, ok := event.Object.(*appsv1.Deployment)
+			if !ok {
+				log.Warn("Watcher received event for non-deployment object")
+				continue
+			}
+
 			msg, done, err := deploymentStatus(deployment)
 
 			if done {
-				print("\n")
+				watch.Stop()
 				log.Info(msg)
 				readyChan <- true
 				return
 			} else if err != nil {
-				print("\n")
+				watch.Stop()
 				log.Errorf("Failed deploying tunnel sidecar; %v", err)
 				readyChan <- false
 				return
 			} else {
-				print(".")
-				time.Sleep(time.Millisecond * 300)
+				if lastMsg != msg {
+					log.Debug(msg)
+				}
+				lastMsg = msg
 			}
 		}
 	}()
@@ -354,8 +395,18 @@ func watchForReady(deploymentName *string, readyChan chan<- bool) {
 
 func deploymentStatus(deployment *appsv1.Deployment) (string, bool, error) {
 	if deployment.Generation <= deployment.Status.ObservedGeneration {
+		updateTime := time.Now()
+		for _, field := range deployment.ManagedFields {
+			if field.Manager == "kube-controller-manager" && field.Operation == "Update" {
+				updateTime = field.Time.Time
+			}
+		}
+
 		for _, cond := range deployment.Status.Conditions {
-			if cond.Type == "ProgressDeadlineExceeded" {
+			if cond.Type == appsv1.DeploymentProgressing &&
+				cond.Status == apiv1.ConditionFalse &&
+				cond.Reason == "ProgressDeadlineExceeded" &&
+				cond.LastUpdateTime.Time.After(updateTime) {
 				return "", false, fmt.Errorf("deployment %q exceeded its progress deadline", deployment.Name)
 			}
 		}

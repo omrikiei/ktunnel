@@ -14,7 +14,7 @@ import (
 func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, readyChan chan<- bool) (bool, error) {
 	if hasSidecar(o.Spec.Template.Spec, image) {
 		log.Warn(fmt.Sprintf("%s already injected to the deplyoment", image))
-		readyChan <- true
+		watchForReady(o, readyChan)
 		return true, nil
 	}
 	o.Spec.Template.Spec.Containers = append(o.Spec.Template.Spec.Containers, *c)
@@ -26,7 +26,7 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 	if updateErr != nil {
 		return false, updateErr
 	}
-	watchForReady(&u.Name, readyChan)
+	watchForReady(u, readyChan)
 	return true, nil
 }
 
@@ -88,6 +88,6 @@ func RemoveSidecar(namespace, objectName *string, image string, readyChan chan<-
 	if updateErr != nil {
 		return false, updateErr
 	}
-	watchForReady(&u.Name, readyChan)
+	watchForReady(u, readyChan)
 	return true, nil
 }
