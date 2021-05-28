@@ -12,8 +12,8 @@ builds:
   - CGO_ENABLED=0
   ldflags:
   - "-s -w"
-  hooks:
-    post: ./compress_binaries.sh
+    #  hooks:
+      #    post: ./compress_binaries.sh
   goos:
     - darwin
     - linux
