@@ -56,12 +56,16 @@ var Verbose = false
 
 func getKubeConfig() *rest.Config {
 	o.Do(func() {
+		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+
 		kconfig := os.Getenv("KUBECONFIG")
 		if home := homedir.HomeDir(); kconfig == "" && home != "" {
 			kconfig = filepath.Join(home, ".kube", "config")
+			loadingRules.ExplicitPath = kconfig
 		}
 
-		config, err := clientcmd.BuildConfigFromFlags("", kconfig)
+		config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+			loadingRules, &clientcmd.ConfigOverrides{}).ClientConfig()
 		if err != nil {
 			log.Errorf("Failed getting kubernetes config: %v", err)
 		}
