@@ -313,7 +313,14 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 }
 
 func getPortForwardUrl(config *rest.Config, namespace string, podName string) *url.URL {
-	host := strings.TrimPrefix(config.Host, "https://")
+	host := config.Host
+	scheme := "https"
+	if strings.HasPrefix(config.Host, "https://") {
+		host = strings.TrimPrefix(config.Host, "https://")
+	} else if strings.HasPrefix(config.Host, "http://") {
+		host = strings.TrimPrefix(config.Host, "http://")
+		scheme = "http"
+	}
 	trailingHostPath := strings.Split(host, "/")
 	hostIp := trailingHostPath[0]
 	trailingPath := ""
@@ -322,7 +329,7 @@ func getPortForwardUrl(config *rest.Config, namespace string, podName string) *u
 	}
 	path := fmt.Sprintf("%sapi/v1/namespaces/%s/pods/%s/portforward", trailingPath, namespace, podName)
 	return &url.URL{
-		Scheme: "https",
+		Scheme: scheme,
 		Path:   path,
 		Host:   hostIp,
 	}
