@@ -77,6 +77,7 @@ This will allow pods in the cluster to access your local web app (listening on p
 http (i.e kubernetes applications can send requests to myapp:8000)
 ```bash
 ktunnel expose myapp 80:8000
+ktunnel expose myapp 80:8000 -r #for reconnecting to existing deployment & service
 ```
 
 ### Inject to an existing deployment
