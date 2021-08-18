@@ -73,6 +73,7 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 		if err != nil {
 			return err
 		}
+		deploymentCreated = true
 	}
 	if !deploymentCreated && ReConnect {
 		patch, err := json.Marshal(deployment)
