@@ -23,13 +23,13 @@ var supportedSchemes = map[string]v12.Protocol{
 	"udp": v12.ProtocolUDP,
 }
 
-func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, rawPorts []string, image string, ReConnect bool, readyChan chan<- bool) error {
+func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, rawPorts []string, image string, Reuse bool, readyChan chan<- bool) error {
 	getClients(namespace)
 
 	ports := make([]v12.ServicePort, len(rawPorts))
 	ctrPorts := make([]v12.ContainerPort, len(ports))
 	protocol, ok := supportedSchemes[scheme]
-	if ok == false {
+	if !ok {
 		return errors.New("unsupported scheme")
 	}
 	for i, p := range rawPorts {
@@ -75,7 +75,7 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 		}
 		deploymentCreated = true
 	}
-	if !deploymentCreated && ReConnect {
+	if !deploymentCreated && Reuse {
 		patch, err := json.Marshal(deployment)
 		if err != nil {
 			return err
@@ -89,6 +89,13 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 		if err != nil {
 			return err
 		}
+	}
+
+	if d == nil {
+		if !deploymentCreated {
+			return errors.New("deployment with same name already exists")
+		}
+		return errors.New("error in creating deployment")
 	}
 
 	var newSvc *v12.Service
@@ -107,7 +114,7 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 		}
 		serviceCreated = true
 	}
-	if !serviceCreated && ReConnect {
+	if !serviceCreated && Reuse {
 		patch, err := json.Marshal(service)
 		if err != nil {
 			return err
@@ -121,6 +128,12 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 		if err != nil {
 			return err
 		}
+	}
+	if newSvc == nil {
+		if !serviceCreated {
+			return errors.New("service with same name already exists")
+		}
+		return errors.New("error in creating service")
 	}
 
 	log.Infof("Exposed service's cluster ip is: %s", newSvc.Spec.ClusterIP)
