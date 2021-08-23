@@ -15,6 +15,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var Reuse bool
+
 var exposeCmd = &cobra.Command{
 	Use:   "expose [flags] SERVICE_NAME [ports]",
 	Short: "Expose local machine as a service on the kubernetes cluster",
@@ -24,6 +26,8 @@ var exposeCmd = &cobra.Command{
 	Example: `
 # Expose a local application running on port 8000 via http
 ktunnel expose kewlapp 80:8000
+
+ktunnel expose kewlapp 80:8000 -r
 			  
 # Expose a local redis server
 ktunnel expose redis 6379
@@ -39,7 +43,7 @@ ktunnel expose redis 6379
 		// Create service and deployment
 		svcName, ports := args[0], args[1:]
 		readyChan := make(chan bool, 1)
-		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, ServerImage, readyChan)
+		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, ServerImage, Reuse, readyChan)
 		if err != nil {
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
 		}
@@ -52,11 +56,17 @@ ktunnel expose redis 6379
 		go func() {
 			o.Do(func() {
 				_ = <-sigs
-				log.Info("Got exit signal, closing client tunnels and removing k8s objects")
+				if Reuse {
+					log.Info("Got exit signal, closing client tunnels")
+				} else {
+					log.Info("Got exit signal, closing client tunnels and removing k8s objects")
+				}
 				cancel()
-				err := k8s.TeardownExposedService(Namespace, svcName)
-				if err != nil {
-					log.Errorf("Failed deleting k8s objects: %s", err)
+				if !Reuse {
+					err := k8s.TeardownExposedService(Namespace, svcName)
+					if err != nil {
+						log.Errorf("Failed deleting k8s objects: %s", err)
+					}
 				}
 				done <- true
 			})
@@ -107,5 +117,6 @@ func init() {
 	exposeCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	exposeCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
 	exposeCmd.Flags().StringVarP(&ServerImage, "server-image", "i", fmt.Sprintf("%s:v%s", k8s.Image, version), "Ktunnel server image to use")
+	exposeCmd.Flags().BoolVarP(&Reuse, "reuse", "r", false, "deployment & service will be reused if exists or they will be created (tunnel)")
 	rootCmd.AddCommand(exposeCmd)
 }
