@@ -23,7 +23,7 @@ var supportedSchemes = map[string]v12.Protocol{
 	"udp": v12.ProtocolUDP,
 }
 
-func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, rawPorts []string, image string, Reuse bool, readyChan chan<- bool) error {
+func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, rawPorts []string, image string, Reuse bool, readyChan chan<- bool, nodeSelectorTags map[string]string) error {
 	getClients(namespace)
 
 	ports := make([]v12.ServicePort, len(rawPorts))
@@ -56,7 +56,7 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 		}
 	}
 
-	deployment := newDeployment(*namespace, *name, tunnelPort, image, ctrPorts)
+	deployment := newDeployment(*namespace, *name, tunnelPort, image, ctrPorts, nodeSelectorTags)
 
 	service := newService(*namespace, *name, ports)
 
