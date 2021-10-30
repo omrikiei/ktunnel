@@ -5,32 +5,39 @@
 class Ktunnel < Formula
   desc "Network tunneling tool for kubernetes."
   homepage "https://github.com/omrikiei/ktunnel"
-  version "1.4.3"
-  bottle :unneeded
+  version "1.4.4"
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.4.3/ktunnel_1.4.3_Darwin_x86_64.tar.gz"
-      sha256 "cca31810c52002ce3d51d9e7bd965ea1fff44590407e088f4e3683bac58db9bc"
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.4.4/ktunnel_1.4.4_Darwin_x86_64.tar.gz"
+      sha256 "01af7ac29725ba922c2e204b42bf8c9d39b36e5da9f638d58d588d18c69e95e1"
+
+      def install
+        bin.install "ktunnel"
+      end
     end
   end
 
   on_linux do
-    if Hardware::CPU.intel?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.4.3/ktunnel_1.4.3_Linux_x86_64.tar.gz"
-      sha256 "c07df74f7698ef0877d65f4a1bfe9521fffb3ba5e93039a13cb1ea5d93c12160"
-    end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.4.3/ktunnel_1.4.3_Linux_arm64.tar.gz"
-      sha256 "36483950ccd77f675bf6b13a0aebcff1943bc6dc30f251d0359bf5088723b288"
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.4.4/ktunnel_1.4.4_Linux_arm64.tar.gz"
+      sha256 "3a1ae1d4041b301979e38b820e2453d5e5d895d260f2312c7d83259daf534b27"
+
+      def install
+        bin.install "ktunnel"
+      end
+    end
+    if Hardware::CPU.intel?
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.4.4/ktunnel_1.4.4_Linux_x86_64.tar.gz"
+      sha256 "5f7387074cfe0d6a2b4d902710c1c4d10ab7b78b49032dbdca20b8351e326ec0"
+
+      def install
+        bin.install "ktunnel"
+      end
     end
   end
 
   head "https://github.com/omrikiei/ktunnel.git"
-
-  def install
-    bin.install "ktunnel"
-  end
 
   test do
     system "#{bin}/program version"
