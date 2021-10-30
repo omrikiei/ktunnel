@@ -162,7 +162,7 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort) 
 	}
 }
 
-func newDeployment(namespace, name string, port int, image string, ports []apiv1.ContainerPort) *appsv1.Deployment {
+func newDeployment(namespace, name string, port int, image string, ports []apiv1.ContainerPort, selector map[string]string) *appsv1.Deployment {
 	replicas := int32(1)
 	co := newContainer(port, image, ports)
 	return &appsv1.Deployment{
@@ -191,6 +191,7 @@ func newDeployment(namespace, name string, port int, image string, ports []apiv1
 					},
 				},
 				Spec: apiv1.PodSpec{
+					NodeSelector: selector,
 					Containers: []apiv1.Container{
 						*co,
 					},

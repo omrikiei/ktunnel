@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -16,6 +17,7 @@ import (
 )
 
 var Reuse bool
+var NodeSelectorTags []string
 
 var exposeCmd = &cobra.Command{
 	Use:   "expose [flags] SERVICE_NAME [ports]",
@@ -43,7 +45,17 @@ ktunnel expose redis 6379
 		// Create service and deployment
 		svcName, ports := args[0], args[1:]
 		readyChan := make(chan bool, 1)
-		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, ServerImage, Reuse, readyChan)
+		nodeSelectorTags := map[string]string{}
+		for _, tag := range NodeSelectorTags {
+			parsed := strings.Split(tag, "=")
+			log.Error(parsed)
+			if len(parsed) != 2 {
+				log.Errorf("failed to parse node selector tag: %v", tag)
+			} else {
+				nodeSelectorTags[parsed[0]] = parsed[1]
+			}
+		}
+		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, ServerImage, Reuse, readyChan, nodeSelectorTags)
 		if err != nil {
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
 		}
@@ -118,5 +130,6 @@ func init() {
 	exposeCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
 	exposeCmd.Flags().StringVarP(&ServerImage, "server-image", "i", fmt.Sprintf("%s:v%s", k8s.Image, version), "Ktunnel server image to use")
 	exposeCmd.Flags().BoolVarP(&Reuse, "reuse", "r", false, "deployment & service will be reused if exists or they will be created (tunnel)")
+	exposeCmd.Flags().StringSliceVarP(&NodeSelectorTags,"node-selector-tags", "q", []string{}, "tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)")
 	rootCmd.AddCommand(exposeCmd)
 }
