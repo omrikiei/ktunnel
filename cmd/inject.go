@@ -108,7 +108,7 @@ ktunnel inject deploymeny mydeployment 3306 6379
 					client.WithLogger(&logger),
 				}
 				if tls {
-					opts = append(opts, client.WithTLS(CertFile, ServerHostOverride))
+					opts = append(opts, client.WithTLS(CaFile, ServerHostOverride))
 				}
 				err = client.RunClient(ctx, opts...)
 				if err != nil {
@@ -116,7 +116,7 @@ ktunnel inject deploymeny mydeployment 3306 6379
 				}
 			}()
 		}
-		_ = <-done
+		<-done
 	},
 }
 

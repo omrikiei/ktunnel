@@ -1,13 +1,16 @@
 package k8s
 
 import (
+	"context"
+	"net/url"
+	"testing"
+
 	v12 "k8s.io/api/apps/v1"
 	v14 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	testclient "k8s.io/client-go/kubernetes/fake"
 	v1 "k8s.io/client-go/kubernetes/typed/apps/v1"
 	"k8s.io/client-go/rest"
-	"net/url"
-	"testing"
 )
 
 type TestCase struct {
@@ -36,7 +39,7 @@ func createDeployment(c v1.DeploymentInterface, replicas int32, containers *[]v1
 			},
 		},
 	}
-	_, err := deploymentsClient.Create(&d)
+	_, err := deploymentsClient.Create(context.Background(), &d, metav1.CreateOptions{})
 	if err != nil {
 		return err
 	}

@@ -67,7 +67,7 @@ ktunnel expose redis 6379
 		// Teardown
 		go func() {
 			o.Do(func() {
-				_ = <-sigs
+				<-sigs
 				if Reuse {
 					log.Info("Got exit signal, closing client tunnels")
 				} else {
@@ -111,7 +111,7 @@ ktunnel expose redis 6379
 					client.WithLogger(&logger),
 				}
 				if tls {
-					opts = append(opts, client.WithTLS(CertFile, ServerHostOverride))
+					opts = append(opts, client.WithTLS(CaFile, ServerHostOverride))
 				}
 				err = client.RunClient(ctx, opts...)
 				if err != nil {

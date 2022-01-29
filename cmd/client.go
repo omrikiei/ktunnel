@@ -8,7 +8,6 @@ import (
 	"syscall"
 
 	"github.com/omrikiei/ktunnel/pkg/client"
-
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -39,7 +38,7 @@ ktunnel client --host ktunnel-server.yourcompany.com -s tcp 8000 8001:8432
 		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
 		go func() {
 			o.Do(func() {
-				_ = <-sigs
+				<-sigs
 				log.Info("Got exit signal, closing client tunnels")
 				cancel()
 			})
@@ -49,7 +48,7 @@ ktunnel client --host ktunnel-server.yourcompany.com -s tcp 8000 8001:8432
 			client.WithServer(Host, port),
 			client.WithTunnels(Scheme, args...),
 			client.WithLogger(&logger),
-			client.WithTLS(CertFile, ServerHostOverride),
+			client.WithTLS(CaFile, ServerHostOverride),
 
 		}
 
