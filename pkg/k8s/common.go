@@ -132,10 +132,16 @@ func hasSidecar(podSpec apiv1.PodSpec, image string) bool {
 	return false
 }
 
-func newContainer(port int, image string, containerPorts []apiv1.ContainerPort) *apiv1.Container {
+func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, cert, key string) *apiv1.Container {
 	args := []string{"server", "-p", strconv.FormatInt(int64(port), 10)}
 	if Verbose == true {
 		args = append(args, "-v")
+	}
+	if cert != "" {
+		args = append(args, fmt.Sprintf("--cert %s", cert))
+	}
+	if key != "" {
+		args = append(args, fmt.Sprintf("--key %s", key))
 	}
 	cpuRequest, cpuLimit, memRequest, memLimit := resource.Quantity{}, resource.Quantity{}, resource.Quantity{}, resource.Quantity{}
 	cpuRequest.SetMilli(int64(500))
@@ -162,9 +168,9 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort) 
 	}
 }
 
-func newDeployment(namespace, name string, port int, image string, ports []apiv1.ContainerPort, selector map[string]string) *appsv1.Deployment {
+func newDeployment(namespace, name string, port int, image string, ports []apiv1.ContainerPort, selector map[string]string, cert, key string) *appsv1.Deployment {
 	replicas := int32(1)
-	co := newContainer(port, image, ports)
+	co := newContainer(port, image, ports, cert, key)
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{

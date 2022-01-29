@@ -55,7 +55,7 @@ ktunnel expose redis 6379
 				nodeSelectorTags[parsed[0]] = parsed[1]
 			}
 		}
-		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, ServerImage, Reuse, readyChan, nodeSelectorTags)
+		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, ServerImage, Reuse, readyChan, nodeSelectorTags, CaFile, KeyFile)
 		if err != nil {
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
 		}
@@ -129,6 +129,8 @@ func init() {
 	exposeCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	exposeCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
 	exposeCmd.Flags().StringVarP(&ServerImage, "server-image", "i", fmt.Sprintf("%s:v%s", k8s.Image, version), "Ktunnel server image to use")
+	exposeCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
+	exposeCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
 	exposeCmd.Flags().BoolVarP(&Reuse, "reuse", "r", false, "deployment & service will be reused if exists or they will be created (tunnel)")
 	exposeCmd.Flags().StringSliceVarP(&NodeSelectorTags,"node-selector-tags", "q", []string{}, "tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)")
 	rootCmd.AddCommand(exposeCmd)

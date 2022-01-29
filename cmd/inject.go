@@ -44,7 +44,7 @@ ktunnel inject deploymeny mydeployment 3306 6379
 		// Inject
 		deployment := args[0]
 		readyChan := make(chan bool, 1)
-		_, err := k8s.InjectSidecar(&Namespace, &deployment, &port, ServerImage, readyChan)
+		_, err := k8s.InjectSidecar(&Namespace, &deployment, &port, ServerImage, CertFile, KeyFile, readyChan)
 		if err != nil {
 			log.Fatalf("failed injecting sidecar: %v", err)
 		}
@@ -125,11 +125,15 @@ func init() {
 	injectCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	injectCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	injectCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
+	injectCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
+	injectCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
 	injectDeploymentCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "tls cert auth file")
 	injectDeploymentCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	injectDeploymentCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	injectDeploymentCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
 	injectDeploymentCmd.Flags().StringVarP(&ServerImage, "server-image", "i", fmt.Sprintf("%s:v%s", k8s.Image, version), "Ktunnel server image to use")
+	injectDeploymentCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
+	injectDeploymentCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
 	injectDeploymentCmd.Flags().BoolVarP(&eject, "eject", "e", true, "Eject the sidecar when finished")
 	injectCmd.AddCommand(injectDeploymentCmd)
 	rootCmd.AddCommand(injectCmd)
