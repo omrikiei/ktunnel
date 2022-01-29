@@ -5,12 +5,20 @@
 class Ktunnel < Formula
   desc "Network tunneling tool for kubernetes."
   homepage "https://github.com/omrikiei/ktunnel"
-  version "1.4.4"
+  version "1.4.5"
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.4.4/ktunnel_1.4.4_Darwin_x86_64.tar.gz"
-      sha256 "01af7ac29725ba922c2e204b42bf8c9d39b36e5da9f638d58d588d18c69e95e1"
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.4.5/ktunnel_1.4.5_Darwin_x86_64.tar.gz"
+      sha256 "3b8ffcd6c99dabb269c72209dad9e1b81f7a16d6432c24e54201a15f505aecc1"
+
+      def install
+        bin.install "ktunnel"
+      end
+    end
+    if Hardware::CPU.arm?
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.4.5/ktunnel_1.4.5_Darwin_arm64.tar.gz"
+      sha256 "882424256cad3bf13651f0bf7333e2bac2973c970dbe9b408d3e5764f50bf2c2"
 
       def install
         bin.install "ktunnel"
@@ -19,17 +27,17 @@ class Ktunnel < Formula
   end
 
   on_linux do
-    if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.4.4/ktunnel_1.4.4_Linux_arm64.tar.gz"
-      sha256 "3a1ae1d4041b301979e38b820e2453d5e5d895d260f2312c7d83259daf534b27"
+    if Hardware::CPU.intel?
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.4.5/ktunnel_1.4.5_Linux_x86_64.tar.gz"
+      sha256 "2fa2402d4da15e33fae8020a093e4addd319ef2602e90a81e0e65f505bcd0c6d"
 
       def install
         bin.install "ktunnel"
       end
     end
-    if Hardware::CPU.intel?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.4.4/ktunnel_1.4.4_Linux_x86_64.tar.gz"
-      sha256 "5f7387074cfe0d6a2b4d902710c1c4d10ab7b78b49032dbdca20b8351e326ec0"
+    if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.4.5/ktunnel_1.4.5_Linux_arm64.tar.gz"
+      sha256 "80d7e4fb041afdf8be5adfe3b6560a68d9f8ea85880f2149b0812a47ecda6039"
 
       def install
         bin.install "ktunnel"
