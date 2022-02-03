@@ -48,7 +48,7 @@ You can them move it to your bin path
 ```
 sudo mv ./ktunnel /usr/local/bin/ktunnel
 ```
-Test the commamd
+Test the command
 ```
 ktunnel -h
 ```
