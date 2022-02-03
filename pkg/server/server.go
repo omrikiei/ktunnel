@@ -19,18 +19,18 @@ import (
 )
 
 type tunnelServer struct {
-	conf *ServerConfig
+	conf *Config
 }
 
 // NewServer creates a new GRPC handler instance that
 // can be attached to a GRPC server
-func NewServer(conf *ServerConfig) *tunnelServer {
+func NewServer(conf *Config) *tunnelServer {
 	return &tunnelServer{conf}
 }
 
 // SendData handles data coming from our TCP listener, via the sessions channel, and
 // republishes it over GRPC
-func SendData(conf *ServerConfig, stream pb.Tunnel_InitTunnelServer, sessions <-chan *common.Session) {
+func SendData(conf *Config, stream pb.Tunnel_InitTunnelServer, sessions <-chan *common.Session) {
 	for {
 		select {
 		case <-stream.Context().Done():
@@ -69,7 +69,7 @@ func SendData(conf *ServerConfig, stream pb.Tunnel_InitTunnelServer, sessions <-
 	}
 }
 
-func ReceiveData(conf *ServerConfig, stream pb.Tunnel_InitTunnelServer) {
+func ReceiveData(conf *Config, stream pb.Tunnel_InitTunnelServer) {
 	for {
 		select {
 		case <-stream.Context().Done():
@@ -88,7 +88,7 @@ func ReceiveData(conf *ServerConfig, stream pb.Tunnel_InitTunnelServer) {
 			}
 
 			session, ok := common.GetSession(reqId)
-			if ok != true && !message.ShouldClose{
+			if ok != true && !message.ShouldClose {
 				conf.log.WithField("session", reqId).Errorf("session not found in openRequests")
 				continue
 			}
@@ -123,7 +123,7 @@ func ReceiveData(conf *ServerConfig, stream pb.Tunnel_InitTunnelServer) {
 	}
 }
 
-func readConn(ctx context.Context, conf *ServerConfig, session *common.Session, sessions chan<- *common.Session) {
+func readConn(ctx context.Context, conf *Config, session *common.Session, sessions chan<- *common.Session) {
 	conf.log.WithField("session", session.Id.String()).Info("new connection")
 
 	for {
@@ -235,7 +235,7 @@ func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 }
 
 // RunServer creates a GRPC tunnel
-func RunServer(ctx context.Context, opts ...ServerOption) error {
+func RunServer(ctx context.Context, opts ...Option) error {
 	conf, err := processArgs(opts)
 	if err != nil {
 		return errors.Wrap(err, "failed to parse arguments")
@@ -268,9 +268,9 @@ func RunServer(ctx context.Context, opts ...ServerOption) error {
 }
 
 // processArgs processes functional args
-func processArgs(opts []ServerOption) (*ServerConfig, error) {
+func processArgs(opts []Option) (*Config, error) {
 	// default arguments
-	opt := &ServerConfig{
+	opt := &Config{
 		port: 5000,
 		log: &log.Logger{
 			Out: ioutil.Discard,
@@ -289,8 +289,8 @@ func processArgs(opts []ServerOption) (*ServerConfig, error) {
 
 // WithPort configures the GRPC tunnel server
 // to listen on a given port.
-func WithPort(p int) ServerOption {
-	return func(opt *ServerConfig) error {
+func WithPort(p int) Option {
+	return func(opt *Config) error {
 		opt.port = p
 		return nil
 	}
@@ -298,8 +298,8 @@ func WithPort(p int) ServerOption {
 
 // WithTLS configures the GRPC tunnel server
 // to use TLS
-func WithTLS(cert, key string) ServerOption {
-	return func(opt *ServerConfig) error {
+func WithTLS(cert, key string) Option {
+	return func(opt *Config) error {
 		opt.TLS = true
 		opt.certFile = cert
 		opt.keyFile = key
@@ -309,20 +309,20 @@ func WithTLS(cert, key string) ServerOption {
 
 // WithLogger sets the logger to be used by the server.
 // if not set, output will be discarded
-func WithLogger(l log.FieldLogger) ServerOption {
-	return func(opt *ServerConfig) error {
+func WithLogger(l log.FieldLogger) Option {
+	return func(opt *Config) error {
 		opt.log = l
 		return nil
 	}
 }
 
-// ServerOption is an option able to be configured
-type ServerOption func(*ServerConfig) error
+// Option is an option able to be configured
+type Option func(*Config) error
 
-// ServerConfig is a config object used to
+// Config is a config object used to
 // configure a GRPC Server. ServerOption should
 // be used to modify this
-type ServerConfig struct {
+type Config struct {
 	port     int
 	TLS      bool
 	keyFile  string

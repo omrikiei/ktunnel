@@ -23,7 +23,7 @@ type Message struct {
 	d *[]byte
 }
 
-func ReceiveData(conf *ClientConfig, st pb.Tunnel_InitTunnelClient, sessionsOut chan<- *common.Session, port int32, scheme string) {
+func ReceiveData(conf *Config, st pb.Tunnel_InitTunnelClient, sessionsOut chan<- *common.Session, port int32, scheme string) {
 loop:
 	for {
 		conf.log.Debugf("attempting to receive from stream")
@@ -80,7 +80,7 @@ loop:
 	}
 }
 
-func handleStreamData(conf *ClientConfig, m *pb.SocketDataResponse, session *common.Session) {
+func handleStreamData(conf *Config, m *pb.SocketDataResponse, session *common.Session) {
 	if session.Open == false {
 		conf.log.WithField("session", session.Id).Infof("closed session")
 		session.Close()
@@ -102,7 +102,7 @@ func handleStreamData(conf *ClientConfig, m *pb.SocketDataResponse, session *com
 	}
 }
 
-func ReadFromSession(conf *ClientConfig, session *common.Session, sessionsOut chan<- *common.Session) {
+func ReadFromSession(conf *Config, session *common.Session, sessionsOut chan<- *common.Session) {
 	conn := session.Conn
 	conf.log.WithField("session", session.Id).Debugf("started reading conn")
 	buff := make([]byte, common.BufferSize)
@@ -147,7 +147,7 @@ loop:
 	conf.log.WithField("session", session.Id).Debugf("finished reading session")
 }
 
-func SendData(conf *ClientConfig, stream pb.Tunnel_InitTunnelClient, sessions <-chan *common.Session) {
+func SendData(conf *Config, stream pb.Tunnel_InitTunnelClient, sessions <-chan *common.Session) {
 	for {
 		select {
 		case <-stream.Context().Done():
@@ -191,7 +191,7 @@ func SendData(conf *ClientConfig, stream pb.Tunnel_InitTunnelClient, sessions <-
 }
 
 // RunClient creates a GRPC tunnel client
-func RunClient(ctx context.Context, opts ...ClientOption) error {
+func RunClient(ctx context.Context, opts ...Option) error {
 	conf, err := processArgs(opts)
 	if err != nil {
 		return errors.Wrap(err, "failed to parse arguments")
@@ -258,9 +258,9 @@ func RunClient(ctx context.Context, opts ...ClientOption) error {
 }
 
 // processArgs processes functional args
-func processArgs(opts []ClientOption) (*ClientConfig, error) {
+func processArgs(opts []Option) (*Config, error) {
 	// default arguments
-	opt := &ClientConfig{
+	opt := &Config{
 		log: &log.Logger{
 			Out: ioutil.Discard,
 		},
@@ -286,8 +286,8 @@ func processArgs(opts []ClientOption) (*ClientConfig, error) {
 }
 
 // WithServer configures the server this client uses
-func WithServer(host string, p int) ClientOption {
-	return func(opt *ClientConfig) error {
+func WithServer(host string, p int) Option {
+	return func(opt *Config) error {
 		opt.host = host
 		opt.port = p
 		return nil
@@ -297,8 +297,8 @@ func WithServer(host string, p int) ClientOption {
 // WithTLS configures the tunnel to use TLS
 // and sets the certificate expected, and a optional
 // tls hostname override.
-func WithTLS(cert, tlsHostOverride string) ClientOption {
-	return func(opt *ClientConfig) error {
+func WithTLS(cert, tlsHostOverride string) Option {
+	return func(opt *Config) error {
 		if opt.certFile != "" {
 			opt.TLS = true
 		}
@@ -310,8 +310,8 @@ func WithTLS(cert, tlsHostOverride string) ClientOption {
 
 // WithLogger sets the logger to be used by the server.
 // if not set, output will be discarded
-func WithLogger(l log.FieldLogger) ClientOption {
-	return func(opt *ClientConfig) error {
+func WithLogger(l log.FieldLogger) Option {
+	return func(opt *Config) error {
 		opt.log = l
 		return nil
 	}
@@ -320,21 +320,21 @@ func WithLogger(l log.FieldLogger) ClientOption {
 // WithTunnels configures the tunnels to be exposed
 // by this client. Each string should be in the format
 // of: localPort:remotePort
-func WithTunnels(scheme string, tunnels ...string) ClientOption {
-	return func(opt *ClientConfig) error {
+func WithTunnels(scheme string, tunnels ...string) Option {
+	return func(opt *Config) error {
 		opt.scheme = scheme
 		opt.tunnels = tunnels
 		return nil
 	}
 }
 
-// ClientOption is an option able to be configured
-type ClientOption func(*ClientConfig) error
+// Option is an option able to be configured
+type Option func(*Config) error
 
-// ClientConfig is a config object used to
+// Config is a config object used to
 // configure a GRPC tunnel from the client side.
 // ClientOption should be used to modify this
-type ClientConfig struct {
+type Config struct {
 	host            string
 	port            int
 	TLS             bool

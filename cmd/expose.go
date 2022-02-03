@@ -55,7 +55,7 @@ ktunnel expose redis 6379
 				nodeSelectorTags[parsed[0]] = parsed[1]
 			}
 		}
-		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, ServerImage, Reuse, readyChan, nodeSelectorTags, CaFile, KeyFile)
+		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, ServerImage, Reuse, readyChan, nodeSelectorTags, CertFile, KeyFile)
 		if err != nil {
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
 		}
@@ -105,7 +105,7 @@ ktunnel expose redis 6379
 					log.Fatalf("Failed to run client: %v", err)
 				}
 				prt := int(p)
-				opts := []client.ClientOption{
+				opts := []client.Option{
 					client.WithServer(Host, prt),
 					client.WithTunnels(Scheme, ports...),
 					client.WithLogger(&logger),
@@ -132,6 +132,6 @@ func init() {
 	exposeCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
 	exposeCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
 	exposeCmd.Flags().BoolVarP(&Reuse, "reuse", "r", false, "deployment & service will be reused if exists or they will be created (tunnel)")
-	exposeCmd.Flags().StringSliceVarP(&NodeSelectorTags,"node-selector-tags", "q", []string{}, "tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)")
+	exposeCmd.Flags().StringSliceVarP(&NodeSelectorTags, "node-selector-tags", "q", []string{}, "tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)")
 	rootCmd.AddCommand(exposeCmd)
 }

@@ -40,7 +40,7 @@ ktunnel server -p 8181
 				cancel()
 			})
 		}()
-		config := []server.ServerOption{server.WithPort(port), server.WithLogger(&logger),}
+		config := []server.Option{server.WithPort(port), server.WithLogger(&logger)}
 		if tls {
 			config = append(config, server.WithTLS(CertFile, KeyFile))
 		}

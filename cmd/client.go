@@ -44,12 +44,11 @@ ktunnel client --host ktunnel-server.yourcompany.com -s tcp 8000 8001:8432
 			})
 		}()
 
-		opts := []client.ClientOption{
+		opts := []client.Option{
 			client.WithServer(Host, port),
 			client.WithTunnels(Scheme, args...),
 			client.WithLogger(&logger),
 			client.WithTLS(CaFile, ServerHostOverride),
-
 		}
 
 		err := client.RunClient(ctx, opts...)
