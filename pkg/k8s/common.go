@@ -148,6 +148,7 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
 	cpuLimit.SetMilli(int64(1000))
 	memRequest.SetScaled(int64(100), resource.Mega)
 	memLimit.SetScaled(int64(1), resource.Giga)
+	containerUid := int64(1000)
 
 	return &apiv1.Container{
 		Name:    "ktunnel",
@@ -164,6 +165,9 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
 				"cpu":    cpuLimit,
 				"memory": memLimit,
 			},
+		},
+		SecurityContext: &apiv1.SecurityContext{
+			RunAsUser: &containerUid,
 		},
 	}
 }
