@@ -86,3 +86,6 @@ This will currently only work for deployments with 1 replica - it will expose a 
 ktunnel inject deployment mydeployment 3306
 ``` 
 
+### Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=omrikiei/ktunnel&type=Timeline)](https://star-history.com/#omrikiei/ktunnel&Timeline)
