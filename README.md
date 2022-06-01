@@ -4,6 +4,7 @@
 </p>
 
 <h3 align="center">ktunnel</h3>
+<h4 align="center">CLI tool that establishes a reverse tunnel between a kubernetes cluster and your local machine</h3>
 
 <div align="center">
 
