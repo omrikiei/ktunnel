@@ -92,7 +92,7 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 	}
 
 	if d == nil {
-		if deploymentCreated {
+		if !deploymentCreated {
 			return errors.New("deployment with same name already exists")
 		}
 		return errors.New("error creating deployment")

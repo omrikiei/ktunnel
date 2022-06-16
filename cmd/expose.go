@@ -17,6 +17,7 @@ import (
 )
 
 var Reuse bool
+var Force bool
 var NodeSelectorTags []string
 
 var exposeCmd = &cobra.Command{
@@ -55,6 +56,14 @@ ktunnel expose redis 6379
 				nodeSelectorTags[parsed[0]] = parsed[1]
 			}
 		}
+
+		if Force {
+			err := k8s.TeardownExposedService(Namespace, svcName)
+			if err != nil {
+				log.Infof("Force delete: Failed deleting k8s objects: %s", err)
+			}
+		}
+
 		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, ServerImage, Reuse, readyChan, nodeSelectorTags, CertFile, KeyFile)
 		if err != nil {
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
@@ -99,8 +108,8 @@ ktunnel expose redis 6379
 		log.Info("Waiting for port forward to finish")
 		wg.Wait()
 		for _, srcPort := range *sourcePorts {
-			go func() {
-				p, err := strconv.ParseInt(srcPort, 10, 0)
+			go func(port string) {
+				p, err := strconv.ParseInt(port, 10, 0)
 				if err != nil {
 					log.Fatalf("Failed to run client: %v", err)
 				}
@@ -117,7 +126,7 @@ ktunnel expose redis 6379
 				if err != nil {
 					log.Fatalf("Failed to run client: %v", err)
 				}
-			}()
+			}(srcPort)
 		}
 		_ = <-done
 	},
@@ -131,7 +140,8 @@ func init() {
 	exposeCmd.Flags().StringVarP(&ServerImage, "server-image", "i", fmt.Sprintf("%s:v%s", k8s.Image, version), "Ktunnel server image to use")
 	exposeCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
 	exposeCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
-	exposeCmd.Flags().BoolVarP(&Reuse, "reuse", "r", false, "deployment & service will be reused if exists or they will be created (tunnel)")
+	exposeCmd.Flags().BoolVarP(&Reuse, "reuse", "r", false, "delete k8s objects before expose")
+	exposeCmd.Flags().BoolVarP(&Force, "force", "f", false, "deployment & service will be removed before")
 	exposeCmd.Flags().StringSliceVarP(&NodeSelectorTags, "node-selector-tags", "q", []string{}, "tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)")
 	rootCmd.AddCommand(exposeCmd)
 }
