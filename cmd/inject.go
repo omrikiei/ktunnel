@@ -32,7 +32,7 @@ var injectDeploymentCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(2),
 	Example: `
 # Inject a back tunnel from a running deployment to local mysql and redis 
-ktunnel inject deploymeny mydeployment 3306 6379
+ktunnel inject deployment mydeployment 3306 6379
 `,
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -96,8 +96,8 @@ ktunnel inject deploymeny mydeployment 3306 6379
 		log.Info("Waiting for port forward to finish")
 		wg.Wait()
 		for _, srcPort := range *sourcePorts {
-			go func() {
-				p, err := strconv.ParseInt(srcPort, 10, 0)
+			go func(port string) {
+				p, err := strconv.ParseInt(port, 10, 0)
 				if err != nil {
 					log.Fatalf("Failed to run client: %v", err)
 				}
@@ -114,7 +114,7 @@ ktunnel inject deploymeny mydeployment 3306 6379
 				if err != nil {
 					log.Fatalf("Failed to run client: %v", err)
 				}
-			}()
+			}(srcPort)
 		}
 		<-done
 	},
