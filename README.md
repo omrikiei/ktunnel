@@ -91,4 +91,4 @@ ktunnel inject deployment mydeployment 3306
 
 [![Star History Chart](https://api.star-history.com/svg?repos=omrikiei/ktunnel&type=Timeline)](https://star-history.com/#omrikiei/ktunnel&Timeline)
 
-Made with ❤️ in Gedera!
+Made with ❤️ in [Gedera](https://en.wikipedia.org/wiki/Gedera)!
