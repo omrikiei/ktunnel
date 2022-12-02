@@ -211,7 +211,7 @@ func newDeployment(namespace, name string, port int, image string, ports []apiv1
 	}
 }
 
-func newService(namespace, name string, ports []apiv1.ServicePort) *apiv1.Service {
+func newService(namespace, name string, ports []apiv1.ServicePort, serviceType apiv1.ServiceType) *apiv1.Service {
 	return &apiv1.Service{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "Service",
@@ -226,6 +226,7 @@ func newService(namespace, name string, ports []apiv1.ServicePort) *apiv1.Servic
 		},
 		Spec: apiv1.ServiceSpec{
 			Ports: ports,
+			Type: serviceType,
 			Selector: map[string]string{
 				"app.kubernetes.io/name":     name,
 				"app.kubernetes.io/instance": name,

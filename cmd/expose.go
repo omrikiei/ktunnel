@@ -18,6 +18,7 @@ import (
 
 var Reuse bool
 var Force bool
+var ServiceType string
 var NodeSelectorTags []string
 
 var exposeCmd = &cobra.Command{
@@ -64,7 +65,7 @@ ktunnel expose redis 6379
 			}
 		}
 
-		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, ServerImage, Reuse, readyChan, nodeSelectorTags, CertFile, KeyFile)
+		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, ServerImage, Reuse, readyChan, nodeSelectorTags, CertFile, KeyFile, ServiceType)
 		if err != nil {
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
 		}
@@ -140,6 +141,7 @@ func init() {
 	exposeCmd.Flags().StringVarP(&ServerImage, "server-image", "i", fmt.Sprintf("%s:v%s", k8s.Image, version), "Ktunnel server image to use")
 	exposeCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
 	exposeCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
+	exposeCmd.Flags().StringVar(&ServiceType, "service-type", "ClusterIP", "exposed service type (ClusterIP, NodePort, LoadBalancer or ExternalName)")
 	exposeCmd.Flags().BoolVarP(&Reuse, "reuse", "r", false, "delete k8s objects before expose")
 	exposeCmd.Flags().BoolVarP(&Force, "force", "f", false, "deployment & service will be removed before")
 	exposeCmd.Flags().StringSliceVarP(&NodeSelectorTags, "node-selector-tags", "q", []string{}, "tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)")
