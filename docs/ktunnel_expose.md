@@ -36,6 +36,7 @@ ktunnel expose redis 6379
   -s, --scheme string                 Connection scheme (default "tcp")
   -o, --server-host-override string   Server name use to verify the hostname returned by the TLS handshake
   -i, --server-image string           Ktunnel server image to use (default "quay.io/omrikiei/ktunnel:v1.4.4")
+  --service-type string           exposed service type (ClusterIP, NodePort, LoadBalancer or ExternalName) (default "ClusterIP")
 ```
 
 ### Options inherited from parent commands
