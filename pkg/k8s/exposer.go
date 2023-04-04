@@ -63,7 +63,7 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 	var d *appsv1.Deployment
 	var err error
 	deploymentCreated := false
-	_, err = deploymentsClient.Get(context.Background(), *name, v1.GetOptions{})
+	existingDeployment, err := deploymentsClient.Get(context.Background(), *name, v1.GetOptions{})
 	if err != nil && apierrors.IsNotFound(err) {
 		d, err = deploymentsClient.Create(context.Background(), deployment, v1.CreateOptions{
 			TypeMeta:     v1.TypeMeta{},
@@ -76,6 +76,11 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 		deploymentCreated = true
 	}
 	if !deploymentCreated && Reuse {
+		// Copy labels and selectors to prevent PATCH issue with immutable fields
+		deployment.Labels = existingDeployment.Labels
+		deployment.Spec.Selector = existingDeployment.Spec.Selector
+		deployment.Spec.Template.Labels = existingDeployment.Spec.Template.Labels
+
 		patch, err := json.Marshal(deployment)
 		if err != nil {
 			return err
@@ -100,7 +105,7 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 
 	var newSvc *v12.Service
 	serviceCreated := false
-	_, err = svcClient.Get(context.Background(), *name, v1.GetOptions{})
+	existingService, err := svcClient.Get(context.Background(), *name, v1.GetOptions{})
 	if err != nil && apierrors.IsNotFound(err) {
 
 		newSvc, err = svcClient.Create(context.Background(), service, v1.CreateOptions{
@@ -115,6 +120,10 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 		serviceCreated = true
 	}
 	if !serviceCreated && Reuse {
+		// Copy labels and selectors to prevent PATCH issue with immutable fields
+		service.Labels = existingService.Labels
+		service.Spec.Selector = existingService.Spec.Selector
+
 		patch, err := json.Marshal(service)
 		if err != nil {
 			return err
