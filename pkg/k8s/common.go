@@ -98,31 +98,6 @@ func getAllPods(namespace *string) (*apiv1.PodList, error) {
 	return pods, nil
 }
 
-func waitForReady(name *string, ti time.Time, numPods int32, readyChan chan<- bool) {
-	go func() {
-		for {
-			print(".")
-			count := int32(0)
-			pods, err := podsClient.List(context.Background(), metav1.ListOptions{})
-			if err != nil {
-				log.Error(err)
-				os.Exit(1)
-			}
-			for _, p := range pods.Items {
-				if strings.HasPrefix(p.Name, *name) && p.CreationTimestamp.After(ti.Add(-time.Second)) && p.Status.Phase == apiv1.PodRunning {
-					count += 1
-				}
-				if count == numPods {
-					readyChan <- true
-					println()
-					return
-				}
-			}
-			time.Sleep(time.Millisecond * 300)
-		}
-	}()
-}
-
 func hasSidecar(podSpec apiv1.PodSpec, image string) bool {
 	for _, c := range podSpec.Containers {
 		if c.Image == image {
