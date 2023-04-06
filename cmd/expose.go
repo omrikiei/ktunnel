@@ -138,6 +138,7 @@ func init() {
 	exposeCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	exposeCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	exposeCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
+	exposeCmd.Flags().StringVar(&KubeContext, "context", "", "Kubernetes Context")
 	exposeCmd.Flags().StringVarP(&ServerImage, "server-image", "i", fmt.Sprintf("%s:v%s", k8s.Image, version), "Ktunnel server image to use")
 	exposeCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
 	exposeCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")

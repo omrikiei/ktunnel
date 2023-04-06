@@ -16,6 +16,7 @@ import (
 )
 
 var Namespace string
+var KubeContext string
 var ServerImage string
 var eject bool
 
@@ -125,12 +126,14 @@ func init() {
 	injectCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	injectCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	injectCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
+	injectCmd.Flags().StringVar(&KubeContext, "context", "", "Kubernetes Context")
 	injectCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
 	injectCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
 	injectDeploymentCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "tls cert auth file")
 	injectDeploymentCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	injectDeploymentCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	injectDeploymentCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
+	injectDeploymentCmd.Flags().StringVar(&KubeContext, "context", "", "Kubernetes Context")
 	injectDeploymentCmd.Flags().StringVarP(&ServerImage, "server-image", "i", fmt.Sprintf("%s:v%s", k8s.Image, version), "Ktunnel server image to use")
 	injectDeploymentCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
 	injectDeploymentCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")

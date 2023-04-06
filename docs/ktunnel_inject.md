@@ -11,6 +11,7 @@ This command accepts a pod/deployment and injects the tunnel sidecar to that art
 
 ```
   -c, --ca-file string                TLS cert auth file
+  --context string                    Kubernetes context
   -h, --help                          help for inject
   -n, --namespace string              Namespace (default "default")
   -s, --scheme string                 Connection scheme (default "tcp")

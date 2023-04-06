@@ -29,6 +29,7 @@ ktunnel expose redis 6379
 
 ```
   -c, --ca-file string                TLS cert auth file
+  --context string                    Kubernetes context
   -h, --help                          help for expose
   -n, --namespace string              Namespace (default "default")
   -q, --node-selector-tags strings    tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)
