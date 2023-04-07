@@ -45,7 +45,7 @@ ktunnel inject deployment mydeployment 3306 6379
 		// Inject
 		deployment := args[0]
 		readyChan := make(chan bool, 1)
-		_, err := k8s.InjectSidecar(&Namespace, &deployment, &port, ServerImage, CertFile, KeyFile, readyChan)
+		_, err := k8s.InjectSidecar(&Namespace, &deployment, &port, ServerImage, CertFile, KeyFile, readyChan, &KubeContext)
 		if err != nil {
 			log.Fatalf("failed injecting sidecar: %v", err)
 		}
@@ -66,7 +66,7 @@ ktunnel inject deployment mydeployment 3306 6379
 				wg.Wait()
 				if eject {
 					readyChan = make(chan bool, 1)
-					ok, err := k8s.RemoveSidecar(&Namespace, &deployment, ServerImage, readyChan)
+					ok, err := k8s.RemoveSidecar(&Namespace, &deployment, ServerImage, readyChan, &KubeContext)
 					if !ok {
 						log.Errorf("Failed removing tunnel sidecar; %v", err)
 					}
@@ -89,7 +89,7 @@ ktunnel inject deployment mydeployment 3306 6379
 		// port-Forward
 		strPort := strconv.FormatInt(int64(port), 10)
 		// Create a tunnel client for each replica
-		sourcePorts, err := k8s.PortForward(&Namespace, &deployment, strPort, wg, stopChan)
+		sourcePorts, err := k8s.PortForward(&Namespace, &deployment, strPort, wg, stopChan, &KubeContext)
 		if err != nil {
 			log.Fatalf("Failed to run port forwarding: %v", err)
 			os.Exit(1)
