@@ -55,8 +55,8 @@ nfpms:
       386: 32-bit
       darwin: macOS
       linux: Tux
-    homepage: https://github.com/omrikiei/ktunnel
-    maintainer: omrikiei <omrieival@gmail.com>
+    homepage: https://github.com/bllfr0g/ktunnel
+    maintainer: bllfr0g
     description: Ktunnel is a network tunneling tool for kubernetes
     license: MIT
     formats:
@@ -66,31 +66,3 @@ nfpms:
     bindir: /usr/bin
     epoch: 1
 
-brews:
-  -
-    tap:
-      owner: omrikiei
-      name: ktunnel
-
-    commit_author:
-      name: omrikiei
-      email: omrieival@gmail.com
-
-    homepage: "https://github.com/omrikiei/ktunnel"
-    description: "Network tunneling tool for kubernetes."
-
-    # Setting this will prevent goreleaser to actually try to commit the updated
-    # formula - instead, the formula file will be stored on the dist folder only,
-    # leaving the responsibility of publishing it to the user.
-    # If set to auto, the release will not be uploaded to the homebrew tap
-    # in case there is an indicator for prerelease in the tag e.g. v1.0.0-rc1
-    # Default is false.
-    skip_upload: auto
-
-    # Custom block for brew.
-    # Can be used to specify alternate downloads for devel or head releases.
-    # Default is empty.
-    custom_block: |
-      head "https://github.com/omrikiei/ktunnel.git"
-    test: |
-      system "#{bin}/program version"
