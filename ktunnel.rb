@@ -9,16 +9,16 @@ class Ktunnel < Formula
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_ 1.5.1_Darwin_arm64.tar.gz"
-      sha256 "de73251d5eae68ea005e93ff801fb85986d70251ca89f0c8e1f463bb9b2bf84d"
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_1.5.1_Darwin_arm64.tar.gz"
+      sha256 "b2df73553975d908934598c2fe89104ad29e326c94bbebbbed5f1db94c5727a2"
 
       def install
         bin.install "ktunnel"
       end
     end
     if Hardware::CPU.intel?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_ 1.5.1_Darwin_x86_64.tar.gz"
-      sha256 "4a5741d0b96b36960070dd1ac84fe8e6d35f2eea4e1893847f8a993edbf056ee"
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_1.5.1_Darwin_x86_64.tar.gz"
+      sha256 "0a105f82028a64eedef48c24564fb965840683e579fdadfab09a98df233d4c5d"
 
       def install
         bin.install "ktunnel"
@@ -27,17 +27,17 @@ class Ktunnel < Formula
   end
 
   on_linux do
-    if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_ 1.5.1_Linux_arm64.tar.gz"
-      sha256 "fcb5fa066cdd37c6015eab56d71887a4e112ca18b07cb915ea24d77acef8a954"
+    if Hardware::CPU.intel?
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_1.5.1_Linux_x86_64.tar.gz"
+      sha256 "bb1135d92e007f1916441b7ebbf50ad62b78b7b8c2d314e91128fcad8ae5f7c4"
 
       def install
         bin.install "ktunnel"
       end
     end
-    if Hardware::CPU.intel?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_ 1.5.1_Linux_x86_64.tar.gz"
-      sha256 "d7f220cfe50ab7694d3a7616714dfa6de981634f97bcc68ed99bb1cd4787981d"
+    if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_1.5.1_Linux_arm64.tar.gz"
+      sha256 "d5a0398e9bde8a8073adb5df7ea75cb10684beead86023964fda25f25cc6eb3d"
 
       def install
         bin.install "ktunnel"
