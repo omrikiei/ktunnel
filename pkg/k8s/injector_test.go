@@ -62,7 +62,7 @@ func TestGetPortForwardUrl(t *testing.T) {
 			Expected: &url.URL{
 				Scheme: "https",
 				Host:   "api.qa.kube.com",
-				Path:   "/api/v1/namespaces/default/pods/test/portforward",
+				Path:   "api/v1/namespaces/default/pods/test/portforward",
 			},
 		},
 		{
@@ -86,7 +86,7 @@ func TestGetPortForwardUrl(t *testing.T) {
 			Expected: &url.URL{
 				Scheme: "https",
 				Host:   "srv01.mydomain.de:6443",
-				Path:   "/api/v1/namespaces/default/pods/myapp-5b65c8777b-dd54r/portforward",
+				Path:   "api/v1/namespaces/default/pods/myapp-5b65c8777b-dd54r/portforward",
 			},
 		},
 	}
@@ -99,6 +99,6 @@ func TestGetPortForwardUrl(t *testing.T) {
 	}
 }
 
-func TestInjectSidecar(t *testing.T, kubecontext *string) {
-	createMockClient(kubecontext)
+func Test_InjectSidecar(t *testing.T) {
+	createMockClient(nil)
 }
