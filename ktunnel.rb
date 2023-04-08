@@ -8,17 +8,17 @@ class Ktunnel < Formula
   version "1.5.1"
 
   on_macos do
-    if Hardware::CPU.intel?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_Darwin_x86_64.tar.gz"
-      sha256 "678235f3195d622da935f23270ac89b302a56b1f18618bfad357358c86cbf4e7"
+    if Hardware::CPU.arm?
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_ 1.5.1_Darwin_arm64.tar.gz"
+      sha256 "de73251d5eae68ea005e93ff801fb85986d70251ca89f0c8e1f463bb9b2bf84d"
 
       def install
         bin.install "ktunnel"
       end
     end
-    if Hardware::CPU.arm?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_Darwin_arm64.tar.gz"
-      sha256 "5d1c7f9a995e22b5843bdd186b4830161a1a665f664f01eefc0a11656a1d167c"
+    if Hardware::CPU.intel?
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_ 1.5.1_Darwin_x86_64.tar.gz"
+      sha256 "4a5741d0b96b36960070dd1ac84fe8e6d35f2eea4e1893847f8a993edbf056ee"
 
       def install
         bin.install "ktunnel"
@@ -28,16 +28,16 @@ class Ktunnel < Formula
 
   on_linux do
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_Linux_arm64.tar.gz"
-      sha256 "c152dc44e1be5349b2b2b7cfaaa9335dfa12127b5f2027f270eb6a80543013cc"
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_ 1.5.1_Linux_arm64.tar.gz"
+      sha256 "fcb5fa066cdd37c6015eab56d71887a4e112ca18b07cb915ea24d77acef8a954"
 
       def install
         bin.install "ktunnel"
       end
     end
     if Hardware::CPU.intel?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_Linux_x86_64.tar.gz"
-      sha256 "507ece4a44c74adfc802fefec6e674764769775e368df83bfb081b16940b8ff2"
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_ 1.5.1_Linux_x86_64.tar.gz"
+      sha256 "d7f220cfe50ab7694d3a7616714dfa6de981634f97bcc68ed99bb1cd4787981d"
 
       def install
         bin.install "ktunnel"
