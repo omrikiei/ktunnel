@@ -14,3 +14,4 @@
 - ~~Add goreleaser manifest and actions~~
 - ~~Add cluster selection flag~~
 - Add 'swap' subcommand for swapping deployment with a tunnel to the workstation
+- Tests and CI
