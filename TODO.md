@@ -17,3 +17,4 @@
 - Tests and CI
 - refactor code to be better organized, testable and maintainable
 - switch from quay.io to other/self hosted registry to prevent rate limiting on build :(
+- automatically update ktunnel.rb in hombrew-ktunnel after succesful version tag
