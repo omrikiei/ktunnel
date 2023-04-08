@@ -45,12 +45,11 @@ release:
   prerelease: auto
 nfpms:
   # note that this is an array of nfpm configs
-  -
-    id: ktunnel
+  - id: ktunnel
     file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     builds:
-    - ktunnel
-   file_name_template: >-
+      - ktunnel
+    file_name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
