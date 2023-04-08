@@ -59,13 +59,13 @@ ktunnel expose redis 6379
 		}
 
 		if Force {
-			err := k8s.TeardownExposedService(Namespace, svcName)
+			err := k8s.TeardownExposedService(Namespace, svcName, &KubeContext)
 			if err != nil {
 				log.Infof("Force delete: Failed deleting k8s objects: %s", err)
 			}
 		}
 
-		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, ServerImage, Reuse, readyChan, nodeSelectorTags, CertFile, KeyFile, ServiceType)
+		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, ServerImage, Reuse, readyChan, nodeSelectorTags, CertFile, KeyFile, ServiceType, &KubeContext)
 		if err != nil {
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
 		}
@@ -85,7 +85,7 @@ ktunnel expose redis 6379
 				}
 				cancel()
 				if !Reuse {
-					err := k8s.TeardownExposedService(Namespace, svcName)
+					err := k8s.TeardownExposedService(Namespace, svcName, &KubeContext)
 					if err != nil {
 						log.Errorf("Failed deleting k8s objects: %s", err)
 					}
@@ -101,7 +101,7 @@ ktunnel expose redis 6379
 		strPort := strconv.FormatInt(int64(port), 10)
 		stopChan := make(chan struct{}, 1)
 		// Create a tunnel client for each replica
-		sourcePorts, err := k8s.PortForward(&Namespace, &svcName, strPort, wg, stopChan)
+		sourcePorts, err := k8s.PortForward(&Namespace, &svcName, strPort, wg, stopChan, &KubeContext)
 		if err != nil {
 			log.Fatalf("Failed to run port forwarding: %v", err)
 			os.Exit(1)
@@ -138,6 +138,7 @@ func init() {
 	exposeCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	exposeCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
 	exposeCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
+	exposeCmd.Flags().StringVar(&KubeContext, "context", "", "Kubernetes Context")
 	exposeCmd.Flags().StringVarP(&ServerImage, "server-image", "i", fmt.Sprintf("%s:v%s", k8s.Image, version), "Ktunnel server image to use")
 	exposeCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
 	exposeCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")

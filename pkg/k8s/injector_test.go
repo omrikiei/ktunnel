@@ -20,9 +20,9 @@ type TestCase struct {
 	ErrResult  error
 }
 
-func createMockClient() {
+func createMockClient(kubecontext *string) {
 	namespace := "default"
-	getClients(&namespace) // Squeeze the initialization from the tested functions and override the clients
+	getClients(&namespace, kubecontext) // Squeeze the initialization from the tested functions and override the clients
 	fakeClient := testclient.NewSimpleClientset()
 	deploymentsClient = fakeClient.AppsV1().Deployments(namespace)
 	podsClient = fakeClient.CoreV1().Pods(namespace)
@@ -99,6 +99,6 @@ func TestGetPortForwardUrl(t *testing.T) {
 	}
 }
 
-func TestInjectSidecar(t *testing.T) {
-	createMockClient()
+func TestInjectSidecar(t *testing.T, kubecontext *string) {
+	createMockClient(kubecontext)
 }

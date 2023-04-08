@@ -54,7 +54,7 @@ var kubeconfig *rest.Config
 var o = sync.Once{}
 var Verbose = false
 
-func getKubeConfig() *rest.Config {
+func getKubeConfig(kubecontext *string) *rest.Config {
 	o.Do(func() {
 		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 
@@ -65,7 +65,7 @@ func getKubeConfig() *rest.Config {
 		}
 
 		config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-			loadingRules, &clientcmd.ConfigOverrides{}).ClientConfig()
+			loadingRules, &clientcmd.ConfigOverrides{ CurrentContext: *kubecontext}).ClientConfig()
 		if err != nil {
 			log.Errorf("Failed getting kubernetes config: %v", err)
 		}
@@ -74,9 +74,9 @@ func getKubeConfig() *rest.Config {
 	return kubeconfig
 }
 
-func getClients(namespace *string) {
+func getClients(namespace *string, kubecontext *string) {
 	deploymentOnce.Do(func() {
-		clientset, err := kubernetes.NewForConfig(getKubeConfig())
+		clientset, err := kubernetes.NewForConfig(getKubeConfig(kubecontext))
 		if err != nil {
 			log.Errorf("Failed to get k8s client: %v", err)
 			os.Exit(1)
@@ -88,8 +88,8 @@ func getClients(namespace *string) {
 	})
 }
 
-func getAllPods(namespace *string) (*apiv1.PodList, error) {
-	getClients(namespace)
+func getAllPods(namespace, kubecontext *string) (*apiv1.PodList, error) {
+	getClients(namespace, kubecontext)
 	// TODO: filter pod list
 	pods, err := podsClient.List(context.Background(), metav1.ListOptions{})
 	if err != nil {
@@ -235,8 +235,8 @@ func newService(namespace, name string, ports []apiv1.ServicePort, serviceType a
 	}
 }
 
-func getPodNames(namespace, deploymentName *string, podsPtr *[]string) error {
-	allPods, err := getAllPods(namespace)
+func getPodNames(namespace, deploymentName *string, podsPtr *[]string, kubecontext *string) error {
+	allPods, err := getAllPods(namespace, kubecontext)
 	if err != nil {
 		return err
 	}
@@ -261,8 +261,8 @@ func getPodNames(namespace, deploymentName *string, podsPtr *[]string) error {
 
 }
 
-func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGroup *sync.WaitGroup, stopChan <-chan struct{}) (*[]string, error) {
-	getClients(namespace)
+func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGroup *sync.WaitGroup, stopChan <-chan struct{}, kubecontext *string) (*[]string, error) {
+	getClients(namespace, kubecontext)
 
 	out, errOut := new(bytes.Buffer), new(bytes.Buffer)
 	deployment, err := deploymentsClient.Get(context.Background(), *deploymentName, metav1.GetOptions{})
@@ -270,7 +270,7 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 		return nil, err
 	}
 	podNames := make([]string, *deployment.Spec.Replicas)
-	err = getPodNames(namespace, deploymentName, &podNames)
+	err = getPodNames(namespace, deploymentName, &podNames, kubecontext)
 	fwdWaitGroup.Add(int(*deployment.Spec.Replicas))
 
 	if err != nil {
@@ -288,9 +288,9 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 	for i, podName := range podNames {
 		readyChan := make(chan struct{}, 1)
 		ports := []string{fmt.Sprintf("%s:%s", sourcePorts[i], targetPort)}
-		serverURL := getPortForwardUrl(getKubeConfig(), *namespace, podName)
+		serverURL := getPortForwardUrl(getKubeConfig(kubecontext), *namespace, podName)
 
-		transport, upgrader, err := spdy.RoundTripperFor(getKubeConfig())
+		transport, upgrader, err := spdy.RoundTripperFor(getKubeConfig(kubecontext))
 		if err != nil {
 			return nil, err
 		}

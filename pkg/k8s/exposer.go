@@ -23,8 +23,8 @@ var supportedSchemes = map[string]v12.Protocol{
 	"udp": v12.ProtocolUDP,
 }
 
-func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, rawPorts []string, image string, Reuse bool, readyChan chan<- bool, nodeSelectorTags map[string]string, cert, key string, serviceType string) error {
-	getClients(namespace)
+func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, rawPorts []string, image string, Reuse bool, readyChan chan<- bool, nodeSelectorTags map[string]string, cert, key string, serviceType string, kubecontext *string) error {
+	getClients(namespace, kubecontext)
 
 	ports := make([]v12.ServicePort, len(rawPorts))
 	ctrPorts := make([]v12.ContainerPort, len(ports))
@@ -141,8 +141,8 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 	return nil
 }
 
-func TeardownExposedService(namespace, name string) error {
-	getClients(&namespace)
+func TeardownExposedService(namespace, name string, kubecontext *string) error {
+	getClients(&namespace, kubecontext)
 	log.Infof("Deleting service %s", name)
 	err := svcClient.Delete(context.Background(), name, v1.DeleteOptions{})
 	if err != nil {

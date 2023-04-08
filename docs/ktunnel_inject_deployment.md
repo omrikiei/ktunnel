@@ -19,6 +19,7 @@ ktunnel inject deploymeny mydeployment 3306 6379
 
 ```
   -c, --ca-file string                tls cert auth file
+  --context string                    Kubernetes context
   -e, --eject                         Eject the sidecar when finished (default true)
   -h, --help                          help for deployment
   -n, --namespace string              Namespace (default "default")
