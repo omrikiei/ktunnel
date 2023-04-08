@@ -49,12 +49,6 @@ nfpms:
     file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     builds:
       - ktunnel
-    file_name_template: >-
-      {{ .ProjectName }}_
-      {{- title .Os }}_
-      {{- if eq .Arch "amd64" }}x86_64
-      {{- else if eq .Arch "386" }}i386
-      {{- else }}{{ .Arch }}{{ end }}
     homepage: https://github.com/omrikiei/ktunnel
     maintainer: omrikiei <omrieival@gmail.com>
     description: Ktunnel is a network tunneling tool for kubernetes
