@@ -16,3 +16,4 @@
 - Add 'swap' subcommand for swapping deployment with a tunnel to the workstation
 - Tests and CI
 - refactor code to be better organized, testable and maintainable
+- switch from quay.io to other/self hosted registry to prevent rate limiting on build :(
