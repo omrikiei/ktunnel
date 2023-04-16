@@ -1,6 +1,6 @@
 module github.com/omrikiei/ktunnel
 
-go 1.17
+go 1.19
 
 require (
 	github.com/golang/protobuf v1.4.3
