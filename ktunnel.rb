@@ -5,20 +5,20 @@
 class Ktunnel < Formula
   desc "Network tunneling tool for kubernetes."
   homepage "https://github.com/omrikiei/ktunnel"
-  version "1.5.1"
+  version "1.5.2"
 
   on_macos do
-    if Hardware::CPU.arm?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_1.5.1_Darwin_arm64.tar.gz"
-      sha256 "b2df73553975d908934598c2fe89104ad29e326c94bbebbbed5f1db94c5727a2"
+    if Hardware::CPU.intel?
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.2/ktunnel_1.5.2_Darwin_x86_64.tar.gz"
+      sha256 "d92e2657de64294b7967bf356c2d70480ce64be49c2e4fbf70f9662d30365781"
 
       def install
         bin.install "ktunnel"
       end
     end
-    if Hardware::CPU.intel?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_1.5.1_Darwin_x86_64.tar.gz"
-      sha256 "0a105f82028a64eedef48c24564fb965840683e579fdadfab09a98df233d4c5d"
+    if Hardware::CPU.arm?
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.2/ktunnel_1.5.2_Darwin_arm64.tar.gz"
+      sha256 "53b89f5d2fead807a12ff9b1d12b2eda7ab6a108021430c564aa0ff58ac7dbf4"
 
       def install
         bin.install "ktunnel"
@@ -27,17 +27,17 @@ class Ktunnel < Formula
   end
 
   on_linux do
-    if Hardware::CPU.intel?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_1.5.1_Linux_x86_64.tar.gz"
-      sha256 "bb1135d92e007f1916441b7ebbf50ad62b78b7b8c2d314e91128fcad8ae5f7c4"
+    if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.2/ktunnel_1.5.2_Linux_arm64.tar.gz"
+      sha256 "1b10444f13ff84e309c24ceffff0a00335b7348d6cb30a3b071265d08771c470"
 
       def install
         bin.install "ktunnel"
       end
     end
-    if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.1/ktunnel_1.5.1_Linux_arm64.tar.gz"
-      sha256 "d5a0398e9bde8a8073adb5df7ea75cb10684beead86023964fda25f25cc6eb3d"
+    if Hardware::CPU.intel?
+      url "https://github.com/omrikiei/ktunnel/releases/download/v1.5.2/ktunnel_1.5.2_Linux_x86_64.tar.gz"
+      sha256 "1c330f9444250cbbf38ff33312f04b87a1a10a67fb9b0931704e924201587f23"
 
       def install
         bin.install "ktunnel"
