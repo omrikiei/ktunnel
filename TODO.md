@@ -12,5 +12,9 @@
     - nodejs remote debugging(based on [this](https://nodejs.org/de/docs/guides/debugging-getting-started/#enabling-remote-debugging-scenarios))
 - ~~Add docs(auto-generated from cobra)~~
 - ~~Add goreleaser manifest and actions~~
-- Add cluster selection flag
+- ~~Add cluster selection flag~~
 - Add 'swap' subcommand for swapping deployment with a tunnel to the workstation
+- Tests and CI
+- refactor code to be better organized, testable and maintainable
+- switch from quay.io to other/self hosted registry to prevent rate limiting on build :(
+- automatically update ktunnel.rb in hombrew-ktunnel after succesful version tag

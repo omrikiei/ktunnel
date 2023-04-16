@@ -35,7 +35,8 @@ import (
 )
 
 const (
-	Image = "quay.io/omrikiei/ktunnel"
+	Image            = "quay.io/omrikiei/ktunnel"
+	kubeConfigEnvVar = "KUBECONFIG"
 )
 
 type ByCreationTime []apiv1.Pod
@@ -54,18 +55,22 @@ var kubeconfig *rest.Config
 var o = sync.Once{}
 var Verbose = false
 
-func getKubeConfig() *rest.Config {
+func getKubeConfig(kubeCtx *string) *rest.Config {
 	o.Do(func() {
 		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 
-		kconfig := os.Getenv("KUBECONFIG")
-		if home := homedir.HomeDir(); kconfig == "" && home != "" {
-			kconfig = filepath.Join(home, ".kube", "config")
-			loadingRules.ExplicitPath = kconfig
+		kConfig := os.Getenv(kubeConfigEnvVar)
+		if home := homedir.HomeDir(); kConfig == "" && home != "" {
+			kConfig = filepath.Join(home, ".kube", "config")
+			loadingRules.ExplicitPath = kConfig
 		}
 
-		config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-			loadingRules, &clientcmd.ConfigOverrides{}).ClientConfig()
+		var configOverrides *clientcmd.ConfigOverrides
+		if (kubeCtx) != nil {
+			configOverrides = &clientcmd.ConfigOverrides{CurrentContext: *kubeCtx}
+		}
+
+		config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides).ClientConfig()
 		if err != nil {
 			log.Errorf("Failed getting kubernetes config: %v", err)
 		}
@@ -74,53 +79,28 @@ func getKubeConfig() *rest.Config {
 	return kubeconfig
 }
 
-func getClients(namespace *string) {
+func getClients(namespace *string, kubeCtx *string) {
 	deploymentOnce.Do(func() {
-		clientset, err := kubernetes.NewForConfig(getKubeConfig())
+		clientSet, err := kubernetes.NewForConfig(getKubeConfig(kubeCtx))
 		if err != nil {
 			log.Errorf("Failed to get k8s client: %v", err)
 			os.Exit(1)
 		}
 
-		deploymentsClient = clientset.AppsV1().Deployments(*namespace)
-		podsClient = clientset.CoreV1().Pods(*namespace)
-		svcClient = clientset.CoreV1().Services(*namespace)
+		deploymentsClient = clientSet.AppsV1().Deployments(*namespace)
+		podsClient = clientSet.CoreV1().Pods(*namespace)
+		svcClient = clientSet.CoreV1().Services(*namespace)
 	})
 }
 
-func getAllPods(namespace *string) (*apiv1.PodList, error) {
-	getClients(namespace)
+func getAllPods(namespace, kubeCtx *string) (*apiv1.PodList, error) {
+	getClients(namespace, kubeCtx)
 	// TODO: filter pod list
 	pods, err := podsClient.List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
 	return pods, nil
-}
-
-func waitForReady(name *string, ti time.Time, numPods int32, readyChan chan<- bool) {
-	go func() {
-		for {
-			print(".")
-			count := int32(0)
-			pods, err := podsClient.List(context.Background(), metav1.ListOptions{})
-			if err != nil {
-				log.Error(err)
-				os.Exit(1)
-			}
-			for _, p := range pods.Items {
-				if strings.HasPrefix(p.Name, *name) && p.CreationTimestamp.After(ti.Add(-time.Second)) && p.Status.Phase == apiv1.PodRunning {
-					count += 1
-				}
-				if count == numPods {
-					readyChan <- true
-					println()
-					return
-				}
-			}
-			time.Sleep(time.Millisecond * 300)
-		}
-	}()
 }
 
 func hasSidecar(podSpec apiv1.PodSpec, image string) bool {
@@ -226,7 +206,7 @@ func newService(namespace, name string, ports []apiv1.ServicePort, serviceType a
 		},
 		Spec: apiv1.ServiceSpec{
 			Ports: ports,
-			Type: serviceType,
+			Type:  serviceType,
 			Selector: map[string]string{
 				"app.kubernetes.io/name":     name,
 				"app.kubernetes.io/instance": name,
@@ -235,13 +215,13 @@ func newService(namespace, name string, ports []apiv1.ServicePort, serviceType a
 	}
 }
 
-func getPodNames(namespace, deploymentName *string, podsPtr *[]string) error {
-	allPods, err := getAllPods(namespace)
+func getPodNames(namespace, deploymentName *string, podsPtr *[]string, kubeCtx *string) error {
+	allPods, err := getAllPods(namespace, kubeCtx)
 	if err != nil {
 		return err
 	}
 	pods := *podsPtr
-	matchinePods := ByCreationTime{}
+	matchingPods := ByCreationTime{}
 	pIndex := 0
 	for _, p := range allPods.Items {
 		if pIndex >= len(pods) {
@@ -249,20 +229,20 @@ func getPodNames(namespace, deploymentName *string, podsPtr *[]string) error {
 			break
 		}
 		if strings.HasPrefix(p.Name, *deploymentName) && p.Status.Phase == apiv1.PodRunning {
-			matchinePods = append(matchinePods, p)
+			matchingPods = append(matchingPods, p)
 		}
 	}
-	sort.Sort(matchinePods)
+	sort.Sort(matchingPods)
 	for i := 0; i < len(pods); i++ {
-		pods[i] = matchinePods[i].Name
+		pods[i] = matchingPods[i].Name
 	}
 
 	return nil
 
 }
 
-func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGroup *sync.WaitGroup, stopChan <-chan struct{}) (*[]string, error) {
-	getClients(namespace)
+func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGroup *sync.WaitGroup, stopChan <-chan struct{}, kubecontext *string) (*[]string, error) {
+	getClients(namespace, kubecontext)
 
 	out, errOut := new(bytes.Buffer), new(bytes.Buffer)
 	deployment, err := deploymentsClient.Get(context.Background(), *deploymentName, metav1.GetOptions{})
@@ -270,7 +250,7 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 		return nil, err
 	}
 	podNames := make([]string, *deployment.Spec.Replicas)
-	err = getPodNames(namespace, deploymentName, &podNames)
+	err = getPodNames(namespace, deploymentName, &podNames, kubecontext)
 	fwdWaitGroup.Add(int(*deployment.Spec.Replicas))
 
 	if err != nil {
@@ -288,9 +268,9 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 	for i, podName := range podNames {
 		readyChan := make(chan struct{}, 1)
 		ports := []string{fmt.Sprintf("%s:%s", sourcePorts[i], targetPort)}
-		serverURL := getPortForwardUrl(getKubeConfig(), *namespace, podName)
+		serverURL := getPortForwardUrl(getKubeConfig(kubecontext), *namespace, podName)
 
-		transport, upgrader, err := spdy.RoundTripperFor(getKubeConfig())
+		transport, upgrader, err := spdy.RoundTripperFor(getKubeConfig(kubecontext))
 		if err != nil {
 			return nil, err
 		}

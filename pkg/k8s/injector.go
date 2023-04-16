@@ -30,9 +30,9 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 	return true, nil
 }
 
-func InjectSidecar(namespace, objectName *string, port *int, image string, cert string, key string, readyChan chan<- bool) (bool, error) {
+func InjectSidecar(namespace, objectName *string, port *int, image string, cert string, key string, readyChan chan<- bool, kubecontext *string) (bool, error) {
 	log.Infof("Injecting tunnel sidecar to %s/%s", *namespace, *objectName)
-	getClients(namespace)
+	getClients(namespace, kubecontext)
 	co := newContainer(*port, image, []apiv1.ContainerPort{}, cert, key)
 	obj, err := deploymentsClient.Get(context.Background(), *objectName, metav1.GetOptions{})
 	if err != nil {
@@ -69,9 +69,9 @@ func removeFromSpec(s *apiv1.PodSpec, image string) (bool, error) {
 	}
 }
 
-func RemoveSidecar(namespace, objectName *string, image string, readyChan chan<- bool) (bool, error) {
+func RemoveSidecar(namespace, objectName *string, image string, readyChan chan<- bool, kubecontext *string) (bool, error) {
 	log.Infof("Removing tunnel sidecar from %s/%s", *namespace, *objectName)
-	getClients(namespace)
+	getClients(namespace, kubecontext)
 	obj, err := deploymentsClient.Get(context.Background(), *objectName, metav1.GetOptions{})
 	if err != nil {
 		return false, err
