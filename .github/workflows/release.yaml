@@ -46,4 +46,4 @@ jobs:
           push: true
           context: .
           platforms: linux/amd64,linux/arm64
-          tags: docker.io/omrikiei/ktunnel:${{ steps.vars.outputs.tag }}
+          tags: docker.io/omrrieival/ktunnel:${{ steps.vars.outputs.tag }}
