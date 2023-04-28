@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	Image            = "quay.io/omrikiei/ktunnel"
+	Image            = "docker.io/omrieival/ktunnel"
 	kubeConfigEnvVar = "KUBECONFIG"
 )
 
