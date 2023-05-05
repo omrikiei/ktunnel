@@ -23,14 +23,14 @@ type Message struct {
 	d *[]byte
 }
 
-func ReceiveData(conf *Config, st pb.Tunnel_InitTunnelClient, sessionsOut chan<- *common.Session, port int32, scheme string) {
+func ReceiveData(conf *Config, st pb.Tunnel_InitTunnelClient, sessionsOut chan<- *common.Session, host string, port int32, scheme string) {
 loop:
 	for {
 		conf.log.Debugf("attempting to receive from stream")
 		m, err := st.Recv()
 		select {
 		case <-st.Context().Done():
-			conf.log.WithError(st.Context().Err()).Infof("closing listener on %d", port)
+			conf.log.WithError(st.Context().Err()).Infof("closing listener on %s:%d", host, port)
 			_ = st.CloseSend()
 			break loop
 		default:
@@ -48,13 +48,14 @@ loop:
 			if exists == false {
 				conf.log.WithFields(log.Fields{
 					"session": m.RequestId,
+					"host": host,
 					"port":    port,
 				}).Infof("new connection")
 
 				// new session
-				conn, err := net.DialTimeout(strings.ToLower(scheme), fmt.Sprintf("localhost:%d", port), time.Millisecond*500)
+				conn, err := net.DialTimeout(strings.ToLower(scheme), fmt.Sprintf("%s:%d", host, port), time.Millisecond*500)
 				if err != nil {
-					conf.log.WithError(err).Errorf("failed connecting to localhost on port %d scheme %s", port, scheme)
+					conf.log.WithError(err).Errorf("failed connecting to %s on port %d scheme %s", host, port, scheme)
 					// close the remote connection
 					resp := &pb.SocketDataRequest{
 						RequestId:   requestId.String(),
@@ -223,7 +224,7 @@ func RunClient(ctx context.Context, opts ...Option) error {
 		}
 
 		go func() {
-			conf.log.Infof("starting %s tunnel from source %d to target %d", conf.scheme, tunnelData.Source, tunnelData.Target)
+			conf.log.Infof("starting %s tunnel from source %d to target %s:%d", conf.scheme, tunnelData.Source, tunnelData.TargetHost, tunnelData.TargetPort)
 			tunnelScheme, ok := pb.TunnelScheme_value[conf.scheme]
 			if ok != false {
 				conf.log.Fatalf("unsupported connection scheme %s", conf.scheme)
@@ -246,7 +247,7 @@ func RunClient(ctx context.Context, opts ...Option) error {
 				}
 
 				sessions := make(chan *common.Session)
-				go ReceiveData(conf, stream, sessions, tunnelData.Target, conf.scheme)
+				go ReceiveData(conf, stream, sessions, tunnelData.TargetHost, tunnelData.TargetPort, conf.scheme)
 				go SendData(conf, stream, sessions)
 			}
 		}()

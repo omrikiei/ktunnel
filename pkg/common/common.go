@@ -44,7 +44,8 @@ func (s *Session) Close() {
 
 type RedirectRequest struct {
 	Source int32
-	Target int32
+	TargetHost string
+	TargetPort int32
 }
 
 func NewSession(conn net.Conn) *Session {
@@ -103,7 +104,8 @@ func ParsePorts(s string) (*RedirectRequest, error) {
 		}
 		return &RedirectRequest{
 			Source: int32(p),
-			Target: int32(p),
+			TargetHost: "localhost",
+			TargetPort: int32(p),
 		}, nil
 	}
 	if len(raw) == 2 {
@@ -117,7 +119,23 @@ func ParsePorts(s string) (*RedirectRequest, error) {
 		}
 		return &RedirectRequest{
 			Source: int32(s),
-			Target: int32(t),
+			TargetHost: "localhost",
+			TargetPort: int32(t),
+		}, nil
+	}
+	if len(raw) == 3 {
+		s, err := strconv.ParseInt(raw[0], 10, 32)
+		if err != nil {
+			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[0], err))
+		}
+		t, err := strconv.ParseInt(raw[2], 10, 32)
+		if err != nil {
+			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[1], err))
+		}
+		return &RedirectRequest{
+			Source: int32(s),
+			TargetHost: raw[1],
+			TargetPort: int32(t),
 		}, nil
 	}
 	return nil, errors.New(fmt.Sprintf("Error, bad tunnel format: %s", s))
