@@ -1,3 +1,8 @@
+## What does this fork do?
+
+It simply adds grpc-web to the list of supported schemes for the exposer. grpc-web is on the TCP protocol, so the only difference in the resulting deployment is that the service exposed will have its port name prefixed by `grpc-web`. This is especially useful using grpc-web with istio as the envoy proxy will know to convert an http request to grpc.
+
+
 <p align="center">
   <a href="" rel="noopener">
  <img width=200px height=100px src="./ktunnel-logo/cover.png" alt="Ktunnel logo"></a>
