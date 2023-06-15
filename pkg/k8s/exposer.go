@@ -19,12 +19,12 @@ import (
 )
 
 var supportedSchemes = map[string]v12.Protocol{
-	"tcp": v12.ProtocolTCP,
-	"udp": v12.ProtocolUDP,
+	"tcp":      v12.ProtocolTCP,
+	"udp":      v12.ProtocolUDP,
 	"grpc-web": v12.ProtocolTCP,
 }
 
-func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, rawPorts []string, image string, Reuse bool, readyChan chan<- bool, nodeSelectorTags map[string]string, cert, key string, serviceType string, kubecontext *string) error {
+func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, rawPorts []string, portName string, image string, Reuse bool, DeploymentOnly bool, readyChan chan<- bool, nodeSelectorTags map[string]string, deploymentLabels map[string]string, cert, key string, serviceType string, kubecontext *string) error {
 	getClients(namespace, kubecontext)
 
 	ports := make([]v12.ServicePort, len(rawPorts))
@@ -40,6 +40,9 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 			continue
 		}
 		portname := fmt.Sprintf("%s-%d", scheme, parsed.Source)
+		if portName != "" {
+			portname = portName
+		}
 		ports[i] = v12.ServicePort{
 			Protocol: protocol,
 			Name:     portname,
@@ -57,7 +60,7 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 		}
 	}
 
-	deployment := newDeployment(*namespace, *name, tunnelPort, image, ctrPorts, nodeSelectorTags, cert, key)
+	deployment := newDeployment(*namespace, *name, tunnelPort, image, ctrPorts, nodeSelectorTags, deploymentLabels, cert, key)
 
 	service := newService(*namespace, *name, ports, v12.ServiceType(serviceType))
 
@@ -104,62 +107,66 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 		return errors.New("error creating deployment")
 	}
 
-	var newSvc *v12.Service
-	serviceCreated := false
-	existingService, err := svcClient.Get(context.Background(), *name, v1.GetOptions{})
-	if err != nil && apierrors.IsNotFound(err) {
+	if !DeploymentOnly {
+		var newSvc *v12.Service
+		serviceCreated := false
+		existingService, err := svcClient.Get(context.Background(), *name, v1.GetOptions{})
+		if err != nil && apierrors.IsNotFound(err) {
 
-		newSvc, err = svcClient.Create(context.Background(), service, v1.CreateOptions{
-			TypeMeta:     v1.TypeMeta{},
-			DryRun:       nil,
-			FieldManager: "",
-		})
+			newSvc, err = svcClient.Create(context.Background(), service, v1.CreateOptions{
+				TypeMeta:     v1.TypeMeta{},
+				DryRun:       nil,
+				FieldManager: "",
+			})
 
-		if err != nil {
-			return err
+			if err != nil {
+				return err
+			}
+			serviceCreated = true
 		}
-		serviceCreated = true
+		if !serviceCreated && Reuse {
+			// Copy labels and selectors to prevent PATCH issue with immutable fields
+			service.Labels = existingService.Labels
+			service.Spec.Selector = existingService.Spec.Selector
+
+			patch, err := json.Marshal(service)
+			if err != nil {
+				return err
+			}
+			newSvc, err = svcClient.Patch(context.Background(), *name, types.MergePatchType, patch, v1.PatchOptions{
+				TypeMeta:     v1.TypeMeta{},
+				DryRun:       nil,
+				FieldManager: "",
+			})
+			time.Sleep(time.Millisecond * 300)
+			if err != nil {
+				return err
+			}
+		}
+		if newSvc == nil {
+			if !serviceCreated {
+				return errors.New("service with same name already exists")
+			}
+			return errors.New("error in creating service")
+		}
+		log.Infof("Exposed service's cluster ip is: %s", newSvc.Spec.ClusterIP)
 	}
-	if !serviceCreated && Reuse {
-		// Copy labels and selectors to prevent PATCH issue with immutable fields
-		service.Labels = existingService.Labels
-		service.Spec.Selector = existingService.Spec.Selector
 
-		patch, err := json.Marshal(service)
-		if err != nil {
-			return err
-		}
-		newSvc, err = svcClient.Patch(context.Background(), *name, types.MergePatchType, patch, v1.PatchOptions{
-			TypeMeta:     v1.TypeMeta{},
-			DryRun:       nil,
-			FieldManager: "",
-		})
-		time.Sleep(time.Millisecond * 300)
-		if err != nil {
-			return err
-		}
-	}
-	if newSvc == nil {
-		if !serviceCreated {
-			return errors.New("service with same name already exists")
-		}
-		return errors.New("error in creating service")
-	}
-
-	log.Infof("Exposed service's cluster ip is: %s", newSvc.Spec.ClusterIP)
 	watchForReady(deployment, readyChan)
 	return nil
 }
 
-func TeardownExposedService(namespace, name string, kubecontext *string) error {
+func TeardownExposedService(namespace, name string, kubecontext *string, DeploymentOnly bool) error {
 	getClients(&namespace, kubecontext)
-	log.Infof("Deleting service %s", name)
-	err := svcClient.Delete(context.Background(), name, v1.DeleteOptions{})
-	if err != nil {
-		return err
+	if !DeploymentOnly {
+		log.Infof("Deleting service %s", name)
+		err := svcClient.Delete(context.Background(), name, v1.DeleteOptions{})
+		if err != nil {
+			return err
+		}
 	}
 	log.Infof("Deleting deployment %s", name)
-	err = deploymentsClient.Delete(context.Background(), name, v1.DeleteOptions{})
+	err := deploymentsClient.Delete(context.Background(), name, v1.DeleteOptions{})
 	if err != nil {
 		return err
 	}
