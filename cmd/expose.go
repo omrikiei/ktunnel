@@ -55,9 +55,9 @@ ktunnel expose redis 6379
 			parsed := strings.Split(tag, "=")
 			if len(parsed) != 2 {
 				log.Errorf("failed to parse node selector tag: %v", tag)
-			} else {
-				nodeSelectorTags[parsed[0]] = parsed[1]
+				continue
 			}
+			nodeSelectorTags[parsed[0]] = parsed[1]
 		}
 
 		deploymentLabels := map[string]string{}
@@ -65,9 +65,9 @@ ktunnel expose redis 6379
 			parsed := strings.Split(label, "=")
 			if len(parsed) != 2 {
 				log.Errorf("failed to parse deployment label: %v", label)
-			} else {
-				deploymentLabels[parsed[0]] = parsed[1]
+				continue
 			}
+			deploymentLabels[parsed[0]] = parsed[1]
 		}
 
 		if Force {
