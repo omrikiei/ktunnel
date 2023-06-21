@@ -152,33 +152,26 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
 	}
 }
 
-func newDeployment(namespace, name string, port int, image string, ports []apiv1.ContainerPort, selector map[string]string, cert, key string) *appsv1.Deployment {
+func newDeployment(namespace, name string, port int, image string, ports []apiv1.ContainerPort, selector map[string]string, deploymentLabels map[string]string, cert, key string) *appsv1.Deployment {
 	replicas := int32(1)
+	deploymentLabels["app.kubernetes.io/name"] = name
+	deploymentLabels["app.kubernetes.io/instance"] = name
 	co := newContainer(port, image, ports, cert, key)
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/name":     name,
-				"app.kubernetes.io/instance": name,
-			},
+			Labels:    deploymentLabels,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"app.kubernetes.io/name":     name,
-					"app.kubernetes.io/instance": name,
-				},
+				MatchLabels: deploymentLabels,
 			},
 			Template: apiv1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						"app.kubernetes.io/name":     name,
-						"app.kubernetes.io/instance": name,
-					},
+					Labels: deploymentLabels,
 				},
 				Spec: apiv1.PodSpec{
 					NodeSelector: selector,

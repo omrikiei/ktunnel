@@ -31,11 +31,14 @@ ktunnel expose redis 6379
   -c, --ca-file string                TLS cert auth file
       --cert string                   TLS certificate file
       --context string                Kubernetes Context
+  -d, --deployment-only               create only deployment
   -f, --force                         deployment & service will be removed before
   -h, --help                          help for expose
       --key string                    TLS key file
+  -l, --deployment-labels strings     comma separated list of labels and values seperated by the '=' character (i.e name=app,env=prod)
   -n, --namespace string              Namespace (default "default")
   -q, --node-selector-tags strings    tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)
+      --portname string               specify container port name
   -r, --reuse                         delete k8s objects before expose
   -s, --scheme string                 Connection scheme (default "tcp")
   -o, --server-host-override string   Server name use to verify the hostname returned by the TLS handshake

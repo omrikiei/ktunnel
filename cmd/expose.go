@@ -18,8 +18,11 @@ import (
 
 var Reuse bool
 var Force bool
+var DeploymentOnly bool
+var PortName string
 var ServiceType string
 var NodeSelectorTags []string
+var DeploymentLabels []string
 
 var exposeCmd = &cobra.Command{
 	Use:   "expose [flags] SERVICE_NAME [ports]",
@@ -50,22 +53,31 @@ ktunnel expose redis 6379
 		nodeSelectorTags := map[string]string{}
 		for _, tag := range NodeSelectorTags {
 			parsed := strings.Split(tag, "=")
-			log.Error(parsed)
 			if len(parsed) != 2 {
 				log.Errorf("failed to parse node selector tag: %v", tag)
-			} else {
-				nodeSelectorTags[parsed[0]] = parsed[1]
+				continue
 			}
+			nodeSelectorTags[parsed[0]] = parsed[1]
+		}
+
+		deploymentLabels := map[string]string{}
+		for _, label := range DeploymentLabels {
+			parsed := strings.Split(label, "=")
+			if len(parsed) != 2 {
+				log.Errorf("failed to parse deployment label: %v", label)
+				continue
+			}
+			deploymentLabels[parsed[0]] = parsed[1]
 		}
 
 		if Force {
-			err := k8s.TeardownExposedService(Namespace, svcName, &KubeContext)
+			err := k8s.TeardownExposedService(Namespace, svcName, &KubeContext, DeploymentOnly)
 			if err != nil {
 				log.Infof("Force delete: Failed deleting k8s objects: %s", err)
 			}
 		}
 
-		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, ServerImage, Reuse, readyChan, nodeSelectorTags, CertFile, KeyFile, ServiceType, &KubeContext)
+		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, PortName, ServerImage, Reuse, DeploymentOnly, readyChan, nodeSelectorTags, deploymentLabels, CertFile, KeyFile, ServiceType, &KubeContext)
 		if err != nil {
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
 		}
@@ -85,7 +97,7 @@ ktunnel expose redis 6379
 				}
 				cancel()
 				if !Reuse {
-					err := k8s.TeardownExposedService(Namespace, svcName, &KubeContext)
+					err := k8s.TeardownExposedService(Namespace, svcName, &KubeContext, DeploymentOnly)
 					if err != nil {
 						log.Errorf("Failed deleting k8s objects: %s", err)
 					}
@@ -143,8 +155,11 @@ func init() {
 	exposeCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
 	exposeCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
 	exposeCmd.Flags().StringVar(&ServiceType, "service-type", "ClusterIP", "exposed service type (ClusterIP, NodePort, LoadBalancer or ExternalName)")
+	exposeCmd.Flags().StringVar(&PortName, "portname", "", "specify container port name")
 	exposeCmd.Flags().BoolVarP(&Reuse, "reuse", "r", false, "delete k8s objects before expose")
 	exposeCmd.Flags().BoolVarP(&Force, "force", "f", false, "deployment & service will be removed before")
+	exposeCmd.Flags().BoolVarP(&DeploymentOnly, "deployment-only", "d", false, "create only deployment")
 	exposeCmd.Flags().StringSliceVarP(&NodeSelectorTags, "node-selector-tags", "q", []string{}, "tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)")
+	exposeCmd.Flags().StringSliceVarP(&DeploymentLabels, "deployment-labels", "l", []string{}, "comma separated list of labels and values seperated by the '=' character (i.e app=application,env=prod)")
 	rootCmd.AddCommand(exposeCmd)
 }
