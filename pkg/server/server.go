@@ -125,6 +125,7 @@ func ReceiveData(conf *Config, stream pb.Tunnel_InitTunnelServer) {
 
 func readConn(ctx context.Context, conf *Config, session *common.Session, sessions chan<- *common.Session) {
 	conf.log.WithField("session", session.Id.String()).Info("new connection")
+	sessions <- session
 
 	for {
 
