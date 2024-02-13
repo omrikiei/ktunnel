@@ -127,7 +127,7 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
 	cpuRequest.SetMilli(cReq)
 	cpuLimit.SetMilli(cLimit)
 	memRequest.SetScaled(mReq, resource.Mega)
-	memLimit.SetScaled(mLimit, resource.Giga)
+	memLimit.SetScaled(mLimit, resource.Mega)
 	containerUid := int64(1000)
 
 	return &apiv1.Container{
