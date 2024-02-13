@@ -112,7 +112,7 @@ func hasSidecar(podSpec apiv1.PodSpec, image string) bool {
 	return false
 }
 
-func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, cert, key string) *apiv1.Container {
+func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, cert, key string, cReq, cLimit, mReq, mLimit int64) *apiv1.Container {
 	args := []string{"server", "-p", strconv.FormatInt(int64(port), 10)}
 	if Verbose == true {
 		args = append(args, "-v")
@@ -124,10 +124,10 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
 		args = append(args, fmt.Sprintf("--key %s", key))
 	}
 	cpuRequest, cpuLimit, memRequest, memLimit := resource.Quantity{}, resource.Quantity{}, resource.Quantity{}, resource.Quantity{}
-	cpuRequest.SetMilli(int64(500))
-	cpuLimit.SetMilli(int64(1000))
-	memRequest.SetScaled(int64(100), resource.Mega)
-	memLimit.SetScaled(int64(1), resource.Giga)
+	cpuRequest.SetMilli(cReq)
+	cpuLimit.SetMilli(cLimit)
+	memRequest.SetScaled(mReq, resource.Mega)
+	memLimit.SetScaled(mLimit, resource.Giga)
 	containerUid := int64(1000)
 
 	return &apiv1.Container{
@@ -152,11 +152,11 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
 	}
 }
 
-func newDeployment(namespace, name string, port int, image string, ports []apiv1.ContainerPort, selector map[string]string, deploymentLabels map[string]string, cert, key string) *appsv1.Deployment {
+func newDeployment(namespace, name string, port int, image string, ports []apiv1.ContainerPort, selector map[string]string, deploymentLabels map[string]string, cert, key string, cpuReq, cpuLimit, memReq, memLimit int64) *appsv1.Deployment {
 	replicas := int32(1)
 	deploymentLabels["app.kubernetes.io/name"] = name
 	deploymentLabels["app.kubernetes.io/instance"] = name
-	co := newContainer(port, image, ports, cert, key)
+	co := newContainer(port, image, ports, cert, key, cpuReq, cpuLimit, memReq, memLimit)
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
