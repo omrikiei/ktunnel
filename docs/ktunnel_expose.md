@@ -28,22 +28,23 @@ ktunnel expose redis 6379
 ### Options
 
 ```
-  -c, --ca-file string                TLS cert auth file
-      --cert string                   TLS certificate file
-      --context string                Kubernetes Context
-  -d, --deployment-only               create only deployment
-  -f, --force                         deployment & service will be removed before
-  -h, --help                          help for expose
-      --key string                    TLS key file
-  -l, --deployment-labels strings     comma separated list of labels and values seperated by the '=' character (i.e name=app,env=prod)
-  -n, --namespace string              Namespace (default "default")
-  -q, --node-selector-tags strings    tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)
-      --portname string               specify container port name
-  -r, --reuse                         delete k8s objects before expose
-  -s, --scheme string                 Connection scheme (default "tcp")
-  -o, --server-host-override string   Server name use to verify the hostname returned by the TLS handshake
-  -i, --server-image string           Ktunnel server image to use (default "docker.io/omrieival/ktunnel:v1.5.3")
-      --service-type string           exposed service type (ClusterIP, NodePort, LoadBalancer or ExternalName) (default "ClusterIP")
+  -c, --ca-file string                   TLS cert auth file
+      --cert string                      TLS certificate file
+      --context string                   Kubernetes Context
+      --deployment-annotations strings   comma separated list of annotations and values seperated by the '=' character (i.e sidecar.istio.io/inject=false)
+  -l, --deployment-labels strings        comma separated list of labels and values seperated by the '=' character (i.e app=application,env=prod)
+  -d, --deployment-only                  create only deployment
+  -f, --force                            deployment & service will be removed before
+  -h, --help                             help for expose
+      --key string                       TLS key file
+  -n, --namespace string                 Namespace (default "default")
+  -q, --node-selector-tags strings       tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)
+      --portname string                  specify container port name
+  -r, --reuse                            delete k8s objects before expose
+  -s, --scheme string                    Connection scheme (default "tcp")
+  -o, --server-host-override string      Server name use to verify the hostname returned by the TLS handshake
+  -i, --server-image string              Ktunnel server image to use (default "docker.io/omrieival/ktunnel:v1.6.1")
+      --service-type string              exposed service type (ClusterIP, NodePort, LoadBalancer or ExternalName) (default "ClusterIP")
 ```
 
 ### Options inherited from parent commands

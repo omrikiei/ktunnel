@@ -24,7 +24,7 @@ var supportedSchemes = map[string]v12.Protocol{
 	"grpc-web": v12.ProtocolTCP,
 }
 
-func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, rawPorts []string, portName string, image string, Reuse bool, DeploymentOnly bool, readyChan chan<- bool, nodeSelectorTags map[string]string, deploymentLabels map[string]string, cert, key string, serviceType string, kubecontext *string) error {
+func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, rawPorts []string, portName string, image string, Reuse bool, DeploymentOnly bool, readyChan chan<- bool, nodeSelectorTags map[string]string, deploymentLabels map[string]string, deploymentAnnotations map[string]string, cert, key string, serviceType string, kubecontext *string) error {
 	getClients(namespace, kubecontext)
 
 	ports := make([]v12.ServicePort, len(rawPorts))
@@ -60,7 +60,7 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 		}
 	}
 
-	deployment := newDeployment(*namespace, *name, tunnelPort, image, ctrPorts, nodeSelectorTags, deploymentLabels, cert, key)
+	deployment := newDeployment(*namespace, *name, tunnelPort, image, ctrPorts, nodeSelectorTags, deploymentLabels, deploymentAnnotations, cert, key)
 
 	service := newService(*namespace, *name, ports, v12.ServiceType(serviceType))
 
@@ -80,7 +80,8 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 		deploymentCreated = true
 	}
 	if !deploymentCreated && Reuse {
-		// Copy labels and selectors to prevent PATCH issue with immutable fields
+		// Copy annotations, labels and selectors to prevent PATCH issue with immutable fields
+		deployment.Annotations = existingDeployment.Annotations
 		deployment.Labels = existingDeployment.Labels
 		deployment.Spec.Selector = existingDeployment.Spec.Selector
 		deployment.Spec.Template.Labels = existingDeployment.Spec.Template.Labels

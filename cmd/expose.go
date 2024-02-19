@@ -23,6 +23,7 @@ var PortName string
 var ServiceType string
 var NodeSelectorTags []string
 var DeploymentLabels []string
+var DeploymentAnnotations []string
 
 var exposeCmd = &cobra.Command{
 	Use:   "expose [flags] SERVICE_NAME [ports]",
@@ -70,6 +71,16 @@ ktunnel expose redis 6379
 			deploymentLabels[parsed[0]] = parsed[1]
 		}
 
+		deploymentAnnotations := map[string]string{}
+		for _, label := range DeploymentAnnotations {
+			parsed := strings.Split(label, "=")
+			if len(parsed) != 2 {
+				log.Errorf("failed to parse deployment label: %v", label)
+				continue
+			}
+			deploymentAnnotations[parsed[0]] = parsed[1]
+		}
+
 		if Force {
 			err := k8s.TeardownExposedService(Namespace, svcName, &KubeContext, DeploymentOnly)
 			if err != nil {
@@ -77,7 +88,7 @@ ktunnel expose redis 6379
 			}
 		}
 
-		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, PortName, ServerImage, Reuse, DeploymentOnly, readyChan, nodeSelectorTags, deploymentLabels, CertFile, KeyFile, ServiceType, &KubeContext)
+		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, PortName, ServerImage, Reuse, DeploymentOnly, readyChan, nodeSelectorTags, deploymentLabels, deploymentAnnotations, CertFile, KeyFile, ServiceType, &KubeContext)
 		if err != nil {
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
 		}
@@ -161,5 +172,6 @@ func init() {
 	exposeCmd.Flags().BoolVarP(&DeploymentOnly, "deployment-only", "d", false, "create only deployment")
 	exposeCmd.Flags().StringSliceVarP(&NodeSelectorTags, "node-selector-tags", "q", []string{}, "tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)")
 	exposeCmd.Flags().StringSliceVarP(&DeploymentLabels, "deployment-labels", "l", []string{}, "comma separated list of labels and values seperated by the '=' character (i.e app=application,env=prod)")
+	exposeCmd.Flags().StringSliceVarP(&DeploymentAnnotations, "deployment-annotations", "", []string{}, "comma separated list of annotations and values seperated by the '=' character (i.e sidecar.istio.io/inject=false)")
 	rootCmd.AddCommand(exposeCmd)
 }
