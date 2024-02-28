@@ -24,7 +24,7 @@ var supportedSchemes = map[string]v12.Protocol{
 	"grpc-web": v12.ProtocolTCP,
 }
 
-func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, rawPorts []string, portName string, image string, Reuse bool, DeploymentOnly bool, readyChan chan<- bool, nodeSelectorTags map[string]string, deploymentLabels map[string]string, deploymentAnnotations map[string]string, cert, key string, serviceType string, kubecontext *string) error {
+func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, rawPorts []string, portName string, image string, Reuse bool, DeploymentOnly bool, readyChan chan<- bool, nodeSelectorTags map[string]string, deploymentLabels map[string]string, deploymentAnnotations map[string]string, cert, key string, serviceType string, kubecontext *string, cpuReq, cpuLimit, memReq, memLimit int64) error {
 	getClients(namespace, kubecontext)
 
 	ports := make([]v12.ServicePort, len(rawPorts))
@@ -60,7 +60,7 @@ func ExposeAsService(namespace, name *string, tunnelPort int, scheme string, raw
 		}
 	}
 
-	deployment := newDeployment(*namespace, *name, tunnelPort, image, ctrPorts, nodeSelectorTags, deploymentLabels, deploymentAnnotations, cert, key)
+	deployment := newDeployment(*namespace, *name, tunnelPort, image, ctrPorts, nodeSelectorTags, deploymentLabels, deploymentAnnotations, cert, key, cpuReq, cpuLimit, memReq, memLimit)
 
 	service := newService(*namespace, *name, ports, v12.ServiceType(serviceType))
 
