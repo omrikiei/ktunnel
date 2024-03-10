@@ -33,7 +33,11 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 func InjectSidecar(namespace, objectName *string, port *int, image string, cert string, key string, readyChan chan<- bool, kubecontext *string) (bool, error) {
 	log.Infof("Injecting tunnel sidecar to %s/%s", *namespace, *objectName)
 	getClients(namespace, kubecontext)
-	co := newContainer(*port, image, []apiv1.ContainerPort{}, cert, key)
+	cpuReq := int64(100) // in milli-cpu
+	cpuLimit := int64(500)
+	memReq := int64(100) // in mega-bytes
+	memLimit := int64(1000)
+	co := newContainer(*port, image, []apiv1.ContainerPort{}, cert, key, cpuReq, cpuLimit, memReq, memLimit)
 	obj, err := deploymentsClient.Get(context.Background(), *objectName, metav1.GetOptions{})
 	if err != nil {
 		return false, err
