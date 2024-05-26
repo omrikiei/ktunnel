@@ -292,7 +292,7 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 		}()
 		go func() {
 			if err = forwarder.ForwardPorts(); err != nil { // Locks until stopChan is closed.
-				log.Error(err)
+				log.Fatal(err)
 			}
 		}()
 	}
