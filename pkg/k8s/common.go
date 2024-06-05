@@ -299,14 +299,17 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 		}()
 	}
 
+	waitGroupCh := make(chan struct{})
 	go func() {
 		fwdWaitGroup.Wait()
-		close(forwarderErrChan)
+		close(waitGroupCh)
 	}()
 
-	err = <-forwarderErrChan
-	if err != nil {
+	select {
+	case err := <-forwarderErrChan:
 		return nil, err
+	case <-waitGroupCh:
+		break
 	}
 
 	return &sourcePorts, nil
