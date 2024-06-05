@@ -260,6 +260,8 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 	for i := 0; i < len(sourcePorts); i++ {
 		sourcePorts[i] = strconv.FormatInt(numPort+int64(i), 10)
 	}
+
+	forwarderErrChan := make(chan error)
 	for i, podName := range podNames {
 		readyChan := make(chan struct{}, 1)
 		ports := []string{fmt.Sprintf("%s:%s", sourcePorts[i], targetPort)}
@@ -292,10 +294,21 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 		}()
 		go func() {
 			if err = forwarder.ForwardPorts(); err != nil { // Locks until stopChan is closed.
-				log.Error(err)
+				forwarderErrChan <- fmt.Errorf("unable to forward ports: %w", err)
 			}
 		}()
 	}
+
+	go func() {
+		fwdWaitGroup.Wait()
+		close(forwarderErrChan)
+	}()
+
+	err = <-forwarderErrChan
+	if err != nil {
+		return nil, err
+	}
+
 	return &sourcePorts, nil
 }
 
