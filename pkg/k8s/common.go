@@ -294,7 +294,7 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 		}()
 		go func() {
 			if err = forwarder.ForwardPorts(); err != nil { // Locks until stopChan is closed.
-				forwarderErrChan <- fmt.Errorf("unable to forward ports: %w", err)
+				forwarderErrChan <- err
 			}
 		}()
 	}
