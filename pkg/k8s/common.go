@@ -299,20 +299,20 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 		}()
 	}
 
-	waitGroupCh := make(chan struct{})
+	log.Info("Waiting for port forward to finish")
+
+	doneCh := make(chan struct{})
 	go func() {
 		fwdWaitGroup.Wait()
-		close(waitGroupCh)
+		close(doneCh)
 	}()
 
 	select {
 	case err := <-forwarderErrChan:
 		return nil, err
-	case <-waitGroupCh:
-		break
+	case <-doneCh:
+		return &sourcePorts, nil
 	}
-
-	return &sourcePorts, nil
 }
 
 func getPortForwardUrl(config *rest.Config, namespace string, podName string) *url.URL {
