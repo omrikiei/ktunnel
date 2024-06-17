@@ -35,8 +35,10 @@ import (
 )
 
 const (
-	Image            = "docker.io/omrieival/ktunnel"
-	kubeConfigEnvVar = "KUBECONFIG"
+	Image                   = "docker.io/omrieival/ktunnel"
+	kubeConfigEnvVar        = "KUBECONFIG"
+	deploymentNameLabel     = "app.kubernetes.io/name"
+	deploymentInstanceLabel = "app.kubernetes.io/instance"
 )
 
 type ByCreationTime []apiv1.Pod
@@ -93,10 +95,13 @@ func getClients(namespace *string, kubeCtx *string) {
 	})
 }
 
-func getAllPods(namespace, kubeCtx *string) (*apiv1.PodList, error) {
+func getPodsFilteredByLabel(namespace, kubeCtx, labelSelector *string) (*apiv1.PodList, error) {
 	getClients(namespace, kubeCtx)
-	// TODO: filter pod list
-	pods, err := podsClient.List(context.Background(), metav1.ListOptions{})
+	pods, err := podsClient.List(
+		context.Background(), metav1.ListOptions{
+			LabelSelector: *labelSelector,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -154,8 +159,8 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
 
 func newDeployment(namespace, name string, port int, image string, ports []apiv1.ContainerPort, selector map[string]string, deploymentLabels map[string]string, deploymentAnnotations map[string]string, cert, key string, cpuReq, cpuLimit, memReq, memLimit int64) *appsv1.Deployment {
 	replicas := int32(1)
-	deploymentLabels["app.kubernetes.io/name"] = name
-	deploymentLabels["app.kubernetes.io/instance"] = name
+	deploymentLabels[deploymentNameLabel] = name
+	deploymentLabels[deploymentInstanceLabel] = name
 	co := newContainer(port, image, ports, cert, key, cpuReq, cpuLimit, memReq, memLimit)
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{},
@@ -211,19 +216,20 @@ func newService(namespace, name string, ports []apiv1.ServicePort, serviceType a
 }
 
 func getPodNames(namespace, deploymentName *string, podsPtr *[]string, kubeCtx *string) error {
-	allPods, err := getAllPods(namespace, kubeCtx)
+	labelSelector := deploymentNameLabel + "=" + *deploymentName + "," + deploymentInstanceLabel + "=" + *deploymentName
+	filteredPods, err := getPodsFilteredByLabel(namespace, kubeCtx, &labelSelector)
 	if err != nil {
 		return err
 	}
 	pods := *podsPtr
 	matchingPods := ByCreationTime{}
 	pIndex := 0
-	for _, p := range allPods.Items {
+	for _, p := range filteredPods.Items {
 		if pIndex >= len(pods) {
 			log.Info("All pods located for port-forwarding")
 			break
 		}
-		if strings.HasPrefix(p.Name, *deploymentName) && p.Status.Phase == apiv1.PodRunning {
+		if p.Status.Phase == apiv1.PodRunning {
 			matchingPods = append(matchingPods, p)
 		}
 	}
