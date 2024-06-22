@@ -48,7 +48,7 @@ ktunnel expose redis 6379
 		ctx, cancel := context.WithCancel(context.Background())
 		if verbose {
 			logger.SetLevel(log.DebugLevel)
-			k8s.Verbose = true
+			k8s.SetLogLevel(log.DebugLevel)
 		}
 		o := sync.Once{}
 

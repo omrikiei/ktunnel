@@ -11,9 +11,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func SetLogLevel(l log.Level) {
+	log.SetLevel(l)
+	if l.String() == "verbose" || l.String() == "debug" {
+		Verbose = true
+	}
+}
+
 func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, readyChan chan<- bool) (bool, error) {
 	if hasSidecar(o.Spec.Template.Spec, image) {
-		log.Warn(fmt.Sprintf("%s already injected to the deplyoment", image))
+		log.Warn(fmt.Sprintf("%s already injected to the deployment", image))
 		watchForReady(o, readyChan)
 		return true, nil
 	}
