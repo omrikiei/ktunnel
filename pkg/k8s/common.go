@@ -164,6 +164,7 @@ func newDeployment(
 	podTolerations []apiv1.Toleration,
 	cert, key string,
 	cpuReq, cpuLimit, memReq, memLimit int64,
+	serviceAccount string,
 ) *appsv1.Deployment {
 	replicas := int32(1)
 	deploymentLabels[deploymentNameLabel] = name
@@ -194,6 +195,7 @@ func newDeployment(
 						*co,
 					},
 					Tolerations: podTolerations,
+  					ServiceAccountName: serviceAccount,
 				},
 			},
 		},

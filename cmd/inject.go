@@ -18,6 +18,7 @@ import (
 var Namespace string
 var KubeContext string
 var ServerImage string
+var ServiceAccount string
 var eject bool
 
 var injectCmd = &cobra.Command{

@@ -45,6 +45,7 @@ ktunnel expose redis 6379
   -o, --server-host-override string      Server name use to verify the hostname returned by the TLS handshake
   -i, --server-image string              Ktunnel server image to use (default "docker.io/omrieival/ktunnel:v1.6.1")
       --service-type string              exposed service type (ClusterIP, NodePort, LoadBalancer or ExternalName) (default "ClusterIP")
+  -a, --service-account string           service account
 ```
 
 ### Options inherited from parent commands

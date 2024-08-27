@@ -138,6 +138,7 @@ ktunnel expose redis 6379
 			ServerCpuLimit,
 			ServerMemRequest,
 			ServerMemLimit,
+			ServiceAccount,
 		)
 		if err != nil {
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
@@ -211,6 +212,7 @@ func init() {
 	exposeCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
 	exposeCmd.Flags().StringVar(&KubeContext, "context", "", "Kubernetes Context")
 	exposeCmd.Flags().StringVarP(&ServerImage, "server-image", "i", fmt.Sprintf("%s:v%s", k8s.Image, version), "Ktunnel server image to use")
+	exposeCmd.Flags().StringVarP(&ServiceAccount, "service-account", "a", "default", "Service account to use")
 	exposeCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
 	exposeCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
 	exposeCmd.Flags().StringVar(&ServiceType, "service-type", "ClusterIP", "exposed service type (ClusterIP, NodePort, LoadBalancer or ExternalName)")
