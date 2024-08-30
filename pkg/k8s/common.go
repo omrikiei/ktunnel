@@ -165,13 +165,13 @@ func newDeployment(
 	cert, key string,
 	cpuReq, cpuLimit, memReq, memLimit int64,
 	serviceAccount string,
+	firstUnprivPort int32,
 ) *appsv1.Deployment {
 	replicas := int32(1)
 	deploymentLabels[deploymentNameLabel] = name
 	deploymentLabels[deploymentInstanceLabel] = name
 	co := newContainer(port, image, ports, cert, key, cpuReq, cpuLimit, memReq, memLimit)
-
-	return &appsv1.Deployment{
+	result := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
@@ -200,6 +200,17 @@ func newDeployment(
 			},
 		},
 	}
+	if firstUnprivPort >= 0  {
+		result.Spec.Template.Spec.SecurityContext = &apiv1.PodSecurityContext{
+			Sysctls: []apiv1.Sysctl{
+				{
+					Name: "net.ipv4.ip_unprivileged_port_start",
+					Value: strconv.Itoa(int(firstUnprivPort)),
+				},
+			},
+		}
+	}
+	return result
 }
 
 func newService(namespace, name string, ports []apiv1.ServicePort, serviceType apiv1.ServiceType) *apiv1.Service {

@@ -22,6 +22,7 @@ var Force bool
 var DeploymentOnly bool
 var PortName string
 var ServiceType string
+var ServiceAccount string
 var NodeSelectorTags []string
 var DeploymentLabels []string
 var DeploymentAnnotations []string
@@ -30,6 +31,7 @@ var ServerCpuRequest int64
 var ServerCpuLimit int64
 var ServerMemRequest int64
 var ServerMemLimit int64
+var FirstUnprivPort int32
 
 var exposeCmd = &cobra.Command{
 	Use:   "expose [flags] SERVICE_NAME [ports]",
@@ -139,6 +141,7 @@ ktunnel expose redis 6379
 			ServerMemRequest,
 			ServerMemLimit,
 			ServiceAccount,
+			FirstUnprivPort,
 		)
 		if err != nil {
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
@@ -228,5 +231,6 @@ func init() {
 	exposeCmd.Flags().Int64Var(&ServerCpuLimit, "server-cpu-limit", 500, "Server container CPU Limit in milli-cpus")
 	exposeCmd.Flags().Int64Var(&ServerMemRequest, "server-memory-request", 100, "Server container CPU Request in mega-bytes")
 	exposeCmd.Flags().Int64Var(&ServerMemLimit, "server-memory-limit", 1000, "Server container CPU Limit in mega-bytes")
+	exposeCmd.Flags().Int32Var(&FirstUnprivPort, "first-unprivileged-port", -1, "First unprivileged port")
 	rootCmd.AddCommand(exposeCmd)
 }

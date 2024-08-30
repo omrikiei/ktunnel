@@ -18,7 +18,6 @@ import (
 var Namespace string
 var KubeContext string
 var ServerImage string
-var ServiceAccount string
 var eject bool
 
 var injectCmd = &cobra.Command{
@@ -46,7 +45,7 @@ ktunnel inject deployment mydeployment 3306 6379
 		// Inject
 		deployment := args[0]
 		readyChan := make(chan bool, 1)
-		_, err := k8s.InjectSidecar(&Namespace, &deployment, &port, ServerImage, CertFile, KeyFile, readyChan, &KubeContext)
+		_, err := k8s.InjectSidecar(&Namespace, &deployment, &port, ServerImage, CertFile, KeyFile, readyChan, &KubeContext, FirstUnprivPort)
 		if err != nil {
 			log.Fatalf("failed injecting sidecar: %v", err)
 		}
@@ -137,6 +136,7 @@ func init() {
 	injectDeploymentCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
 	injectDeploymentCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
 	injectDeploymentCmd.Flags().BoolVarP(&eject, "eject", "e", true, "Eject the sidecar when finished")
+	injectDeploymentCmd.Flags().Int32Var(&FirstUnprivPort, "first-unprivileged-port", -1, "First unprivileged port")
 	injectCmd.AddCommand(injectDeploymentCmd)
 	rootCmd.AddCommand(injectCmd)
 }
