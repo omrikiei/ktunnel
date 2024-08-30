@@ -14,6 +14,7 @@ import (
 	"github.com/omrikiei/ktunnel/pkg/k8s"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	apiv1 "k8s.io/api/core/v1"
 )
 
 var Reuse bool
@@ -24,6 +25,7 @@ var ServiceType string
 var NodeSelectorTags []string
 var DeploymentLabels []string
 var DeploymentAnnotations []string
+var PodTolerations []string
 var ServerCpuRequest int64
 var ServerCpuLimit int64
 var ServerMemRequest int64
@@ -85,6 +87,27 @@ ktunnel expose redis 6379
 			deploymentAnnotations[parsed[0]] = parsed[1]
 		}
 
+		podTolerations := make([]apiv1.Toleration, 0, len(PodTolerations))
+		for _, label := range PodTolerations {
+			parsed := strings.Split(label, "=")
+			if len(parsed) != 2 {
+				log.Errorf("failed to parse pod tolerations: %v", label)
+				continue
+			}
+			valueAndEffect := strings.Split(parsed[1], ":")
+			if len(valueAndEffect) != 2 {
+				log.Errorf("failed to parse pod tolerations: %v", label)
+				continue
+			}
+
+			podTolerations = append(podTolerations, apiv1.Toleration{
+				Key:      parsed[0],
+				Operator: apiv1.TolerationOpEqual,
+				Value:    valueAndEffect[0],
+				Effect:   apiv1.TaintEffect(valueAndEffect[1]),
+			})
+		}
+
 		if Force {
 			err := k8s.TeardownExposedService(Namespace, svcName, &KubeContext, DeploymentOnly)
 			if err != nil {
@@ -92,7 +115,30 @@ ktunnel expose redis 6379
 			}
 		}
 
-		err := k8s.ExposeAsService(&Namespace, &svcName, port, Scheme, ports, PortName, ServerImage, Reuse, DeploymentOnly, readyChan, nodeSelectorTags, deploymentLabels, deploymentAnnotations, CertFile, KeyFile, ServiceType, &KubeContext, ServerCpuRequest, ServerCpuLimit, ServerMemRequest, ServerMemLimit)
+		err := k8s.ExposeAsService(
+			&Namespace,
+			&svcName,
+			port,
+			Scheme,
+			ports,
+			PortName,
+			ServerImage,
+			Reuse,
+			DeploymentOnly,
+			readyChan,
+			nodeSelectorTags,
+			deploymentLabels,
+			deploymentAnnotations,
+			podTolerations,
+			CertFile,
+			KeyFile,
+			ServiceType,
+			&KubeContext,
+			ServerCpuRequest,
+			ServerCpuLimit,
+			ServerMemRequest,
+			ServerMemLimit,
+		)
 		if err != nil {
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
 		}
@@ -175,6 +221,7 @@ func init() {
 	exposeCmd.Flags().StringSliceVarP(&NodeSelectorTags, "node-selector-tags", "q", []string{}, "tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)")
 	exposeCmd.Flags().StringSliceVarP(&DeploymentLabels, "deployment-labels", "l", []string{}, "comma separated list of labels and values seperated by the '=' character (i.e app=application,env=prod)")
 	exposeCmd.Flags().StringSliceVarP(&DeploymentAnnotations, "deployment-annotations", "", []string{}, "comma separated list of annotations and values seperated by the '=' character (i.e sidecar.istio.io/inject=false)")
+	exposeCmd.Flags().StringSliceVarP(&PodTolerations, "pod-tolerations", "", []string{}, "comma separated list of tolerations seperated by the '=' character (i.e key=value:NoSchedule)")
 	exposeCmd.Flags().Int64Var(&ServerCpuRequest, "server-cpu-request", 100, "Server container CPU Request in milli-cpus")
 	exposeCmd.Flags().Int64Var(&ServerCpuLimit, "server-cpu-limit", 500, "Server container CPU Limit in milli-cpus")
 	exposeCmd.Flags().Int64Var(&ServerMemRequest, "server-memory-request", 100, "Server container CPU Request in mega-bytes")
