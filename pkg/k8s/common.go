@@ -157,11 +157,23 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
 	}
 }
 
-func newDeployment(namespace, name string, port int, image string, ports []apiv1.ContainerPort, selector map[string]string, deploymentLabels map[string]string, deploymentAnnotations map[string]string, cert, key string, cpuReq, cpuLimit, memReq, memLimit int64) *appsv1.Deployment {
+func newDeployment(
+	namespace, name string,
+	port int,
+	image string,
+	ports []apiv1.ContainerPort,
+	selector map[string]string,
+	deploymentLabels map[string]string,
+	deploymentAnnotations map[string]string,
+	podTolerations []apiv1.Toleration,
+	cert, key string,
+	cpuReq, cpuLimit, memReq, memLimit int64,
+) *appsv1.Deployment {
 	replicas := int32(1)
 	deploymentLabels[deploymentNameLabel] = name
 	deploymentLabels[deploymentInstanceLabel] = name
 	co := newContainer(port, image, ports, cert, key, cpuReq, cpuLimit, memReq, memLimit)
+
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
@@ -185,6 +197,7 @@ func newDeployment(namespace, name string, port int, image string, ports []apiv1
 					Containers: []apiv1.Container{
 						*co,
 					},
+					Tolerations: podTolerations,
 				},
 			},
 		},
