@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -48,7 +49,7 @@ loop:
 			if exists == false {
 				conf.log.WithFields(log.Fields{
 					"session": m.RequestId,
-					"host": host,
+					"host":    host,
 					"port":    port,
 				}).Infof("new connection")
 
@@ -215,6 +216,7 @@ func RunClient(ctx context.Context, opts ...Option) error {
 	}
 	defer conn.Close()
 
+	var wg sync.WaitGroup
 	client := pb.NewTunnelClient(conn)
 	for _, rawTunnelData := range conf.tunnels {
 		tunnelData, err := common.ParsePorts(rawTunnelData)
@@ -223,7 +225,10 @@ func RunClient(ctx context.Context, opts ...Option) error {
 			continue
 		}
 
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
+
 			conf.log.Infof("starting %s tunnel from source %d to target %s:%d", conf.scheme, tunnelData.Source, tunnelData.TargetHost, tunnelData.TargetPort)
 			tunnelScheme, ok := pb.TunnelScheme_value[conf.scheme]
 			if ok != false {
@@ -249,12 +254,14 @@ func RunClient(ctx context.Context, opts ...Option) error {
 				sessions := make(chan *common.Session)
 				go ReceiveData(conf, stream, sessions, tunnelData.TargetHost, tunnelData.TargetPort, conf.scheme)
 				go SendData(conf, stream, sessions)
+
+				<-stream.Context().Done()
 			}
 		}()
 	}
 
-	// wait for the context to be cancelled
-	<-ctx.Done()
+	// wait for all the tunnels to finish
+	wg.Wait()
 	return nil
 }
 
