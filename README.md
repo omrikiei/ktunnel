@@ -75,7 +75,7 @@ If you found this tool to be helpful on other scenarios, or have any suggesstion
 ## 🎈 Usage <a name="usage"></a>
 ### Expose your local machine as a service in the cluster
 This will allow pods in the cluster to access your local web app (listening on port 8000) via 
-http (i.e kubernetes applications can send requests to myapp:8000)
+http (i.e kubernetes applications can send requests to myapp:80)
 ```bash
 ktunnel expose myapp 80:8000
 ktunnel expose myapp 80:8000 -r #deployment & service will be reused if exists or they will be created
