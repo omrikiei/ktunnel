@@ -15,18 +15,18 @@ import (
 )
 
 const (
-   BufferSize = 1024 * 3
+	BufferSize = 1024 * 3
 )
 
 var openSessions = sync.Map{}
 
 type Session struct {
-	Id   uuid.UUID
-	Conn net.Conn
-	Buf  bytes.Buffer
-	Context context.Context
+	Id         uuid.UUID
+	Conn       net.Conn
+	Buf        bytes.Buffer
+	Context    context.Context
 	cancelFunc context.CancelFunc
-	Open bool
+	Open       bool
 	sync.Mutex
 }
 
@@ -37,13 +37,13 @@ func (s *Session) Close() {
 		s.Open = false
 	}
 	go func() {
-		<-time.After(5*time.Second)
+		<-time.After(5 * time.Second)
 		openSessions.Delete(s.Id)
 	}()
 }
 
 type RedirectRequest struct {
-	Source int32
+	Source     int32
 	TargetHost string
 	TargetPort int32
 }
@@ -51,12 +51,12 @@ type RedirectRequest struct {
 func NewSession(conn net.Conn) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &Session{
-		Id:   uuid.New(),
-		Conn: conn,
-		Context: ctx,
+		Id:         uuid.New(),
+		Conn:       conn,
+		Context:    ctx,
 		cancelFunc: cancel,
-		Buf:  bytes.Buffer{},
-		Open: true,
+		Buf:        bytes.Buffer{},
+		Open:       true,
 	}
 	addSession(r)
 	return r
@@ -65,12 +65,12 @@ func NewSession(conn net.Conn) *Session {
 func NewSessionFromStream(id uuid.UUID, conn net.Conn) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &Session{
-		Id:   id,
-		Conn: conn,
-		Context: ctx,
+		Id:         id,
+		Conn:       conn,
+		Context:    ctx,
 		cancelFunc: cancel,
-		Buf:  bytes.Buffer{},
-		Open: true,
+		Buf:        bytes.Buffer{},
+		Open:       true,
 	}
 	addSession(r)
 	return r
@@ -103,7 +103,7 @@ func ParsePorts(s string) (*RedirectRequest, error) {
 			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[0], err))
 		}
 		return &RedirectRequest{
-			Source: int32(p),
+			Source:     int32(p),
 			TargetHost: "localhost",
 			TargetPort: int32(p),
 		}, nil
@@ -118,7 +118,7 @@ func ParsePorts(s string) (*RedirectRequest, error) {
 			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[1], err))
 		}
 		return &RedirectRequest{
-			Source: int32(s),
+			Source:     int32(s),
 			TargetHost: "localhost",
 			TargetPort: int32(t),
 		}, nil
@@ -133,7 +133,7 @@ func ParsePorts(s string) (*RedirectRequest, error) {
 			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[1], err))
 		}
 		return &RedirectRequest{
-			Source: int32(s),
+			Source:     int32(s),
 			TargetHost: raw[1],
 			TargetPort: int32(t),
 		}, nil
