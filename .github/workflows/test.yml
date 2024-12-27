@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Run Tests
+    name: Run Tests and Analysis
     runs-on: ubuntu-latest
     
     steps:
@@ -22,13 +22,36 @@ jobs:
         cache: true
 
     - name: Install dependencies
-      run: go mod download
+      run: |
+        go mod download
+        go install golang.org/x/tools/cmd/cover@latest
+        go install github.com/securego/gosec/v2/cmd/gosec@latest
+        go install honnef.co/go/tools/cmd/staticcheck@latest
 
-    - name: Run tests
-      run: go test -v ./...
+    - name: Run tests with coverage
+      run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
-    - name: Run tests with race detector
-      run: go test -race ./...
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.txt
+        fail_ci_if_error: true
+
+    - name: Run static code analysis
+      run: |
+        staticcheck ./...
+        if [ $? -ne 0 ]; then
+          echo "Static analysis found issues"
+          exit 1
+        fi
+
+    - name: Run security scan
+      run: |
+        gosec -exclude-dir=.git -exclude-dir=vendor ./...
+        if [ $? -ne 0 ]; then
+          echo "Security scan found issues"
+          exit 1
+        fi
 
     - name: Check code formatting
       run: |
