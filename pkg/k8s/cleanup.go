@@ -1,3 +1,4 @@
+// Package k8s provides Kubernetes integration functionality for ktunnel
 package k8s
 
 import (

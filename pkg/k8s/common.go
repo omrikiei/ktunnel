@@ -118,7 +118,7 @@ func hasSidecar(podSpec apiv1.PodSpec, image string) bool {
 
 func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, cert, key string, cReq, cLimit, mReq, mLimit int64) *apiv1.Container {
         args := []string{"server", "-p", strconv.FormatInt(int64(port), 10)}
-        if Verbose == true {
+        if Verbose {
                 args = append(args, "-v")
         }
         if cert != "" {
@@ -132,7 +132,7 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
         cpuLimit.SetMilli(cLimit)
         memRequest.SetScaled(mReq, resource.Mega)
         memLimit.SetScaled(mLimit, resource.Mega)
-        containerUid := int64(1000)
+        containerUID := int64(1000)
 
         return &apiv1.Container{
                 Name:    "ktunnel",
@@ -151,7 +151,7 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
                         },
                 },
                 SecurityContext: &apiv1.SecurityContext{
-                        RunAsUser: &containerUid,
+                        RunAsUser: &containerUID,
                 },
         }
 }
@@ -283,7 +283,7 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
         for i, podName := range podNames {
                 readyChan := make(chan struct{}, 1)
                 ports := []string{fmt.Sprintf("%s:%s", sourcePorts[i], targetPort)}
-                serverURL := getPortForwardUrl(getKubeConfig(kubecontext), *namespace, podName)
+                serverURL := getPortForwardURL(getKubeConfig(kubecontext), *namespace, podName)
 
                 transport, upgrader, err := spdy.RoundTripperFor(getKubeConfig(kubecontext))
                 if err != nil {
@@ -333,7 +333,7 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
         }
 }
 
-func getPortForwardUrl(config *rest.Config, namespace string, podName string) *url.URL {
+func getPortForwardURL(config *rest.Config, namespace string, podName string) *url.URL {
         host := config.Host
         scheme := "https"
         if strings.HasPrefix(config.Host, "https://") {
@@ -343,7 +343,7 @@ func getPortForwardUrl(config *rest.Config, namespace string, podName string) *u
                 scheme = "http"
         }
         trailingHostPath := strings.Split(host, "/")
-        hostIp := trailingHostPath[0]
+        hostIP := trailingHostPath[0]
         trailingPath := ""
         if len(trailingHostPath) > 1 && trailingHostPath[1] != "" {
                 trailingPath = fmt.Sprintf("/%s/", strings.Join(trailingHostPath[1:], "/"))
@@ -352,7 +352,7 @@ func getPortForwardUrl(config *rest.Config, namespace string, podName string) *u
         return &url.URL{
                 Scheme: scheme,
                 Path:   path,
-                Host:   hostIp,
+                Host:   hostIP,
         }
 }
 
@@ -454,5 +454,5 @@ func deploymentStatus(deployment *appsv1.Deployment) (string, bool, error) {
                 }
                 return fmt.Sprintf("deployment %q successfully rolled out\n", deployment.Name), true, nil
         }
-        return fmt.Sprintf("Waiting for deployment spec update to be observed...\n"), false, nil
+        return "Waiting for deployment spec update to be observed...\n", false, nil
 }

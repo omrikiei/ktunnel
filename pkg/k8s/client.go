@@ -1,3 +1,4 @@
+// Package k8s provides Kubernetes integration functionality for ktunnel
 package k8s
 
 import (
@@ -20,11 +21,6 @@ func getDeploymentsClient() v1.DeploymentInterface {
         return deploymentsClient
 }
 
-func getPodsClient() v12.PodInterface {
-        clientMutex.RLock()
-        defer clientMutex.RUnlock()
-        return podsClient
-}
 
 func getServicesClient() v12.ServiceInterface {
         clientMutex.RLock()

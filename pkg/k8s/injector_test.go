@@ -6,12 +6,13 @@ import (
 	"sync"
 	"testing"
 
-	v12 "k8s.io/api/apps/v1"
-	v14 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	testclient "k8s.io/client-go/kubernetes/fake"
 	v1 "k8s.io/client-go/kubernetes/typed/apps/v1"
 	"k8s.io/client-go/rest"
+
+	v12 "k8s.io/api/apps/v1"
+	v14 "k8s.io/api/core/v1"
 )
 
 type TestCase struct {
@@ -121,9 +122,9 @@ func TestGetPortForwardUrl(t *testing.T) {
 			},
 		},
 	}
-
+	
 	for _, table := range tables {
-		res := getPortForwardUrl(&table.Config, table.Namespace, table.Pod)
+		res := getPortForwardURL(&table.Config, table.Namespace, table.Pod)
 		if res.Scheme != table.Expected.Scheme || res.Host != table.Expected.Host || res.Path != table.Expected.Path {
 			t.Errorf("expected: %v, got: %v", table.Expected, res)
 		}
