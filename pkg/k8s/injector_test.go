@@ -1,15 +1,11 @@
 package k8s
 
 import (
-        "context"
         "net/url"
         "testing"
 
-        v12 "k8s.io/api/apps/v1"
         v14 "k8s.io/api/core/v1"
-        metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
         testclient "k8s.io/client-go/kubernetes/fake"
-        v1 "k8s.io/client-go/kubernetes/typed/apps/v1"
         "k8s.io/client-go/rest"
 )
 
@@ -36,23 +32,7 @@ func createMockClient(kubecontext *string) {
         }
 }
 
-func createDeployment(c v1.DeploymentInterface, replicas int32, containers *[]v14.Container) error {
-        d := v12.Deployment{
-                Spec: v12.DeploymentSpec{
-                        Replicas: &replicas,
-                        Template: v14.PodTemplateSpec{
-                                Spec: v14.PodSpec{
-                                        Containers: *containers,
-                                },
-                        },
-                },
-        }
-        _, err := getDeploymentsClient().Create(context.Background(), &d, metav1.CreateOptions{})
-        if err != nil {
-                return err
-        }
-        return nil
-}
+
 
 func TestGetPortForwardUrl(t *testing.T) {
         tables := []struct {
@@ -100,7 +80,7 @@ func TestGetPortForwardUrl(t *testing.T) {
         }
 
         for _, table := range tables {
-                res := getPortForwardUrl(&table.Config, table.Namespace, table.Pod)
+                res := getPortForwardURL(&table.Config, table.Namespace, table.Pod)
                 if res.Scheme != table.Expected.Scheme || res.Host != table.Expected.Host || res.Path != table.Expected.Path {
                         t.Errorf("expected: %v, got: %v", table.Expected, res)
                 }
