@@ -26,6 +26,10 @@ func createMockClient(kubecontext *string) {
         fakeClient := testclient.NewSimpleClientset()
         deploymentsClient = fakeClient.AppsV1().Deployments(namespace)
         podsClient = fakeClient.CoreV1().Pods(namespace)
+        // Set up a mock kubeconfig
+        kubeconfig = &rest.Config{
+                Host: "https://fake.example.com",
+        }
 }
 
 func createDeployment(c v1.DeploymentInterface, name string, replicas int32, containers *[]v14.Container) error {
