@@ -70,7 +70,7 @@ func createDeployment(c v1.DeploymentInterface, name string, replicas int32, con
         return nil
 }
 
-func TestGetPortForwardUrl(t *testing.T) {
+func TestGetPortForwardURL(t *testing.T) {
         tables := []struct {
                 Config    rest.Config
                 Namespace string
@@ -116,7 +116,7 @@ func TestGetPortForwardUrl(t *testing.T) {
         }
 
         for _, table := range tables {
-                res := getPortForwardUrl(&table.Config, table.Namespace, table.Pod)
+                res := getPortForwardURL(&table.Config, table.Namespace, table.Pod)
                 if res.Scheme != table.Expected.Scheme || res.Host != table.Expected.Host || res.Path != table.Expected.Path {
                         t.Errorf("expected: %v, got: %v", table.Expected, res)
                 }
