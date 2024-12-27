@@ -85,7 +85,17 @@ ktunnel expose myapp 80:8000 -r #deployment & service will be reused if exists o
 This will currently only work for deployments with 1 replica - it will expose a listening port on the pod through a tunnel to your local machine
 ```bash
 ktunnel inject deployment mydeployment 3306
-``` 
+```
+
+### Resource Cleanup
+ktunnel now automatically tracks and cleans up resources (deployments and services) when the process exits. This ensures no orphaned resources are left in your cluster, even after unexpected shutdowns.
+
+- Resources are automatically cleaned up when you press Ctrl+C
+- A 30-second timeout ensures cleanup doesn't hang indefinitely
+- Use the `-v` flag for verbose logging to see cleanup operations
+```bash
+ktunnel expose myapp 80:8000 -v
+```
 
 ### Star History
 
