@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 
 	log "github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
@@ -18,13 +19,26 @@ func SetLogLevel(l log.Level) {
 	}
 }
 
-func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, readyChan chan<- bool) (bool, error) {
+func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, readyChan chan<- bool, firstUnprivPort int32) (bool, error) {
 	if hasSidecar(o.Spec.Template.Spec, image) {
 		log.Warn(fmt.Sprintf("%s already injected to the deployment", image))
 		watchForReady(o, readyChan)
 		return true, nil
 	}
 	o.Spec.Template.Spec.Containers = append(o.Spec.Template.Spec.Containers, *c)
+	if firstUnprivPort >= 0  {
+		if o.Spec.Template.Spec.SecurityContext == nil {
+			o.Spec.Template.Spec.SecurityContext = &apiv1.PodSecurityContext{}
+		}
+		if o.Spec.Template.Spec.SecurityContext.Sysctls == nil {
+			o.Spec.Template.Spec.SecurityContext.Sysctls = []apiv1.Sysctl{}
+		}
+		o.Spec.Template.Spec.SecurityContext.Sysctls = append(o.Spec.Template.Spec.SecurityContext.Sysctls, apiv1.Sysctl{
+			Name: "net.ipv4.ip_unprivileged_port_start",
+			Value: strconv.Itoa(int(firstUnprivPort)),
+		})
+	}
+
 	u, updateErr := deploymentsClient.Update(context.Background(), o, metav1.UpdateOptions{
 		TypeMeta:     metav1.TypeMeta{},
 		DryRun:       nil,
@@ -37,7 +51,7 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 	return true, nil
 }
 
-func InjectSidecar(namespace, objectName *string, port *int, image string, cert string, key string, readyChan chan<- bool, kubecontext *string) (bool, error) {
+func InjectSidecar(namespace, objectName *string, port *int, image string, cert string, key string, readyChan chan<- bool, kubecontext *string, firstUnprivPort int32) (bool, error) {
 	log.Infof("Injecting tunnel sidecar to %s/%s", *namespace, *objectName)
 	getClients(namespace, kubecontext)
 	cpuReq := int64(100) // in milli-cpu
@@ -52,7 +66,7 @@ func InjectSidecar(namespace, objectName *string, port *int, image string, cert 
 	if *obj.Spec.Replicas > int32(1) {
 		return false, errors.New("sidecar injection only support deployments with one replica")
 	}
-	_, err = injectToDeployment(obj, co, image, readyChan)
+	_, err = injectToDeployment(obj, co, image, readyChan, firstUnprivPort)
 	if err != nil {
 		return false, err
 	}

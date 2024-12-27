@@ -42,6 +42,8 @@ func ExposeAsService(
 	serviceType string,
 	kubecontext *string,
 	cpuReq, cpuLimit, memReq, memLimit int64,
+	serviceAccount string,
+	firstUnprivPort int32,
 ) error {
 	getClients(namespace, kubecontext)
 
@@ -94,6 +96,8 @@ func ExposeAsService(
 		cpuLimit,
 		memReq,
 		memLimit,
+		serviceAccount,
+		firstUnprivPort,
 	)
 
 	service := newService(*namespace, *name, ports, v12.ServiceType(serviceType))
