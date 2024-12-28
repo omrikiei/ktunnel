@@ -3,7 +3,6 @@ package k8s
 import (
 	"context"
 	"net/url"
-	"sync"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -186,8 +185,6 @@ func TestGetPortForwardURL(t *testing.T) {
 
 func Test_InjectSidecar(t *testing.T) {
 	// Reset the deploymentOnce to allow reinitialization
-	deploymentOnce = sync.Once{}
-
 	namespace := "default"
 	objectName := "test-deployment"
 	port := 8080

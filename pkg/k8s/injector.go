@@ -14,7 +14,7 @@ import (
 func SetLogLevel(l log.Level) {
 	log.SetLevel(l)
 	if l.String() == "verbose" || l.String() == "debug" {
-		Verbose = true
+		SetVerbose(true)
 	}
 }
 

@@ -71,9 +71,9 @@ func Test_newContainer(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			oldVerbose := Verbose
-			Verbose = tc.verbose
-			defer func() { Verbose = oldVerbose }()
+			if tc.verbose {
+				SetVerbose(true)
+			}
 
 			container := newContainer(tc.port, tc.image, tc.containerPorts, tc.cert, tc.key, tc.cReq, tc.cLimit, tc.mReq, tc.mLimit)
 
