@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
@@ -49,14 +48,10 @@ func (a ByCreationTime) Less(i, j int) bool {
 func (a ByCreationTime) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 
 var (
-	configMutex       sync.RWMutex
-	kubeconfig        *rest.Config
-	verboseMutex      sync.RWMutex
-	verbose           = false
-	clientMutex       sync.RWMutex
-	deploymentsClient v1.DeploymentInterface
-	podsClient        v12.PodInterface
-	svcClient         v12.ServiceInterface
+	configMutex  sync.RWMutex
+	kubeconfig   *rest.Config
+	verboseMutex sync.RWMutex
+	verbose      = false
 )
 
 // SetVerbose sets the verbose flag in a thread-safe way
@@ -331,6 +326,7 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 		log.Infof("port forwarding to %s", serverURL)
 		dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, serverURL)
 
+		out, errOut := new(bytes.Buffer), new(bytes.Buffer)
 		forwarder, err := portforward.New(dialer, ports, stopChan, readyChan, out, errOut)
 		if err != nil {
 			log.Error(err)
