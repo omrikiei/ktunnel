@@ -32,10 +32,10 @@ ktunnel server -p 8181
 		// Run tunnel client and establish connection
 
 		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 		go func() {
 			o.Do(func() {
-				_ = <-sigs
+				<-sigs
 				log.Info("Got exit signal, closing client tunnels")
 				cancel()
 			})

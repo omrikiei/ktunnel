@@ -177,6 +177,10 @@ ktunnel expose redis 6379
 
 		// Kube Service
 		kubeService, err := k8s.NewKubeService(KubeContext, Namespace)
+		if err != nil {
+			log.Fatalf("Failed to start k8s clients: %v", err)
+			os.Exit(1)
+		}
 		// port-Forward
 		strPort := strconv.FormatInt(int64(port), 10)
 		stopChan := make(chan struct{}, 1)

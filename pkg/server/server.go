@@ -48,7 +48,7 @@ func SendData(conf *Config, stream pb.Tunnel_InitTunnelServer, sessions <-chan *
 				HasErr:      false,
 				LogMessage:  nil,
 				Data:        bytes,
-				RequestId:   session.Id.String(),
+				RequestID:   session.Id.String(),
 				ShouldClose: !session.Open,
 			}
 			session.Unlock()

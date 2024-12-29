@@ -1,3 +1,4 @@
+// Package client implements the ktunnel client
 package client
 
 import (
@@ -18,11 +19,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-type Message struct {
-	c *net.Conn
-	d *[]byte
-}
-
 func ReceiveData(conf *Config, st pb.Tunnel_InitTunnelClient, sessionsOut chan<- *common.Session, host string, port int32, scheme string) {
 loop:
 	for {
@@ -39,15 +35,15 @@ loop:
 				break loop
 			}
 
-			requestId, err := uuid.Parse(m.RequestId)
+			requestId, err := uuid.Parse(m.RequestID)
 			if err != nil {
-				conf.log.WithError(err).WithField("session", m.RequestId).Errorf("failed parsing session uuid from stream, skipping")
+				conf.log.WithError(err).WithField("session", m.RequestID).Errorf("failed parsing session uuid from stream, skipping")
 			}
 
 			session, exists := common.GetSession(requestId)
 			if exists == false {
 				conf.log.WithFields(log.Fields{
-					"session": m.RequestId,
+					"session": m.RequestID,
 					"host":    host,
 					"port":    port,
 				}).Infof("new connection")

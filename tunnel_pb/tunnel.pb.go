@@ -211,9 +211,9 @@ func (m *SocketDataRequest) GetShouldClose() bool {
 
 type SocketDataResponse struct {
 	HasErr               bool        `protobuf:"varint,1,opt,name=hasErr,proto3" json:"hasErr,omitempty"`
-	LogMessage           *LogMessage `protobuf:"bytes,2,opt,name=logMessage,proto3" json:"logMessage,omitempty"`
-	RequestId            string      `protobuf:"bytes,3,opt,name=requestId,proto3" json:"requestId,omitempty"`
-	Data                 []byte      `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
+	LogMessage *LogMessage `protobuf:"bytes,2,opt,name=logMessage,proto3" json:"logMessage,omitempty"`
+	RequestID  string      `protobuf:"bytes,3,opt,name=requestId,proto3" json:"requestId,omitempty"`
+	Data       []byte      `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
 	ShouldClose          bool        `protobuf:"varint,5,opt,name=shouldClose,proto3" json:"shouldClose,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}    `json:"-"`
 	XXX_unrecognized     []byte      `json:"-"`
@@ -261,7 +261,7 @@ func (m *SocketDataResponse) GetLogMessage() *LogMessage {
 
 func (m *SocketDataResponse) GetRequestId() string {
 	if m != nil {
-		return m.RequestId
+		return m.RequestID
 	}
 	return ""
 }
