@@ -11,7 +11,17 @@ import (
 )
 
 func TestResourceTracker_AddAndRemove(t *testing.T) {
-	rt := NewResourceTracker("test-namespace")
+	namespace := "test-namespace"
+	fakeClient := testclient.NewSimpleClientset()
+	// Initialize the clients
+	deploymentsClient = fakeClient.AppsV1().Deployments(namespace)
+	svcClient = fakeClient.CoreV1().Services(namespace)
+
+	clients := &Clients{
+		Deployments: deploymentsClient,
+		Services:    svcClient,
+	}
+	rt := NewResourceTracker("test-namespace", clients)
 
 	// Test adding resources
 	rt.AddDeployment("test-deployment-1")
@@ -51,8 +61,13 @@ func TestResourceTracker_Cleanup(t *testing.T) {
 	deploymentsClient = fakeClient.AppsV1().Deployments(namespace)
 	svcClient = fakeClient.CoreV1().Services(namespace)
 
+	clients := &Clients{
+		Deployments: deploymentsClient,
+		Services:    svcClient,
+	}
+
 	// Create a resource tracker
-	rt := NewResourceTracker(namespace)
+	rt := NewResourceTracker(namespace, clients)
 	rt.SetTimeout(5 * time.Second)
 
 	// Create test resources in the fake client
@@ -88,7 +103,17 @@ func TestResourceTracker_Cleanup(t *testing.T) {
 }
 
 func TestResourceTracker_CleanupTimeout(t *testing.T) {
-	rt := NewResourceTracker("test-namespace")
+	namespace := "test-namespace"
+	fakeClient := testclient.NewSimpleClientset()
+	// Initialize the clients
+	deploymentsClient = fakeClient.AppsV1().Deployments(namespace)
+	svcClient = fakeClient.CoreV1().Services(namespace)
+
+	clients := &Clients{
+		Deployments: deploymentsClient,
+		Services:    svcClient,
+	}
+	rt := NewResourceTracker("test-namespace", clients)
 	rt.SetTimeout(1 * time.Millisecond) // Very short timeout
 
 	// Add some resources

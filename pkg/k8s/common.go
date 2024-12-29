@@ -41,6 +41,38 @@ const (
 
 type ByCreationTime []apiv1.Pod
 
+type KubeService struct {
+	clients *Clients
+	config  *rest.Config
+}
+
+func NewKubeService(kubeCtx, namespace string) (*KubeService, error) {
+	cfg := GetKubeConfig(kubeCtx)
+
+	return &KubeService{
+		clients: GetClients(cfg, namespace),
+		config:  cfg,
+	}, nil
+}
+
+func GetClients(cfg *rest.Config, namespace string) *Clients {
+	clientSet, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		log.Errorf("Failed to get k8s client: %v", err)
+		os.Exit(1)
+	}
+
+	deploymentsClient = clientSet.AppsV1().Deployments(namespace)
+	podsClient = clientSet.CoreV1().Pods(namespace)
+	svcClient = clientSet.CoreV1().Services(namespace)
+
+	return &Clients{
+		Deployments: deploymentsClient,
+		Pods:        podsClient,
+		Services:    svcClient,
+	}
+}
+
 func (a ByCreationTime) Len() int { return len(a) }
 func (a ByCreationTime) Less(i, j int) bool {
 	return a[i].CreationTimestamp.After(a[j].CreationTimestamp.Time)
@@ -68,7 +100,7 @@ func IsVerbose() bool {
 	return verbose
 }
 
-func getKubeConfig(kubeCtx *string) *rest.Config {
+func GetKubeConfig(kubeCtx string) *rest.Config {
 	configMutex.RLock()
 	if kubeconfig != nil {
 		defer configMutex.RUnlock()
@@ -93,8 +125,8 @@ func getKubeConfig(kubeCtx *string) *rest.Config {
 	}
 
 	var configOverrides *clientcmd.ConfigOverrides
-	if (kubeCtx) != nil {
-		configOverrides = &clientcmd.ConfigOverrides{CurrentContext: *kubeCtx}
+	if (kubeCtx) != "" {
+		configOverrides = &clientcmd.ConfigOverrides{CurrentContext: kubeCtx}
 	}
 
 	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides).ClientConfig()
@@ -105,7 +137,7 @@ func getKubeConfig(kubeCtx *string) *rest.Config {
 	return kubeconfig
 }
 
-func getClients(namespace *string, kubeCtx *string) {
+func getClients(namespace *string, kubeCtx string) {
 	clientMutex.Lock()
 	defer clientMutex.Unlock()
 
@@ -114,7 +146,7 @@ func getClients(namespace *string, kubeCtx *string) {
 		return
 	}
 
-	clientSet, err := kubernetes.NewForConfig(getKubeConfig(kubeCtx))
+	clientSet, err := kubernetes.NewForConfig(GetKubeConfig(kubeCtx))
 	if err != nil {
 		log.Errorf("Failed to get k8s client: %v", err)
 		os.Exit(1)
@@ -125,13 +157,10 @@ func getClients(namespace *string, kubeCtx *string) {
 	svcClient = clientSet.CoreV1().Services(*namespace)
 }
 
-func getPodsFilteredByLabel(namespace, kubeCtx, labelSelector *string) (*apiv1.PodList, error) {
-	getClients(namespace, kubeCtx)
-	clientMutex.RLock()
-	defer clientMutex.RUnlock()
-	pods, err := podsClient.List(
+func (k *KubeService) getPodsFilteredByLabel(labelSelector string) (*apiv1.PodList, error) {
+	pods, err := k.clients.Pods.List(
 		context.Background(), metav1.ListOptions{
-			LabelSelector: *labelSelector,
+			LabelSelector: labelSelector,
 		},
 	)
 	if err != nil {
@@ -260,13 +289,12 @@ func newService(namespace, name string, ports []apiv1.ServicePort, serviceType a
 	}
 }
 
-func getPodNames(namespace, deploymentName *string, podsPtr *[]string, kubeCtx *string) error {
-	labelSelector := deploymentNameLabel + "=" + *deploymentName + "," + deploymentInstanceLabel + "=" + *deploymentName
-	filteredPods, err := getPodsFilteredByLabel(namespace, kubeCtx, &labelSelector)
+func (k *KubeService) getPodNames(deploymentName string, pods []string) error {
+	labelSelector := deploymentNameLabel + "=" + deploymentName + "," + deploymentInstanceLabel + "=" + deploymentName
+	filteredPods, err := k.getPodsFilteredByLabel(labelSelector)
 	if err != nil {
 		return err
 	}
-	pods := *podsPtr
 	matchingPods := ByCreationTime{}
 	pIndex := 0
 	for _, p := range filteredPods.Items {
@@ -286,18 +314,16 @@ func getPodNames(namespace, deploymentName *string, podsPtr *[]string, kubeCtx *
 	return nil
 }
 
-func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGroup *sync.WaitGroup, stopChan <-chan struct{}, kubecontext *string) (*[]string, error) {
-	getClients(namespace, kubecontext)
-
+func (k *KubeService) PortForward(namespace, deploymentName string, targetPort string, fwdWaitGroup *sync.WaitGroup, stopChan <-chan struct{}) (*[]string, error) {
 	clientMutex.RLock()
-	deployment, err := deploymentsClient.Get(context.Background(), *deploymentName, metav1.GetOptions{})
+	deployment, err := deploymentsClient.Get(context.Background(), deploymentName, metav1.GetOptions{})
 	clientMutex.RUnlock()
 	if err != nil {
 		return nil, err
 	}
 
 	podNames := make([]string, *deployment.Spec.Replicas)
-	err = getPodNames(namespace, deploymentName, &podNames, kubecontext)
+	err = k.getPodNames(deploymentName, podNames)
 	fwdWaitGroup.Add(int(*deployment.Spec.Replicas))
 
 	if err != nil {
@@ -317,9 +343,9 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 	for i, podName := range podNames {
 		readyChan := make(chan struct{}, 1)
 		ports := []string{fmt.Sprintf("%s:%s", sourcePorts[i], targetPort)}
-		serverURL := getPortForwardURL(getKubeConfig(kubecontext), *namespace, podName)
+		serverURL := getPortForwardURL(k.config, namespace, podName)
 
-		transport, upgrader, err := spdy.RoundTripperFor(getKubeConfig(kubecontext))
+		transport, upgrader, err := spdy.RoundTripperFor(k.config)
 		if err != nil {
 			return nil, err
 		}

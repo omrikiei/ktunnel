@@ -24,8 +24,8 @@ var supportedSchemes = map[string]v12.Protocol{
 	"grpc-web": v12.ProtocolTCP,
 }
 
-func ExposeAsService(
-	namespace, name *string,
+func (k *KubeService) ExposeAsService(
+	namespace, name string,
 	tunnelPort int,
 	scheme string,
 	rawPorts []string,
@@ -40,13 +40,13 @@ func ExposeAsService(
 	podTolerations []v12.Toleration,
 	cert, key string,
 	serviceType string,
-	kubecontext *string,
+	kubecontext string,
 	cpuReq, cpuLimit, memReq, memLimit int64,
 ) error {
 	// Initialize resource tracker
-	tracker := NewResourceTracker(*namespace)
-	getClients(namespace, kubecontext)
-
+	cfg := GetKubeConfig(kubecontext)
+	clients := GetClients(cfg, namespace)
+	tracker := NewResourceTracker(namespace, clients)
 	ports := make([]v12.ServicePort, len(rawPorts))
 	ctrPorts := make([]v12.ContainerPort, len(ports))
 	protocol, ok := supportedSchemes[scheme]
@@ -81,8 +81,8 @@ func ExposeAsService(
 	}
 
 	deployment := newDeployment(
-		*namespace,
-		*name,
+		namespace,
+		name,
 		tunnelPort,
 		image,
 		ctrPorts,
@@ -98,12 +98,12 @@ func ExposeAsService(
 		memLimit,
 	)
 
-	service := newService(*namespace, *name, ports, v12.ServiceType(serviceType))
+	service := newService(namespace, name, ports, v12.ServiceType(serviceType))
 
 	var d *appsv1.Deployment
 	var err error
 	deploymentCreated := false
-	existingDeployment, err := deploymentsClient.Get(context.Background(), *name, v1.GetOptions{})
+	existingDeployment, err := deploymentsClient.Get(context.Background(), name, v1.GetOptions{})
 	if err != nil && apierrors.IsNotFound(err) {
 		d, err = deploymentsClient.Create(context.Background(), deployment, v1.CreateOptions{
 			TypeMeta:     v1.TypeMeta{},
@@ -114,7 +114,7 @@ func ExposeAsService(
 			return err
 		}
 		deploymentCreated = true
-		tracker.AddDeployment(*name)
+		tracker.AddDeployment(name)
 		tracker.StartCleanupOnSignal()
 	}
 	if !deploymentCreated && Reuse {
@@ -128,7 +128,7 @@ func ExposeAsService(
 		if err != nil {
 			return err
 		}
-		d, err = deploymentsClient.Patch(context.Background(), *name, types.MergePatchType, patch, v1.PatchOptions{
+		d, err = deploymentsClient.Patch(context.Background(), name, types.MergePatchType, patch, v1.PatchOptions{
 			TypeMeta:     v1.TypeMeta{},
 			DryRun:       nil,
 			FieldManager: "",
@@ -149,7 +149,7 @@ func ExposeAsService(
 	if !DeploymentOnly {
 		var newSvc *v12.Service
 		serviceCreated := false
-		existingService, err := svcClient.Get(context.Background(), *name, v1.GetOptions{})
+		existingService, err := svcClient.Get(context.Background(), name, v1.GetOptions{})
 		if err != nil && apierrors.IsNotFound(err) {
 
 			newSvc, err = svcClient.Create(context.Background(), service, v1.CreateOptions{
@@ -162,7 +162,7 @@ func ExposeAsService(
 				return err
 			}
 			serviceCreated = true
-			tracker.AddService(*name)
+			tracker.AddService(name)
 		}
 		if !serviceCreated && Reuse {
 			// Copy labels and selectors to prevent PATCH issue with immutable fields
@@ -173,7 +173,7 @@ func ExposeAsService(
 			if err != nil {
 				return err
 			}
-			newSvc, err = svcClient.Patch(context.Background(), *name, types.MergePatchType, patch, v1.PatchOptions{
+			newSvc, err = svcClient.Patch(context.Background(), name, types.MergePatchType, patch, v1.PatchOptions{
 				TypeMeta:     v1.TypeMeta{},
 				DryRun:       nil,
 				FieldManager: "",
@@ -196,17 +196,16 @@ func ExposeAsService(
 	return nil
 }
 
-func TeardownExposedService(namespace, name string, kubecontext *string, DeploymentOnly bool) error {
-	getClients(&namespace, kubecontext)
+func (k *KubeService) TeardownExposedService(name string, DeploymentOnly bool) error {
 	if !DeploymentOnly {
 		log.Infof("Deleting service %s", name)
-		err := svcClient.Delete(context.Background(), name, v1.DeleteOptions{})
+		err := k.clients.Services.Delete(context.Background(), name, v1.DeleteOptions{})
 		if err != nil {
 			return err
 		}
 	}
 	log.Infof("Deleting deployment %s", name)
-	err := deploymentsClient.Delete(context.Background(), name, v1.DeleteOptions{})
+	err := k.clients.Deployments.Delete(context.Background(), name, v1.DeleteOptions{})
 	if err != nil {
 		return err
 	}

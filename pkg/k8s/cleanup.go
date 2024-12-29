@@ -15,6 +15,7 @@ import (
 
 // ResourceTracker keeps track of resources created by ktunnel for cleanup
 type ResourceTracker struct {
+	clients     *Clients
 	namespace   string
 	deployments []string
 	services    []string
@@ -23,8 +24,9 @@ type ResourceTracker struct {
 }
 
 // NewResourceTracker creates a new ResourceTracker for the given namespace
-func NewResourceTracker(namespace string) *ResourceTracker {
+func NewResourceTracker(namespace string, clients *Clients) *ResourceTracker {
 	return &ResourceTracker{
+		clients:     clients,
 		namespace:   namespace,
 		deployments: make([]string, 0),
 		services:    make([]string, 0),
@@ -101,7 +103,7 @@ func (rt *ResourceTracker) Cleanup(ctx context.Context) error {
 		wg.Add(1)
 		go func(name string) {
 			defer wg.Done()
-			err := getDeploymentsClient().Delete(ctx, name, metav1.DeleteOptions{})
+			err := rt.clients.Deployments.Delete(ctx, name, metav1.DeleteOptions{})
 			if err != nil {
 				log.Warnf("Failed to delete deployment %s: %v", name, err)
 				select {
@@ -119,7 +121,7 @@ func (rt *ResourceTracker) Cleanup(ctx context.Context) error {
 		wg.Add(1)
 		go func(name string) {
 			defer wg.Done()
-			err := getServicesClient().Delete(ctx, name, metav1.DeleteOptions{})
+			err := rt.clients.Services.Delete(ctx, name, metav1.DeleteOptions{})
 			if err != nil {
 				log.Warnf("Failed to delete service %s: %v", name, err)
 				select {

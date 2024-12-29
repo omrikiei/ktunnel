@@ -88,6 +88,10 @@ ktunnel expose redis 6379
 			deploymentAnnotations[parsed[0]] = parsed[1]
 		}
 
+		svc, err := k8s.NewKubeService(KubeContext, Namespace)
+		if err != nil {
+			log.Fatalf("Failed to create new kube service: %v", err)
+		}
 		podTolerations := make([]apiv1.Toleration, 0, len(PodTolerations))
 		for _, label := range PodTolerations {
 			parsed := strings.Split(label, "=")
@@ -110,15 +114,15 @@ ktunnel expose redis 6379
 		}
 
 		if Force {
-			err := k8s.TeardownExposedService(Namespace, svcName, &KubeContext, DeploymentOnly)
+			err := svc.TeardownExposedService(svcName, DeploymentOnly)
 			if err != nil {
 				log.Infof("Force delete: Failed deleting k8s objects: %s", err)
 			}
 		}
 
-		err := k8s.ExposeAsService(
-			&Namespace,
-			&svcName,
+		err = svc.ExposeAsService(
+			Namespace,
+			svcName,
 			port,
 			Scheme,
 			ports,
@@ -134,7 +138,7 @@ ktunnel expose redis 6379
 			CertFile,
 			KeyFile,
 			ServiceType,
-			&KubeContext,
+			KubeContext,
 			ServerCPURequest,
 			ServerCPULimit,
 			ServerMemRequest,
@@ -159,7 +163,7 @@ ktunnel expose redis 6379
 				}
 				cancel()
 				if !Reuse {
-					err := k8s.TeardownExposedService(Namespace, svcName, &KubeContext, DeploymentOnly)
+					err := svc.TeardownExposedService(svcName, DeploymentOnly)
 					if err != nil {
 						log.Errorf("Failed deleting k8s objects: %s", err)
 					}
@@ -171,11 +175,13 @@ ktunnel expose redis 6379
 		log.Info("waiting for deployment to be ready")
 		<-readyChan
 
+		// Kube Service
+		kubeService, err := k8s.NewKubeService(KubeContext, Namespace)
 		// port-Forward
 		strPort := strconv.FormatInt(int64(port), 10)
 		stopChan := make(chan struct{}, 1)
 		// Create a tunnel client for each replica
-		sourcePorts, err := k8s.PortForward(&Namespace, &svcName, strPort, wg, stopChan, &KubeContext)
+		sourcePorts, err := kubeService.PortForward(Namespace, svcName, strPort, wg, stopChan)
 		if err != nil {
 			log.Fatalf("Failed to run port forwarding: %v", err)
 			os.Exit(1)

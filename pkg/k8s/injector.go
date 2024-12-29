@@ -37,15 +37,14 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 	return true, nil
 }
 
-func InjectSidecar(namespace, objectName *string, port *int, image string, cert string, key string, readyChan chan<- bool, kubecontext *string) (bool, error) {
+func (k *KubeService) InjectSidecar(namespace, objectName *string, port *int, image string, cert string, key string, readyChan chan<- bool, kubecontext *string) (bool, error) {
 	log.Infof("Injecting tunnel sidecar to %s/%s", *namespace, *objectName)
-	getClients(namespace, kubecontext)
 	cpuReq := int64(100) // in milli-cpu
 	cpuLimit := int64(500)
 	memReq := int64(100) // in mega-bytes
 	memLimit := int64(1000)
 	co := newContainer(*port, image, []apiv1.ContainerPort{}, cert, key, cpuReq, cpuLimit, memReq, memLimit)
-	obj, err := deploymentsClient.Get(context.Background(), *objectName, metav1.GetOptions{})
+	obj, err := k.clients.Deployments.Get(context.Background(), *objectName, metav1.GetOptions{})
 	if err != nil {
 		return false, err
 	}
@@ -80,10 +79,9 @@ func removeFromSpec(s *apiv1.PodSpec, image string) (bool, error) {
 	}
 }
 
-func RemoveSidecar(namespace, objectName *string, image string, readyChan chan<- bool, kubecontext *string) (bool, error) {
+func (k *KubeService) RemoveSidecar(namespace, objectName *string, image string, readyChan chan<- bool, kubecontext *string) (bool, error) {
 	log.Infof("Removing tunnel sidecar from %s/%s", *namespace, *objectName)
-	getClients(namespace, kubecontext)
-	obj, err := deploymentsClient.Get(context.Background(), *objectName, metav1.GetOptions{})
+	obj, err := k.clients.Deployments.Get(context.Background(), *objectName, metav1.GetOptions{})
 	if err != nil {
 		return false, err
 	}
@@ -91,7 +89,7 @@ func RemoveSidecar(namespace, objectName *string, image string, readyChan chan<-
 	if err != nil {
 		return false, err
 	}
-	u, updateErr := deploymentsClient.Update(context.Background(), obj, metav1.UpdateOptions{
+	u, updateErr := k.clients.Deployments.Update(context.Background(), obj, metav1.UpdateOptions{
 		TypeMeta:     metav1.TypeMeta{},
 		DryRun:       nil,
 		FieldManager: "",

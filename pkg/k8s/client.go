@@ -15,6 +15,12 @@ var (
 	svcClient         v12.ServiceInterface
 )
 
+type Clients struct {
+	Deployments v1.DeploymentInterface
+	Pods        v12.PodInterface
+	Services    v12.ServiceInterface
+}
+
 func getDeploymentsClient() v1.DeploymentInterface {
 	clientMutex.RLock()
 	defer clientMutex.RUnlock()
@@ -25,6 +31,14 @@ func getServicesClient() v12.ServiceInterface {
 	clientMutex.RLock()
 	defer clientMutex.RUnlock()
 	return svcClient
+}
+
+func NewClients(deployments v1.DeploymentInterface, pods v12.PodInterface, services v12.ServiceInterface) *Clients {
+	return &Clients{
+		Deployments: deployments,
+		Pods:        pods,
+		Services:    services,
+	}
 }
 
 func setClients(deployments v1.DeploymentInterface, pods v12.PodInterface, services v12.ServiceInterface) {
