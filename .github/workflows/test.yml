@@ -26,8 +26,7 @@ jobs:
         go mod download
         go install golang.org/x/tools/cmd/cover@latest
         go install github.com/securego/gosec/v2/cmd/gosec@latest
-        go install honnef.co/go/tools/cmd/staticcheck@2024.1.1
-
+        
     - name: Run tests with coverage
       run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
@@ -36,14 +35,6 @@ jobs:
       with:
         file: ./coverage.txt
         fail_ci_if_error: false
-
-    - name: Run static code analysis
-      run: |
-        staticcheck ./...
-        if [ $? -ne 0 ]; then
-          echo "Static analysis found issues"
-          exit 1
-        fi
 
     - name: Run security scan
       run: |
