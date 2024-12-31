@@ -1,0 +1,26 @@
+version: v1
+name: buf.build/omrikiei/ktunnel
+lint:
+deps:
+  - buf.build/envoyproxy/protoc-gen-validate
+  - buf.build/grpc-ecosystem/grpc-gateway
+  - buf.build/googleapis/googleapis
+  use:
+    - COMMENTS
+    - DEFAULT
+  except:
+    - PACKAGE_DIRECTORY_MATCH
+  ignore_only:
+    ENUM_ZERO_VALUE_SUFFIX:
+      - observables/v1/observables.proto
+      - timeline/v1/timeline.proto
+      - sla-timers/v1/sla_timers.proto
+      - notes/v1/notes.proto
+  allow_comment_ignores: true
+breaking:
+  use:
+    - PACKAGE
+  ignore:
+    - protodep
+  ignore_unstable_packages: true
+

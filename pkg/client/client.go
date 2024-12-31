@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	pb "github.com/omrikiei/ktunnel/api"
 	"github.com/omrikiei/ktunnel/pkg/common"
-	pb "github.com/omrikiei/ktunnel/tunnel_pb"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
@@ -164,7 +164,7 @@ func SendData(conf *Config, stream pb.Tunnel_InitTunnelClient, sessions <-chan *
 			conf.log.WithField("session", session.ID).Debugf("read %d from buffer out of %d available", len(bytes), bys)
 
 			resp := &pb.SocketDataRequest{
-				RequestId:   session.ID.String(),
+				RequestID:   session.ID.String(),
 				Data:        bytes,
 				ShouldClose: !session.Open,
 			}

@@ -12,8 +12,8 @@ import (
 
 	"github.com/pkg/errors"
 
+	pb "github.com/omrikiei/ktunnel/api"
 	"github.com/omrikiei/ktunnel/pkg/common"
-	pb "github.com/omrikiei/ktunnel/tunnel_pb"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -82,9 +82,9 @@ func ReceiveData(conf *Config, stream pb.Tunnel_InitTunnelServer) {
 				continue
 			}
 
-			reqID, err := uuid.Parse(message.GetRequestId())
+			reqID, err := uuid.Parse(message.GetRequestID())
 			if err != nil {
-				conf.log.WithError(err).WithField("session", message.GetRequestId()).Errorf("failed to parse requestId")
+				conf.log.WithError(err).WithField("session", message.GetRequestID()).Errorf("failed to parse requestId")
 				continue
 			}
 
