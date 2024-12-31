@@ -1,9 +1,9 @@
+// Package common for shared functions and types
 package common
 
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -15,18 +15,18 @@ import (
 )
 
 const (
-   BufferSize = 1024 * 3
+	BufferSize = 1024 * 3
 )
 
 var openSessions = sync.Map{}
 
 type Session struct {
-	Id   uuid.UUID
-	Conn net.Conn
-	Buf  bytes.Buffer
-	Context context.Context
+	ID         uuid.UUID
+	Conn       net.Conn
+	Buf        bytes.Buffer
+	Context    context.Context
 	cancelFunc context.CancelFunc
-	Open bool
+	Open       bool
 	sync.Mutex
 }
 
@@ -37,13 +37,13 @@ func (s *Session) Close() {
 		s.Open = false
 	}
 	go func() {
-		<-time.After(5*time.Second)
-		openSessions.Delete(s.Id)
+		<-time.After(5 * time.Second)
+		openSessions.Delete(s.ID)
 	}()
 }
 
 type RedirectRequest struct {
-	Source int32
+	Source     int32
 	TargetHost string
 	TargetPort int32
 }
@@ -51,36 +51,36 @@ type RedirectRequest struct {
 func NewSession(conn net.Conn) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &Session{
-		Id:   uuid.New(),
-		Conn: conn,
-		Context: ctx,
+		ID:         uuid.New(),
+		Conn:       conn,
+		Context:    ctx,
 		cancelFunc: cancel,
-		Buf:  bytes.Buffer{},
-		Open: true,
+		Buf:        bytes.Buffer{},
+		Open:       true,
 	}
-	addSession(r)
+	_, _ = addSession(r)
 	return r
 }
 
 func NewSessionFromStream(id uuid.UUID, conn net.Conn) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &Session{
-		Id:   id,
-		Conn: conn,
-		Context: ctx,
+		ID:         id,
+		Conn:       conn,
+		Context:    ctx,
 		cancelFunc: cancel,
-		Buf:  bytes.Buffer{},
-		Open: true,
+		Buf:        bytes.Buffer{},
+		Open:       true,
 	}
-	addSession(r)
+	_, _ = addSession(r)
 	return r
 }
 
 func addSession(r *Session) (bool, error) {
-	if _, ok := GetSession(r.Id); ok != false {
-		return false, errors.New(fmt.Sprintf("Session %s already exists", r.Id.String()))
+	if _, ok := GetSession(r.ID); ok {
+		return false, fmt.Errorf("session %s already exists", r.ID.String())
 	}
-	openSessions.Store(r.Id, r)
+	openSessions.Store(r.ID, r)
 	return true, nil
 }
 
@@ -95,15 +95,15 @@ func GetSession(id uuid.UUID) (*Session, bool) {
 func ParsePorts(s string) (*RedirectRequest, error) {
 	raw := strings.Split(s, ":")
 	if len(raw) == 0 {
-		return nil, errors.New(fmt.Sprintf("failed parsing redirect request: %s", s))
+		return nil, fmt.Errorf("failed parsing redirect request: %s", s)
 	}
 	if len(raw) == 1 {
 		p, err := strconv.ParseInt(raw[0], 10, 32)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[0], err))
+			return nil, fmt.Errorf("failed to parse port %s, %v", raw[0], err)
 		}
 		return &RedirectRequest{
-			Source: int32(p),
+			Source:     int32(p),
 			TargetHost: "localhost",
 			TargetPort: int32(p),
 		}, nil
@@ -111,14 +111,14 @@ func ParsePorts(s string) (*RedirectRequest, error) {
 	if len(raw) == 2 {
 		s, err := strconv.ParseInt(raw[0], 10, 32)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[0], err))
+			return nil, fmt.Errorf("failed to parse port %s, %v", raw[0], err)
 		}
 		t, err := strconv.ParseInt(raw[1], 10, 32)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[1], err))
+			return nil, fmt.Errorf("failed to parse port %s, %v", raw[1], err)
 		}
 		return &RedirectRequest{
-			Source: int32(s),
+			Source:     int32(s),
 			TargetHost: "localhost",
 			TargetPort: int32(t),
 		}, nil
@@ -126,17 +126,17 @@ func ParsePorts(s string) (*RedirectRequest, error) {
 	if len(raw) == 3 {
 		s, err := strconv.ParseInt(raw[0], 10, 32)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[0], err))
+			return nil, fmt.Errorf("failed to parse port %s, %v", raw[0], err)
 		}
 		t, err := strconv.ParseInt(raw[2], 10, 32)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[1], err))
+			return nil, fmt.Errorf("failed to parse port %s, %v", raw[1], err)
 		}
 		return &RedirectRequest{
-			Source: int32(s),
+			Source:     int32(s),
 			TargetHost: raw[1],
 			TargetPort: int32(t),
 		}, nil
 	}
-	return nil, errors.New(fmt.Sprintf("Error, bad tunnel format: %s", s))
+	return nil, fmt.Errorf("bad tunnel format: %s", s)
 }

@@ -1,3 +1,4 @@
+// Package k8s provides Kubernetes integration functionality for ktunnel
 package k8s
 
 import (
@@ -12,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
@@ -21,8 +21,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
-	v1 "k8s.io/client-go/kubernetes/typed/apps/v1"
-	v12 "k8s.io/client-go/kubernetes/typed/core/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/azure"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/exec"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp" // https://github.com/kubernetes/client-go/issues/242
@@ -43,63 +41,106 @@ const (
 
 type ByCreationTime []apiv1.Pod
 
+type KubeService struct {
+	clients *Clients
+	config  *rest.Config
+}
+
+func NewKubeService(kubeCtx, namespace string) (*KubeService, error) {
+	cfg := GetKubeConfig(kubeCtx)
+
+	return &KubeService{
+		clients: GetClients(cfg, namespace),
+		config:  cfg,
+	}, nil
+}
+
+func GetClients(cfg *rest.Config, namespace string) *Clients {
+	clientSet, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		log.Errorf("Failed to get k8s client: %v", err)
+		os.Exit(1)
+	}
+
+	deploymentsClient = clientSet.AppsV1().Deployments(namespace)
+	podsClient = clientSet.CoreV1().Pods(namespace)
+	svcClient = clientSet.CoreV1().Services(namespace)
+
+	return &Clients{
+		Deployments: deploymentsClient,
+		Pods:        podsClient,
+		Services:    svcClient,
+	}
+}
+
 func (a ByCreationTime) Len() int { return len(a) }
 func (a ByCreationTime) Less(i, j int) bool {
 	return a[i].CreationTimestamp.After(a[j].CreationTimestamp.Time)
 }
 func (a ByCreationTime) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 
-var deploymentOnce = sync.Once{}
-var deploymentsClient v1.DeploymentInterface
-var podsClient v12.PodInterface
-var svcClient v12.ServiceInterface
-var kubeconfig *rest.Config
-var o = sync.Once{}
-var Verbose = false
+var (
+	configMutex  sync.RWMutex
+	kubeconfig   *rest.Config
+	verboseMutex sync.RWMutex
+	verbose      = false
+)
 
-func getKubeConfig(kubeCtx *string) *rest.Config {
-	o.Do(func() {
-		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+// SetVerbose sets the verbose flag in a thread-safe way
+func SetVerbose(v bool) {
+	verboseMutex.Lock()
+	defer verboseMutex.Unlock()
+	verbose = v
+}
 
-		kConfig := os.Getenv(kubeConfigEnvVar)
-		if home := homedir.HomeDir(); kConfig == "" && home != "" {
-			kConfig = filepath.Join(home, ".kube", "config")
-			loadingRules.ExplicitPath = kConfig
-		}
+// IsVerbose gets the verbose flag in a thread-safe way
+func IsVerbose() bool {
+	verboseMutex.RLock()
+	defer verboseMutex.RUnlock()
+	return verbose
+}
 
-		var configOverrides *clientcmd.ConfigOverrides
-		if (kubeCtx) != nil {
-			configOverrides = &clientcmd.ConfigOverrides{CurrentContext: *kubeCtx}
-		}
+func GetKubeConfig(kubeCtx string) *rest.Config {
+	configMutex.RLock()
+	if kubeconfig != nil {
+		defer configMutex.RUnlock()
+		return kubeconfig
+	}
+	configMutex.RUnlock()
 
-		config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides).ClientConfig()
-		if err != nil {
-			log.Errorf("Failed getting kubernetes config: %v", err)
-		}
-		kubeconfig = config
-	})
+	configMutex.Lock()
+	defer configMutex.Unlock()
+
+	// Double-check after acquiring write lock
+	if kubeconfig != nil {
+		return kubeconfig
+	}
+
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+
+	kConfig := os.Getenv(kubeConfigEnvVar)
+	if home := homedir.HomeDir(); kConfig == "" && home != "" {
+		kConfig = filepath.Join(home, ".kube", "config")
+		loadingRules.ExplicitPath = kConfig
+	}
+
+	var configOverrides *clientcmd.ConfigOverrides
+	if (kubeCtx) != "" {
+		configOverrides = &clientcmd.ConfigOverrides{CurrentContext: kubeCtx}
+	}
+
+	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides).ClientConfig()
+	if err != nil {
+		log.Errorf("Failed getting kubernetes config: %v", err)
+	}
+	kubeconfig = config
 	return kubeconfig
 }
 
-func getClients(namespace *string, kubeCtx *string) {
-	deploymentOnce.Do(func() {
-		clientSet, err := kubernetes.NewForConfig(getKubeConfig(kubeCtx))
-		if err != nil {
-			log.Errorf("Failed to get k8s client: %v", err)
-			os.Exit(1)
-		}
-
-		deploymentsClient = clientSet.AppsV1().Deployments(*namespace)
-		podsClient = clientSet.CoreV1().Pods(*namespace)
-		svcClient = clientSet.CoreV1().Services(*namespace)
-	})
-}
-
-func getPodsFilteredByLabel(namespace, kubeCtx, labelSelector *string) (*apiv1.PodList, error) {
-	getClients(namespace, kubeCtx)
-	pods, err := podsClient.List(
+func (k *KubeService) getPodsFilteredByLabel(labelSelector string) (*apiv1.PodList, error) {
+	pods, err := k.clients.Pods.List(
 		context.Background(), metav1.ListOptions{
-			LabelSelector: *labelSelector,
+			LabelSelector: labelSelector,
 		},
 	)
 	if err != nil {
@@ -119,7 +160,7 @@ func hasSidecar(podSpec apiv1.PodSpec, image string) bool {
 
 func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, cert, key string, cReq, cLimit, mReq, mLimit int64) *apiv1.Container {
 	args := []string{"server", "-p", strconv.FormatInt(int64(port), 10)}
-	if Verbose == true {
+	if IsVerbose() {
 		args = append(args, "-v")
 	}
 	if cert != "" {
@@ -133,7 +174,7 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
 	cpuLimit.SetMilli(cLimit)
 	memRequest.SetScaled(mReq, resource.Mega)
 	memLimit.SetScaled(mLimit, resource.Mega)
-	containerUid := int64(1000)
+	containerUID := int64(1000)
 
 	return &apiv1.Container{
 		Name:    "ktunnel",
@@ -152,7 +193,7 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
 			},
 		},
 		SecurityContext: &apiv1.SecurityContext{
-			RunAsUser: &containerUid,
+			RunAsUser: &containerUID,
 		},
 	}
 }
@@ -228,13 +269,12 @@ func newService(namespace, name string, ports []apiv1.ServicePort, serviceType a
 	}
 }
 
-func getPodNames(namespace, deploymentName *string, podsPtr *[]string, kubeCtx *string) error {
-	labelSelector := deploymentNameLabel + "=" + *deploymentName + "," + deploymentInstanceLabel + "=" + *deploymentName
-	filteredPods, err := getPodsFilteredByLabel(namespace, kubeCtx, &labelSelector)
+func (k *KubeService) getPodNames(deploymentName string, pods []string) error {
+	labelSelector := deploymentNameLabel + "=" + deploymentName + "," + deploymentInstanceLabel + "=" + deploymentName
+	filteredPods, err := k.getPodsFilteredByLabel(labelSelector)
 	if err != nil {
 		return err
 	}
-	pods := *podsPtr
 	matchingPods := ByCreationTime{}
 	pIndex := 0
 	for _, p := range filteredPods.Items {
@@ -252,19 +292,18 @@ func getPodNames(namespace, deploymentName *string, podsPtr *[]string, kubeCtx *
 	}
 
 	return nil
-
 }
 
-func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGroup *sync.WaitGroup, stopChan <-chan struct{}, kubecontext *string) (*[]string, error) {
-	getClients(namespace, kubecontext)
-
-	out, errOut := new(bytes.Buffer), new(bytes.Buffer)
-	deployment, err := deploymentsClient.Get(context.Background(), *deploymentName, metav1.GetOptions{})
+func (k *KubeService) PortForward(namespace, deploymentName string, targetPort string, fwdWaitGroup *sync.WaitGroup, stopChan <-chan struct{}) (*[]string, error) {
+	clientMutex.RLock()
+	deployment, err := deploymentsClient.Get(context.Background(), deploymentName, metav1.GetOptions{})
+	clientMutex.RUnlock()
 	if err != nil {
 		return nil, err
 	}
+
 	podNames := make([]string, *deployment.Spec.Replicas)
-	err = getPodNames(namespace, deploymentName, &podNames, kubecontext)
+	err = k.getPodNames(deploymentName, podNames)
 	fwdWaitGroup.Add(int(*deployment.Spec.Replicas))
 
 	if err != nil {
@@ -284,15 +323,16 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 	for i, podName := range podNames {
 		readyChan := make(chan struct{}, 1)
 		ports := []string{fmt.Sprintf("%s:%s", sourcePorts[i], targetPort)}
-		serverURL := getPortForwardUrl(getKubeConfig(kubecontext), *namespace, podName)
+		serverURL := getPortForwardURL(k.config, namespace, podName)
 
-		transport, upgrader, err := spdy.RoundTripperFor(getKubeConfig(kubecontext))
+		transport, upgrader, err := spdy.RoundTripperFor(k.config)
 		if err != nil {
 			return nil, err
 		}
 		log.Infof("port forwarding to %s", serverURL)
 		dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, serverURL)
 
+		out, errOut := new(bytes.Buffer), new(bytes.Buffer)
 		forwarder, err := portforward.New(dialer, ports, stopChan, readyChan, out, errOut)
 		if err != nil {
 			log.Error(err)
@@ -334,7 +374,7 @@ func PortForward(namespace, deploymentName *string, targetPort string, fwdWaitGr
 	}
 }
 
-func getPortForwardUrl(config *rest.Config, namespace string, podName string) *url.URL {
+func getPortForwardURL(config *rest.Config, namespace string, podName string) *url.URL {
 	host := config.Host
 	scheme := "https"
 	if strings.HasPrefix(config.Host, "https://") {
@@ -344,7 +384,7 @@ func getPortForwardUrl(config *rest.Config, namespace string, podName string) *u
 		scheme = "http"
 	}
 	trailingHostPath := strings.Split(host, "/")
-	hostIp := trailingHostPath[0]
+	hostIP := trailingHostPath[0]
 	trailingPath := ""
 	if len(trailingHostPath) > 1 && trailingHostPath[1] != "" {
 		trailingPath = fmt.Sprintf("/%s/", strings.Join(trailingHostPath[1:], "/"))
@@ -353,7 +393,7 @@ func getPortForwardUrl(config *rest.Config, namespace string, podName string) *u
 	return &url.URL{
 		Scheme: scheme,
 		Path:   path,
-		Host:   hostIp,
+		Host:   hostIP,
 	}
 }
 
@@ -378,82 +418,79 @@ func watchForReady(deployment *appsv1.Deployment, readyChan chan<- bool) {
 		log.Infof("ProgressDeadlineInSeconds is currently %vs. It may take this long to detect a deployment failure.", progressDeadlineSeconds)
 		progressDeadlineSeconds += 5
 
+		clientMutex.RLock()
 		watch, err := deploymentsClient.Watch(context.Background(), metav1.ListOptions{
 			LabelSelector:  labels.Set(deployment.Labels).String(),
 			TimeoutSeconds: &progressDeadlineSeconds,
 		})
+		clientMutex.RUnlock()
 
 		if err != nil {
 			log.Error(err)
 			readyChan <- false
 			return
 		}
-		resultChan := watch.ResultChan()
 
-		for {
-			event, ok := <-resultChan
-			if !ok {
-				log.Error("Timeout exceeded waiting for deployment to be ready")
-				readyChan <- false
-				return
-			}
+		defer watch.Stop()
 
-			deployment, ok := event.Object.(*appsv1.Deployment)
+		for event := range watch.ResultChan() {
+			d, ok := event.Object.(*appsv1.Deployment)
 			if !ok {
-				log.Warn("Watcher received event for non-deployment object")
 				continue
 			}
 
-			msg, done, err := deploymentStatus(deployment)
-
-			if done {
-				watch.Stop()
-				log.Info(msg)
-				readyChan <- true
-				return
-			} else if err != nil {
-				watch.Stop()
-				log.Errorf("Failed deploying tunnel sidecar; %v", err)
+			msg, ready, err := deploymentStatus(d)
+			if err != nil {
+				log.Error(err)
 				readyChan <- false
 				return
-			} else {
-				if lastMsg != msg {
-					log.Debug(msg)
-				}
+			}
+
+			if msg != lastMsg {
+				log.Info(msg)
 				lastMsg = msg
 			}
+
+			if ready {
+				readyChan <- true
+				return
+			}
 		}
+
+		readyChan <- false
 	}()
 }
 
 func deploymentStatus(deployment *appsv1.Deployment) (string, bool, error) {
 	if deployment.Generation <= deployment.Status.ObservedGeneration {
-		updateTime := time.Now()
-		for _, field := range deployment.ManagedFields {
-			if field.Manager == "kube-controller-manager" && field.Operation == "Update" {
-				updateTime = field.Time.Time
-			}
-		}
-
-		for _, cond := range deployment.Status.Conditions {
-			if cond.Type == appsv1.DeploymentProgressing &&
-				cond.Status == apiv1.ConditionFalse &&
-				cond.Reason == "ProgressDeadlineExceeded" &&
-				cond.LastUpdateTime.Time.After(updateTime) {
-				return "", false, fmt.Errorf("deployment %q exceeded its progress deadline", deployment.Name)
-			}
+		cond := getDeploymentCondition(deployment.Status, appsv1.DeploymentProgressing)
+		if cond != nil && cond.Reason == "ProgressDeadlineExceeded" {
+			return "", false, fmt.Errorf("deployment %q exceeded its progress deadline", deployment.Name)
 		}
 
 		if deployment.Spec.Replicas != nil && deployment.Status.UpdatedReplicas < *deployment.Spec.Replicas {
 			return fmt.Sprintf("Waiting for deployment %q rollout to finish: %d out of %d new replicas have been updated...\n", deployment.Name, deployment.Status.UpdatedReplicas, *deployment.Spec.Replicas), false, nil
 		}
+
 		if deployment.Status.Replicas > deployment.Status.UpdatedReplicas {
 			return fmt.Sprintf("Waiting for deployment %q rollout to finish: %d old replicas are pending termination...\n", deployment.Name, deployment.Status.Replicas-deployment.Status.UpdatedReplicas), false, nil
 		}
+
 		if deployment.Status.AvailableReplicas < deployment.Status.UpdatedReplicas {
 			return fmt.Sprintf("Waiting for deployment %q rollout to finish: %d of %d updated replicas are available...\n", deployment.Name, deployment.Status.AvailableReplicas, deployment.Status.UpdatedReplicas), false, nil
 		}
+
 		return fmt.Sprintf("deployment %q successfully rolled out\n", deployment.Name), true, nil
 	}
-	return fmt.Sprintf("Waiting for deployment spec update to be observed...\n"), false, nil
+	return "Waiting for deployment spec update to be observed...\n", false, nil
+}
+
+func getDeploymentCondition(status appsv1.DeploymentStatus, condType appsv1.DeploymentConditionType) *appsv1.DeploymentCondition {
+	for i := range status.Conditions {
+		c := status.Conditions[i]
+		if c.Type == condType {
+			return &c
+		}
+	}
+	return nil
 }

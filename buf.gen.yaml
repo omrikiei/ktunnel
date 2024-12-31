@@ -1,0 +1,21 @@
+version: v1
+plugins:
+  - plugin: buf.build/protocolbuffers/go
+    out: .
+    opt:
+      - paths=source_relative
+  - plugin: buf.build/grpc/go
+    out: .
+    opt:
+      - paths=source_relative
+      - require_unimplemented_servers=false
+  - plugin: buf.build/grpc-ecosystem/gateway:v2.18.1
+    out: .
+    opt:
+      - paths=source_relative
+      - allow_delete_body=true
+  - plugin: grpc-gateway-client
+    path: protoc-gen-grpc-gateway-client
+    out: .
+    opt:
+      - paths=source_relative

@@ -1,3 +1,4 @@
+// Package cmd implements the command line interface for ktunnel
 package cmd
 
 import (
@@ -24,7 +25,7 @@ var injectCmd = &cobra.Command{
 	Use:   "inject",
 	Short: "Inject server sidecar to the cluster and run the ktunnel client to establish a connection",
 	Long: `This command accepts a pod/deployment and injects the tunnel sidecar to that artifact, 
-			it then establishes a reverse tunnel`,
+                        it then establishes a reverse tunnel`,
 }
 
 var injectDeploymentCmd = &cobra.Command{
@@ -45,7 +46,12 @@ ktunnel inject deployment mydeployment 3306 6379
 		// Inject
 		deployment := args[0]
 		readyChan := make(chan bool, 1)
-		_, err := k8s.InjectSidecar(&Namespace, &deployment, &port, ServerImage, CertFile, KeyFile, readyChan, &KubeContext)
+		// Kube Service
+		svc, err := k8s.NewKubeService(KubeContext, Namespace)
+		if err != nil {
+			log.Fatalf("failed creating kube service: %v", err)
+		}
+		_, err = svc.InjectSidecar(&Namespace, &deployment, &port, ServerImage, CertFile, KeyFile, readyChan, &KubeContext)
 		if err != nil {
 			log.Fatalf("failed injecting sidecar: %v", err)
 		}
@@ -55,7 +61,7 @@ ktunnel inject deployment mydeployment 3306 6379
 		// Signal hook to remove sidecar
 		sigs := make(chan os.Signal, 1)
 		wg := &sync.WaitGroup{}
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 		stopChan := make(chan struct{}, 1)
 
 		go func() {
@@ -66,7 +72,7 @@ ktunnel inject deployment mydeployment 3306 6379
 				wg.Wait()
 				if eject {
 					readyChan = make(chan bool, 1)
-					ok, err := k8s.RemoveSidecar(&Namespace, &deployment, ServerImage, readyChan, &KubeContext)
+					ok, err := svc.RemoveSidecar(&Namespace, &deployment, ServerImage, readyChan, &KubeContext)
 					if !ok {
 						log.Errorf("Failed removing tunnel sidecar; %v", err)
 					}
@@ -89,7 +95,7 @@ ktunnel inject deployment mydeployment 3306 6379
 		// port-Forward
 		strPort := strconv.FormatInt(int64(port), 10)
 		// Create a tunnel client for each replica
-		sourcePorts, err := k8s.PortForward(&Namespace, &deployment, strPort, wg, stopChan, &KubeContext)
+		sourcePorts, err := svc.PortForward(Namespace, deployment, strPort, wg, stopChan)
 		if err != nil {
 			log.Fatalf("Failed to run port forwarding: %v", err)
 			os.Exit(1)

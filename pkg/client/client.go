@@ -1,27 +1,23 @@
+// Package client implements the ktunnel client
 package client
 
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	pb "github.com/omrikiei/ktunnel/api"
 	"github.com/omrikiei/ktunnel/pkg/common"
-	pb "github.com/omrikiei/ktunnel/tunnel_pb"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 )
-
-type Message struct {
-	c *net.Conn
-	d *[]byte
-}
 
 func ReceiveData(conf *Config, st pb.Tunnel_InitTunnelClient, sessionsOut chan<- *common.Session, host string, port int32, scheme string) {
 loop:
@@ -39,16 +35,16 @@ loop:
 				break loop
 			}
 
-			requestId, err := uuid.Parse(m.RequestId)
+			requestId, err := uuid.Parse(m.RequestID)
 			if err != nil {
-				conf.log.WithError(err).WithField("session", m.RequestId).Errorf("failed parsing session uuid from stream, skipping")
+				conf.log.WithError(err).WithField("session", m.RequestID).Errorf("failed parsing session uuid from stream, skipping")
 			}
 
 			session, exists := common.GetSession(requestId)
 			if exists == false {
 				conf.log.WithFields(log.Fields{
-					"session": m.RequestId,
-					"host": host,
+					"session": m.RequestID,
+					"host":    host,
 					"port":    port,
 				}).Infof("new connection")
 
@@ -58,7 +54,7 @@ loop:
 					conf.log.WithError(err).Errorf("failed connecting to %s on port %d scheme %s", host, port, scheme)
 					// close the remote connection
 					resp := &pb.SocketDataRequest{
-						RequestId:   requestId.String(),
+						RequestID:   requestId.String(),
 						ShouldClose: true,
 					}
 					err := st.Send(resp)
@@ -83,20 +79,20 @@ loop:
 
 func handleStreamData(conf *Config, m *pb.SocketDataResponse, session *common.Session) {
 	if session.Open == false {
-		conf.log.WithField("session", session.Id).Infof("closed session")
+		conf.log.WithField("session", session.ID).Infof("closed session")
 		session.Close()
 		return
 	}
 
 	data := m.GetData()
-	conf.log.WithField("session", session.Id).Debugf("received %d bytes from server", len(data))
+	conf.log.WithField("session", session.ID).Debugf("received %d bytes from server", len(data))
 	if len(data) > 0 {
 		session.Lock()
-		conf.log.WithField("session", session.Id).Debugf("wrote %d bytes to conn", len(data))
+		conf.log.WithField("session", session.ID).Debugf("wrote %d bytes to conn", len(data))
 		_, err := session.Conn.Write(data)
 		session.Unlock()
 		if err != nil {
-			conf.log.WithError(err).WithField("session", session.Id).Errorf("failed writing to socket, closing session")
+			conf.log.WithError(err).WithField("session", session.ID).Errorf("failed writing to socket, closing session")
 			session.Close()
 			return
 		}
@@ -105,7 +101,7 @@ func handleStreamData(conf *Config, m *pb.SocketDataResponse, session *common.Se
 
 func ReadFromSession(conf *Config, session *common.Session, sessionsOut chan<- *common.Session) {
 	conn := session.Conn
-	conf.log.WithField("session", session.Id).Debugf("started reading conn")
+	conf.log.WithField("session", session.ID).Debugf("started reading conn")
 	buff := make([]byte, common.BufferSize)
 
 loop:
@@ -117,10 +113,10 @@ loop:
 		default:
 			if err != nil {
 				if err != io.EOF {
-					conf.log.WithError(err).WithField("session", session.Id).Errorf("failed reading from socket")
+					conf.log.WithError(err).WithField("session", session.ID).Errorf("failed reading from socket")
 
 				} else {
-					conf.log.WithField("session", session.Id).Debugf("got EOF from connection")
+					conf.log.WithField("session", session.ID).Debugf("got EOF from connection")
 				}
 
 				session.Open = false
@@ -128,24 +124,24 @@ loop:
 				break loop
 			}
 
-			conf.log.WithField("session", session.Id).WithError(err).Debugf("read %d bytes from conn", br)
+			conf.log.WithField("session", session.ID).WithError(err).Debugf("read %d bytes from conn", br)
 
 			session.Lock()
 			if br > 0 {
-				conf.log.WithField("session", session.Id).WithError(err).Debugf("wrote %d bytes to session buf", br)
+				conf.log.WithField("session", session.ID).WithError(err).Debugf("wrote %d bytes to session buf", br)
 				_, err = session.Buf.Write(buff[0:br])
 			}
 			session.Unlock()
 
 			if err != nil {
-				conf.log.WithField("session", session.Id).WithError(err).Errorf("failed writing to session buffer")
+				conf.log.WithField("session", session.ID).WithError(err).Errorf("failed writing to session buffer")
 				break loop
 			}
 			sessionsOut <- session
 		}
 
 	}
-	conf.log.WithField("session", session.Id).Debugf("finished reading session")
+	conf.log.WithField("session", session.ID).Debugf("finished reading session")
 }
 
 func SendData(conf *Config, stream pb.Tunnel_InitTunnelClient, sessions <-chan *common.Session) {
@@ -165,17 +161,17 @@ func SendData(conf *Config, stream pb.Tunnel_InitTunnelClient, sessions <-chan *
 				return
 			}
 
-			conf.log.WithField("session", session.Id).Debugf("read %d from buffer out of %d available", len(bytes), bys)
+			conf.log.WithField("session", session.ID).Debugf("read %d from buffer out of %d available", len(bytes), bys)
 
 			resp := &pb.SocketDataRequest{
-				RequestId:   session.Id.String(),
+				RequestID:   session.ID.String(),
 				Data:        bytes,
 				ShouldClose: !session.Open,
 			}
 			session.Unlock()
 
 			conf.log.WithFields(log.Fields{
-				"session": session.Id,
+				"session": session.ID,
 				"close":   resp.ShouldClose,
 			}).Debugf("sending %d bytes to server", len(bytes))
 			err = stream.Send(resp)
@@ -184,7 +180,7 @@ func SendData(conf *Config, stream pb.Tunnel_InitTunnelClient, sessions <-chan *
 				return
 			}
 			conf.log.WithFields(log.Fields{
-				"session": session.Id,
+				"session": session.ID,
 				"close":   resp.ShouldClose,
 			}).Debugf("sent %d bytes to server", len(bytes))
 		}
@@ -206,7 +202,7 @@ func RunClient(ctx context.Context, opts ...Option) error {
 		}
 		grpcOpts = append(grpcOpts, grpc.WithTransportCredentials(creds))
 	} else {
-		grpcOpts = append(grpcOpts, grpc.WithInsecure())
+		grpcOpts = append(grpcOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
 	conn, err := grpc.Dial(fmt.Sprintf("%s:%d", conf.host, conf.port), grpcOpts...)
@@ -263,7 +259,7 @@ func processArgs(opts []Option) (*Config, error) {
 	// default arguments
 	opt := &Config{
 		log: &log.Logger{
-			Out: ioutil.Discard,
+			Out: io.Discard,
 		},
 		scheme: "tcp",
 		TLS:    false,

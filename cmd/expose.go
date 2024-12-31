@@ -1,3 +1,4 @@
+// Package cmd implements the command line interface for ktunnel
 package cmd
 
 import (
@@ -26,8 +27,8 @@ var NodeSelectorTags []string
 var DeploymentLabels []string
 var DeploymentAnnotations []string
 var PodTolerations []string
-var ServerCpuRequest int64
-var ServerCpuLimit int64
+var ServerCPURequest int64
+var ServerCPULimit int64
 var ServerMemRequest int64
 var ServerMemLimit int64
 
@@ -35,14 +36,14 @@ var exposeCmd = &cobra.Command{
 	Use:   "expose [flags] SERVICE_NAME [ports]",
 	Short: "Expose local machine as a service on the kubernetes cluster",
 	Long: `This command would inject a new service and deployment to the cluster, and open the tunnel to the server 
-			forwarding tunnel ingress traffic to the the same port on localhost`,
+                        forwarding tunnel ingress traffic to the the same port on localhost`,
 	Args: cobra.MinimumNArgs(2),
 	Example: `
 # Expose a local application running on port 8000 via http
 ktunnel expose kewlapp 80:8000
 
 ktunnel expose kewlapp 80:8000 -r
-			  
+                          
 # Expose a local redis server
 ktunnel expose redis 6379
               `,
@@ -87,6 +88,10 @@ ktunnel expose redis 6379
 			deploymentAnnotations[parsed[0]] = parsed[1]
 		}
 
+		svc, err := k8s.NewKubeService(KubeContext, Namespace)
+		if err != nil {
+			log.Fatalf("Failed to create new kube service: %v", err)
+		}
 		podTolerations := make([]apiv1.Toleration, 0, len(PodTolerations))
 		for _, label := range PodTolerations {
 			parsed := strings.Split(label, "=")
@@ -109,15 +114,15 @@ ktunnel expose redis 6379
 		}
 
 		if Force {
-			err := k8s.TeardownExposedService(Namespace, svcName, &KubeContext, DeploymentOnly)
+			err := svc.TeardownExposedService(svcName, DeploymentOnly)
 			if err != nil {
 				log.Infof("Force delete: Failed deleting k8s objects: %s", err)
 			}
 		}
 
-		err := k8s.ExposeAsService(
-			&Namespace,
-			&svcName,
+		err = svc.ExposeAsService(
+			Namespace,
+			svcName,
 			port,
 			Scheme,
 			ports,
@@ -133,9 +138,9 @@ ktunnel expose redis 6379
 			CertFile,
 			KeyFile,
 			ServiceType,
-			&KubeContext,
-			ServerCpuRequest,
-			ServerCpuLimit,
+			KubeContext,
+			ServerCPURequest,
+			ServerCPULimit,
 			ServerMemRequest,
 			ServerMemLimit,
 		)
@@ -145,7 +150,7 @@ ktunnel expose redis 6379
 		sigs := make(chan os.Signal, 1)
 		wg := &sync.WaitGroup{}
 		done := make(chan bool, 1)
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
 		// Teardown
 		go func() {
@@ -158,7 +163,7 @@ ktunnel expose redis 6379
 				}
 				cancel()
 				if !Reuse {
-					err := k8s.TeardownExposedService(Namespace, svcName, &KubeContext, DeploymentOnly)
+					err := svc.TeardownExposedService(svcName, DeploymentOnly)
 					if err != nil {
 						log.Errorf("Failed deleting k8s objects: %s", err)
 					}
@@ -170,11 +175,17 @@ ktunnel expose redis 6379
 		log.Info("waiting for deployment to be ready")
 		<-readyChan
 
+		// Kube Service
+		kubeService, err := k8s.NewKubeService(KubeContext, Namespace)
+		if err != nil {
+			log.Fatalf("Failed to start k8s clients: %v", err)
+			os.Exit(1)
+		}
 		// port-Forward
 		strPort := strconv.FormatInt(int64(port), 10)
 		stopChan := make(chan struct{}, 1)
 		// Create a tunnel client for each replica
-		sourcePorts, err := k8s.PortForward(&Namespace, &svcName, strPort, wg, stopChan, &KubeContext)
+		sourcePorts, err := kubeService.PortForward(Namespace, svcName, strPort, wg, stopChan)
 		if err != nil {
 			log.Fatalf("Failed to run port forwarding: %v", err)
 			os.Exit(1)
@@ -200,7 +211,7 @@ ktunnel expose redis 6379
 				}
 			}(srcPort)
 		}
-		_ = <-done
+		<-done
 	},
 }
 
@@ -222,8 +233,8 @@ func init() {
 	exposeCmd.Flags().StringSliceVarP(&DeploymentLabels, "deployment-labels", "l", []string{}, "comma separated list of labels and values seperated by the '=' character (i.e app=application,env=prod)")
 	exposeCmd.Flags().StringSliceVarP(&DeploymentAnnotations, "deployment-annotations", "", []string{}, "comma separated list of annotations and values seperated by the '=' character (i.e sidecar.istio.io/inject=false)")
 	exposeCmd.Flags().StringSliceVarP(&PodTolerations, "pod-tolerations", "", []string{}, "comma separated list of tolerations seperated by the '=' character (i.e key=value:NoSchedule)")
-	exposeCmd.Flags().Int64Var(&ServerCpuRequest, "server-cpu-request", 100, "Server container CPU Request in milli-cpus")
-	exposeCmd.Flags().Int64Var(&ServerCpuLimit, "server-cpu-limit", 500, "Server container CPU Limit in milli-cpus")
+	exposeCmd.Flags().Int64Var(&ServerCPURequest, "server-cpu-request", 100, "Server container CPU Request in milli-cpus")
+	exposeCmd.Flags().Int64Var(&ServerCPULimit, "server-cpu-limit", 500, "Server container CPU Limit in milli-cpus")
 	exposeCmd.Flags().Int64Var(&ServerMemRequest, "server-memory-request", 100, "Server container CPU Request in mega-bytes")
 	exposeCmd.Flags().Int64Var(&ServerMemLimit, "server-memory-limit", 1000, "Server container CPU Limit in mega-bytes")
 	rootCmd.AddCommand(exposeCmd)

@@ -1,31 +1,32 @@
+// Package server provides a GRPC server that can be used to tunnel TCP connections
 package server
 
 import (
 	"context"
 	"fmt"
-	"github.com/google/uuid"
 	"io"
-	"io/ioutil"
 	"net"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/pkg/errors"
 
+	pb "github.com/omrikiei/ktunnel/api"
 	"github.com/omrikiei/ktunnel/pkg/common"
-	pb "github.com/omrikiei/ktunnel/tunnel_pb"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
-type tunnelServer struct {
+type TunnelServer struct {
 	conf *Config
 }
 
 // NewServer creates a new GRPC handler instance that
 // can be attached to a GRPC server
-func NewServer(conf *Config) *tunnelServer {
-	return &tunnelServer{conf}
+func NewServer(conf *Config) *TunnelServer {
+	return &TunnelServer{conf}
 }
 
 // SendData handles data coming from our TCP listener, via the sessions channel, and
@@ -41,28 +42,27 @@ func SendData(conf *Config, stream pb.Tunnel_InitTunnelServer, sessions <-chan *
 			session.Lock()
 			bys := session.Buf.Len()
 			bytes := make([]byte, bys)
-			session.Buf.Read(bytes)
-
+			_, err := session.Buf.Read(bytes)
 			resp := &pb.SocketDataResponse{
-				HasErr:      false,
+				HasErr:      err != nil,
 				LogMessage:  nil,
 				Data:        bytes,
-				RequestId:   session.Id.String(),
+				RequestID:   session.ID.String(),
 				ShouldClose: !session.Open,
 			}
 			session.Unlock()
 
 			conf.log.WithFields(log.Fields{
-				"session": session.Id,
+				"session": session.ID,
 				"close":   resp.ShouldClose,
 			}).Debugf("sending %d bytes to client", len(bytes))
-			err := stream.Send(resp)
+			err = stream.Send(resp)
 			if err != nil {
 				conf.log.WithError(err).Errorf("failed sending message to tunnel stream")
 				continue
 			}
 			conf.log.WithFields(log.Fields{
-				"session": session.Id,
+				"session": session.ID,
 				"close":   resp.ShouldClose,
 			}).Debugf("sent %d bytes to client", len(bytes))
 		}
@@ -81,15 +81,15 @@ func ReceiveData(conf *Config, stream pb.Tunnel_InitTunnelServer) {
 				continue
 			}
 
-			reqId, err := uuid.Parse(message.GetRequestId())
+			reqID, err := uuid.Parse(message.GetRequestID())
 			if err != nil {
-				conf.log.WithError(err).WithField("session", message.GetRequestId()).Errorf("failed to parse requestId")
+				conf.log.WithError(err).WithField("session", message.GetRequestID()).Errorf("failed to parse requestId")
 				continue
 			}
 
-			session, ok := common.GetSession(reqId)
-			if ok != true && !message.ShouldClose {
-				conf.log.WithField("session", reqId).Errorf("session not found in openRequests")
+			session, ok := common.GetSession(reqID)
+			if !ok && !message.ShouldClose {
+				conf.log.WithField("session", reqID).Errorf("session not found in openRequests")
 				continue
 			}
 
@@ -97,26 +97,26 @@ func ReceiveData(conf *Config, stream pb.Tunnel_InitTunnelServer) {
 			br := len(data)
 
 			conf.log.WithFields(log.Fields{
-				"session": session.Id,
+				"session": session.ID,
 				"close":   message.ShouldClose,
 			}).Debugf("received %d bytes from client", len(data))
 
 			// send data if we received any
 			if br > 0 && session.Open {
-				conf.log.WithField("session", reqId).Debugf("writing %d bytes to conn", br)
+				conf.log.WithField("session", reqID).Debugf("writing %d bytes to conn", br)
 				_, err := session.Conn.Write(data)
 				if err != nil {
-					conf.log.WithError(err).WithField("session", reqId).Errorf("failed writing data to socket")
+					conf.log.WithError(err).WithField("session", reqID).Errorf("failed writing data to socket")
 					message.ShouldClose = true
 				} else {
-					conf.log.WithField("session", reqId).Debugf("wrote %d bytes to conn", br)
+					conf.log.WithField("session", reqID).Debugf("wrote %d bytes to conn", br)
 				}
 			}
 
-			if message.ShouldClose == true {
-				conf.log.WithField("session", reqId).Debug("closing session")
+			if message.ShouldClose {
+				conf.log.WithField("session", reqID).Debug("closing session")
 				session.Close()
-				conf.log.WithField("session", reqId).Debug("closed session")
+				conf.log.WithField("session", reqID).Debug("closed session")
 			}
 		}
 
@@ -124,7 +124,7 @@ func ReceiveData(conf *Config, stream pb.Tunnel_InitTunnelServer) {
 }
 
 func readConn(ctx context.Context, conf *Config, session *common.Session, sessions chan<- *common.Session) {
-	conf.log.WithField("session", session.Id.String()).Info("new connection")
+	conf.log.WithField("session", session.ID.String()).Info("new connection")
 	sessions <- session
 
 	for {
@@ -143,7 +143,7 @@ func readConn(ctx context.Context, conf *Config, session *common.Session, sessio
 			session.Lock()
 			if err != nil {
 				if err != io.EOF {
-					conf.log.WithError(err).WithField("session", session.Id).Infof("failed to read from conn")
+					conf.log.WithError(err).WithField("session", session.ID).Infof("failed to read from conn")
 				}
 
 				// setting Open to false triggers SendData() to
@@ -158,14 +158,14 @@ func readConn(ctx context.Context, conf *Config, session *common.Session, sessio
 			session.Unlock()
 
 			sessions <- session
-			if session.Open == false {
+			if !session.Open {
 				return
 			}
 		}
 	}
 }
 
-func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
+func (t *TunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 	request, err := stream.Recv()
 	if err != nil {
 		return errors.Wrap(err, "failed to read handshake")
@@ -274,7 +274,7 @@ func processArgs(opts []Option) (*Config, error) {
 	opt := &Config{
 		port: 5000,
 		log: &log.Logger{
-			Out: ioutil.Discard,
+			Out: io.Discard,
 		},
 		TLS: false,
 	}

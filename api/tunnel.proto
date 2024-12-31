@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package grpc_tunnel;
 
-option go_package = "kube_tunnel";
+option go_package = "./api";
 
 
 service Tunnel {
@@ -29,7 +29,7 @@ message LogMessage {
 
 message SocketDataRequest {
     int32 port = 1;
-    string requestId = 2;
+    string requestID = 2;
     LogLevel logLevel = 3;
     TunnelScheme scheme = 4;
     bytes data = 5;
@@ -39,7 +39,7 @@ message SocketDataRequest {
 message SocketDataResponse {
     bool hasErr = 1;
     LogMessage logMessage = 2;
-    string requestId = 3;
+    string requestID = 3;
     bytes data = 4;
     bool shouldClose = 5;
 }

@@ -1,3 +1,4 @@
+// Package cmd implements the command line interface for ktunnel
 package cmd
 
 import (
@@ -9,7 +10,7 @@ import (
 )
 
 const (
-	version = "1.6.1"
+	version = "2.0.0"
 )
 
 var port int

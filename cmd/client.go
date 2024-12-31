@@ -1,3 +1,4 @@
+// Package cmd implements the command line interface for ktunnel
 package cmd
 
 import (
@@ -25,7 +26,7 @@ var clientCmd = &cobra.Command{
 	Example: `
 # Open a tunnel to a remote tunnel server
 ktunnel client --host ktunnel-server.yourcompany.com -s tcp 8000 8001:8432
-	`,
+        `,
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx, cancel := context.WithCancel(context.Background())
 		if verbose {
@@ -35,7 +36,7 @@ ktunnel client --host ktunnel-server.yourcompany.com -s tcp 8000 8001:8432
 		// Run tunnel client and establish connection
 
 		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 		go func() {
 			o.Do(func() {
 				<-sigs

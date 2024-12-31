@@ -1,0 +1,53 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [ master ]
+  push:
+    branches: [ master ]
+
+jobs:
+  test:
+    name: Run Tests and Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+        check-latest: true
+        cache: true
+
+    - name: Install dependencies
+      run: |
+        go mod download
+        go install golang.org/x/tools/cmd/cover@latest
+        go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+    - name: Run tests with coverage
+      run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.txt
+        fail_ci_if_error: false
+
+    - name: Run security scan
+      run: |
+        gosec -exclude-dir=.git -exclude-dir=vendor ./...
+        if [ $? -ne 0 ]; then
+          echo "Security scan found issues"
+          exit 1
+        fi
+
+    - name: Check code formatting
+      run: |
+        if [ -n "$(gofmt -l .)" ]; then
+          echo "The following files are not formatted correctly:"
+          gofmt -l .
+          exit 1
+        fi
