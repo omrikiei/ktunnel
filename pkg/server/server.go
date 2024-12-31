@@ -19,14 +19,14 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-type tunnelServer struct {
+type TunnelServer struct {
 	conf *Config
 }
 
 // NewServer creates a new GRPC handler instance that
 // can be attached to a GRPC server
-func NewServer(conf *Config) *tunnelServer {
-	return &tunnelServer{conf}
+func NewServer(conf *Config) *TunnelServer {
+	return &TunnelServer{conf}
 }
 
 // SendData handles data coming from our TCP listener, via the sessions channel, and
@@ -42,10 +42,9 @@ func SendData(conf *Config, stream pb.Tunnel_InitTunnelServer, sessions <-chan *
 			session.Lock()
 			bys := session.Buf.Len()
 			bytes := make([]byte, bys)
-			session.Buf.Read(bytes)
-
+			_, err := session.Buf.Read(bytes)
 			resp := &pb.SocketDataResponse{
-				HasErr:      false,
+				HasErr:      err != nil,
 				LogMessage:  nil,
 				Data:        bytes,
 				RequestID:   session.ID.String(),
@@ -57,7 +56,7 @@ func SendData(conf *Config, stream pb.Tunnel_InitTunnelServer, sessions <-chan *
 				"session": session.ID,
 				"close":   resp.ShouldClose,
 			}).Debugf("sending %d bytes to client", len(bytes))
-			err := stream.Send(resp)
+			err = stream.Send(resp)
 			if err != nil {
 				conf.log.WithError(err).Errorf("failed sending message to tunnel stream")
 				continue
@@ -166,7 +165,7 @@ func readConn(ctx context.Context, conf *Config, session *common.Session, sessio
 	}
 }
 
-func (t *tunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
+func (t *TunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 	request, err := stream.Recv()
 	if err != nil {
 		return errors.Wrap(err, "failed to read handshake")
