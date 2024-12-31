@@ -54,7 +54,7 @@ loop:
 					conf.log.WithError(err).Errorf("failed connecting to %s on port %d scheme %s", host, port, scheme)
 					// close the remote connection
 					resp := &pb.SocketDataRequest{
-						RequestId:   requestId.String(),
+						RequestID:   requestId.String(),
 						ShouldClose: true,
 					}
 					err := st.Send(resp)
