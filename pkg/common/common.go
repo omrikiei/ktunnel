@@ -58,7 +58,7 @@ func NewSession(conn net.Conn) *Session {
 		Buf:        bytes.Buffer{},
 		Open:       true,
 	}
-	addSession(r)
+	_, _ = addSession(r)
 	return r
 }
 
@@ -72,7 +72,7 @@ func NewSessionFromStream(id uuid.UUID, conn net.Conn) *Session {
 		Buf:        bytes.Buffer{},
 		Open:       true,
 	}
-	addSession(r)
+	_, _ = addSession(r)
 	return r
 }
 
