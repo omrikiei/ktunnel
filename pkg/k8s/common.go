@@ -137,26 +137,6 @@ func GetKubeConfig(kubeCtx string) *rest.Config {
 	return kubeconfig
 }
 
-func getClients(namespace *string, kubeCtx string) {
-	clientMutex.Lock()
-	defer clientMutex.Unlock()
-
-	// Check if clients are already initialized
-	if deploymentsClient != nil && podsClient != nil && svcClient != nil {
-		return
-	}
-
-	clientSet, err := kubernetes.NewForConfig(GetKubeConfig(kubeCtx))
-	if err != nil {
-		log.Errorf("Failed to get k8s client: %v", err)
-		os.Exit(1)
-	}
-
-	deploymentsClient = clientSet.AppsV1().Deployments(*namespace)
-	podsClient = clientSet.CoreV1().Pods(*namespace)
-	svcClient = clientSet.CoreV1().Services(*namespace)
-}
-
 func (k *KubeService) getPodsFilteredByLabel(labelSelector string) (*apiv1.PodList, error) {
 	pods, err := k.clients.Pods.List(
 		context.Background(), metav1.ListOptions{

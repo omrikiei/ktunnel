@@ -79,20 +79,20 @@ loop:
 
 func handleStreamData(conf *Config, m *pb.SocketDataResponse, session *common.Session) {
 	if session.Open == false {
-		conf.log.WithField("session", session.Id).Infof("closed session")
+		conf.log.WithField("session", session.ID).Infof("closed session")
 		session.Close()
 		return
 	}
 
 	data := m.GetData()
-	conf.log.WithField("session", session.Id).Debugf("received %d bytes from server", len(data))
+	conf.log.WithField("session", session.ID).Debugf("received %d bytes from server", len(data))
 	if len(data) > 0 {
 		session.Lock()
-		conf.log.WithField("session", session.Id).Debugf("wrote %d bytes to conn", len(data))
+		conf.log.WithField("session", session.ID).Debugf("wrote %d bytes to conn", len(data))
 		_, err := session.Conn.Write(data)
 		session.Unlock()
 		if err != nil {
-			conf.log.WithError(err).WithField("session", session.Id).Errorf("failed writing to socket, closing session")
+			conf.log.WithError(err).WithField("session", session.ID).Errorf("failed writing to socket, closing session")
 			session.Close()
 			return
 		}
@@ -101,7 +101,7 @@ func handleStreamData(conf *Config, m *pb.SocketDataResponse, session *common.Se
 
 func ReadFromSession(conf *Config, session *common.Session, sessionsOut chan<- *common.Session) {
 	conn := session.Conn
-	conf.log.WithField("session", session.Id).Debugf("started reading conn")
+	conf.log.WithField("session", session.ID).Debugf("started reading conn")
 	buff := make([]byte, common.BufferSize)
 
 loop:
@@ -113,10 +113,10 @@ loop:
 		default:
 			if err != nil {
 				if err != io.EOF {
-					conf.log.WithError(err).WithField("session", session.Id).Errorf("failed reading from socket")
+					conf.log.WithError(err).WithField("session", session.ID).Errorf("failed reading from socket")
 
 				} else {
-					conf.log.WithField("session", session.Id).Debugf("got EOF from connection")
+					conf.log.WithField("session", session.ID).Debugf("got EOF from connection")
 				}
 
 				session.Open = false
@@ -124,24 +124,24 @@ loop:
 				break loop
 			}
 
-			conf.log.WithField("session", session.Id).WithError(err).Debugf("read %d bytes from conn", br)
+			conf.log.WithField("session", session.ID).WithError(err).Debugf("read %d bytes from conn", br)
 
 			session.Lock()
 			if br > 0 {
-				conf.log.WithField("session", session.Id).WithError(err).Debugf("wrote %d bytes to session buf", br)
+				conf.log.WithField("session", session.ID).WithError(err).Debugf("wrote %d bytes to session buf", br)
 				_, err = session.Buf.Write(buff[0:br])
 			}
 			session.Unlock()
 
 			if err != nil {
-				conf.log.WithField("session", session.Id).WithError(err).Errorf("failed writing to session buffer")
+				conf.log.WithField("session", session.ID).WithError(err).Errorf("failed writing to session buffer")
 				break loop
 			}
 			sessionsOut <- session
 		}
 
 	}
-	conf.log.WithField("session", session.Id).Debugf("finished reading session")
+	conf.log.WithField("session", session.ID).Debugf("finished reading session")
 }
 
 func SendData(conf *Config, stream pb.Tunnel_InitTunnelClient, sessions <-chan *common.Session) {
@@ -161,17 +161,17 @@ func SendData(conf *Config, stream pb.Tunnel_InitTunnelClient, sessions <-chan *
 				return
 			}
 
-			conf.log.WithField("session", session.Id).Debugf("read %d from buffer out of %d available", len(bytes), bys)
+			conf.log.WithField("session", session.ID).Debugf("read %d from buffer out of %d available", len(bytes), bys)
 
 			resp := &pb.SocketDataRequest{
-				RequestId:   session.Id.String(),
+				RequestId:   session.ID.String(),
 				Data:        bytes,
 				ShouldClose: !session.Open,
 			}
 			session.Unlock()
 
 			conf.log.WithFields(log.Fields{
-				"session": session.Id,
+				"session": session.ID,
 				"close":   resp.ShouldClose,
 			}).Debugf("sending %d bytes to server", len(bytes))
 			err = stream.Send(resp)
@@ -180,7 +180,7 @@ func SendData(conf *Config, stream pb.Tunnel_InitTunnelClient, sessions <-chan *
 				return
 			}
 			conf.log.WithFields(log.Fields{
-				"session": session.Id,
+				"session": session.ID,
 				"close":   resp.ShouldClose,
 			}).Debugf("sent %d bytes to server", len(bytes))
 		}

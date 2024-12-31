@@ -1,9 +1,9 @@
+// Package common for shared functions and types
 package common
 
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -21,7 +21,7 @@ const (
 var openSessions = sync.Map{}
 
 type Session struct {
-	Id         uuid.UUID
+	ID         uuid.UUID
 	Conn       net.Conn
 	Buf        bytes.Buffer
 	Context    context.Context
@@ -38,7 +38,7 @@ func (s *Session) Close() {
 	}
 	go func() {
 		<-time.After(5 * time.Second)
-		openSessions.Delete(s.Id)
+		openSessions.Delete(s.ID)
 	}()
 }
 
@@ -51,7 +51,7 @@ type RedirectRequest struct {
 func NewSession(conn net.Conn) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &Session{
-		Id:         uuid.New(),
+		ID:         uuid.New(),
 		Conn:       conn,
 		Context:    ctx,
 		cancelFunc: cancel,
@@ -65,7 +65,7 @@ func NewSession(conn net.Conn) *Session {
 func NewSessionFromStream(id uuid.UUID, conn net.Conn) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &Session{
-		Id:         id,
+		ID:         id,
 		Conn:       conn,
 		Context:    ctx,
 		cancelFunc: cancel,
@@ -77,10 +77,10 @@ func NewSessionFromStream(id uuid.UUID, conn net.Conn) *Session {
 }
 
 func addSession(r *Session) (bool, error) {
-	if _, ok := GetSession(r.Id); ok != false {
-		return false, errors.New(fmt.Sprintf("Session %s already exists", r.Id.String()))
+	if _, ok := GetSession(r.ID); ok {
+		return false, fmt.Errorf("session %s already exists", r.ID.String())
 	}
-	openSessions.Store(r.Id, r)
+	openSessions.Store(r.ID, r)
 	return true, nil
 }
 
@@ -95,12 +95,12 @@ func GetSession(id uuid.UUID) (*Session, bool) {
 func ParsePorts(s string) (*RedirectRequest, error) {
 	raw := strings.Split(s, ":")
 	if len(raw) == 0 {
-		return nil, errors.New(fmt.Sprintf("failed parsing redirect request: %s", s))
+		return nil, fmt.Errorf("failed parsing redirect request: %s", s)
 	}
 	if len(raw) == 1 {
 		p, err := strconv.ParseInt(raw[0], 10, 32)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[0], err))
+			return nil, fmt.Errorf("failed to parse port %s, %v", raw[0], err)
 		}
 		return &RedirectRequest{
 			Source:     int32(p),
@@ -111,11 +111,11 @@ func ParsePorts(s string) (*RedirectRequest, error) {
 	if len(raw) == 2 {
 		s, err := strconv.ParseInt(raw[0], 10, 32)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[0], err))
+			return nil, fmt.Errorf("failed to parse port %s, %v", raw[0], err)
 		}
 		t, err := strconv.ParseInt(raw[1], 10, 32)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[1], err))
+			return nil, fmt.Errorf("failed to parse port %s, %v", raw[1], err)
 		}
 		return &RedirectRequest{
 			Source:     int32(s),
@@ -126,11 +126,11 @@ func ParsePorts(s string) (*RedirectRequest, error) {
 	if len(raw) == 3 {
 		s, err := strconv.ParseInt(raw[0], 10, 32)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[0], err))
+			return nil, fmt.Errorf("failed to parse port %s, %v", raw[0], err)
 		}
 		t, err := strconv.ParseInt(raw[2], 10, 32)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("failed to parse port %s, %v", raw[1], err))
+			return nil, fmt.Errorf("failed to parse port %s, %v", raw[1], err)
 		}
 		return &RedirectRequest{
 			Source:     int32(s),
@@ -138,5 +138,5 @@ func ParsePorts(s string) (*RedirectRequest, error) {
 			TargetPort: int32(t),
 		}, nil
 	}
-	return nil, errors.New(fmt.Sprintf("Error, bad tunnel format: %s", s))
+	return nil, fmt.Errorf("bad tunnel format: %s", s)
 }
