@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"net/url"
 	"sort"
 	"testing"
 	"time"
@@ -8,7 +9,253 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 )
+
+// TestVerbose checks the SetVerbose and IsVerbose functions.
+func TestVerbose(t *testing.T) {
+	// Reset to default state before test
+	SetVerbose(false)
+
+	t.Run("set verbose to true", func(t *testing.T) {
+		SetVerbose(true)
+		if !IsVerbose() {
+			t.Error("Expected IsVerbose() to be true after setting it to true")
+		}
+	})
+
+	t.Run("set verbose to false", func(t *testing.T) {
+		SetVerbose(false)
+		if IsVerbose() {
+			t.Error("Expected IsVerbose() to be false after setting it to false")
+		}
+	})
+}
+
+// Test_hasSidecar checks the hasSidecar function.
+func Test_hasSidecar(t *testing.T) {
+	sidecarImage := "ktunnel-sidecar:latest"
+	testCases := []struct {
+		name     string
+		spec     v1.PodSpec
+		expected bool
+	}{
+		{
+			name: "sidecar present",
+			spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{Name: "main-app", Image: "main-app:v1"},
+					{Name: "ktunnel", Image: sidecarImage},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "sidecar not present",
+			spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{Name: "main-app", Image: "main-app:v1"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name:     "no containers",
+			spec:     v1.PodSpec{Containers: []v1.Container{}},
+			expected: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if result := hasSidecar(tc.spec, sidecarImage); result != tc.expected {
+				t.Errorf("Expected %v, got %v", tc.expected, result)
+			}
+		})
+	}
+}
+
+// Test_getDeploymentCondition checks the getDeploymentCondition function.
+func Test_getDeploymentCondition(t *testing.T) {
+	progressingCondition := appsv1.DeploymentCondition{
+		Type:   appsv1.DeploymentProgressing,
+		Status: v1.ConditionTrue,
+		Reason: "NewReplicaSetAvailable",
+	}
+	availableCondition := appsv1.DeploymentCondition{
+		Type:   appsv1.DeploymentAvailable,
+		Status: v1.ConditionTrue,
+	}
+	status := appsv1.DeploymentStatus{
+		Conditions: []appsv1.DeploymentCondition{progressingCondition, availableCondition},
+	}
+
+	t.Run("condition exists", func(t *testing.T) {
+		cond := getDeploymentCondition(status, appsv1.DeploymentProgressing)
+		if cond == nil {
+			t.Fatal("Expected to find condition, but got nil")
+		}
+		if cond.Reason != "NewReplicaSetAvailable" {
+			t.Errorf("Expected reason 'NewReplicaSetAvailable', got '%s'", cond.Reason)
+		}
+	})
+
+	t.Run("condition does not exist", func(t *testing.T) {
+		cond := getDeploymentCondition(status, appsv1.DeploymentReplicaFailure)
+		if cond != nil {
+			t.Error("Expected not to find condition, but got one")
+		}
+	})
+}
+
+// Test_getPodsFilteredByLabel checks the getPodsFilteredByLabel function.
+func Test_getPodsFilteredByLabel(t *testing.T) {
+	namespace := "test"
+	pod1 := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod1", Namespace: namespace, Labels: map[string]string{"app": "test-app"}}}
+	pod2 := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod2", Namespace: namespace, Labels: map[string]string{"app": "another-app"}}}
+	pod3 := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod3", Namespace: namespace, Labels: map[string]string{"app": "test-app"}}}
+
+	fakeClient := fake.NewSimpleClientset(pod1, pod2, pod3)
+	kubeSvc := &KubeService{
+		clients: &Clients{Pods: fakeClient.CoreV1().Pods(namespace)},
+	}
+
+	pods, err := kubeSvc.getPodsFilteredByLabel("app=test-app")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if len(pods.Items) != 2 {
+		t.Errorf("Expected 2 pods, got %d", len(pods.Items))
+	}
+
+	podNames := map[string]bool{}
+	for _, p := range pods.Items {
+		podNames[p.Name] = true
+	}
+	if !podNames["pod1"] || !podNames["pod3"] {
+		t.Errorf("Did not get the expected pods. Got: %v", podNames)
+	}
+}
+
+// Test_getPodNames checks the getPodNames function.
+func Test_getPodNames(t *testing.T) {
+	namespace := "test"
+	deploymentName := "test-deployment"
+	labels := map[string]string{
+		deploymentNameLabel:     deploymentName,
+		deploymentInstanceLabel: deploymentName,
+	}
+	now := time.Now()
+
+	pod1 := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod1-older", Namespace: namespace, Labels: labels, CreationTimestamp: metav1.Time{Time: now.Add(-1 * time.Hour)}}}
+	pod2 := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod2-newest", Namespace: namespace, Labels: labels, CreationTimestamp: metav1.Time{Time: now}}}
+	pod3 := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "pod3-running", Namespace: namespace, Labels: labels, CreationTimestamp: metav1.Time{Time: now.Add(-30 * time.Minute)}},
+		Status:     v1.PodStatus{Phase: v1.PodRunning},
+	}
+	pod4 := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "pod4-pending", Namespace: namespace, Labels: labels, CreationTimestamp: metav1.Time{Time: now.Add(-1 * time.Minute)}},
+		Status:     v1.PodStatus{Phase: v1.PodPending},
+	}
+
+	// Set pods to running so they're picked up
+	pod1.Status.Phase = v1.PodRunning
+	pod2.Status.Phase = v1.PodRunning
+
+	fakeClient := fake.NewSimpleClientset(pod1, pod2, pod3, pod4)
+	kubeSvc := &KubeService{
+		clients: &Clients{Pods: fakeClient.CoreV1().Pods(namespace)},
+	}
+
+	podNames := make([]string, 3)
+	err := kubeSvc.getPodNames(deploymentName, podNames)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	// Expected order is newest to oldest of RUNNING pods
+	expectedOrder := []string{"pod2-newest", "pod3-running", "pod1-older"}
+	for i, name := range podNames {
+		if name != expectedOrder[i] {
+			t.Errorf("Expected pod name '%s' at index %d, but got '%s'. Full list: %v", expectedOrder[i], i, name, podNames)
+		}
+	}
+}
+
+// Test_getPortForwardURL consolidates tests for getPortForwardURL.
+func Test_getPortForwardURL(t *testing.T) {
+	testCases := []struct {
+		name      string
+		config    rest.Config
+		namespace string
+		pod       string
+		expected  *url.URL
+	}{
+		{
+			name: "standard api server",
+			config: rest.Config{
+				Host: "https://api.qa.kube.com",
+			},
+			namespace: "default",
+			pod:       "test",
+			expected: &url.URL{
+				Scheme: "https",
+				Host:   "api.qa.kube.com",
+				Path:   "/api/v1/namespaces/default/pods/test/portforward",
+			},
+		},
+		{
+			name: "rancher proxy",
+			config: rest.Config{
+				Host: "https://rancher.xyz.io/k8s/clusters/c-wfdqx",
+			},
+			namespace: "default",
+			pod:       "test",
+			expected: &url.URL{
+				Scheme: "https",
+				Host:   "rancher.xyz.io",
+				Path:   "/k8s/clusters/c-wfdqx/api/v1/namespaces/default/pods/test/portforward",
+			},
+		},
+		{
+			name: "ip and port host",
+			config: rest.Config{
+				Host: "https://srv01.mydomain.de:6443",
+			},
+			pod:       "myapp-5b65c8777b-dd54r",
+			namespace: "default",
+			expected: &url.URL{
+				Scheme: "https",
+				Host:   "srv01.mydomain.de:6443",
+				Path:   "/api/v1/namespaces/default/pods/myapp-5b65c8777b-dd54r/portforward",
+			},
+		},
+		{
+			name: "http host",
+			config: rest.Config{
+				Host: "http://localhost:8080",
+			},
+			pod:       "test-pod",
+			namespace: "kube-system",
+			expected: &url.URL{
+				Scheme: "http",
+				Host:   "localhost:8080",
+				Path:   "/api/v1/namespaces/kube-system/pods/test-pod/portforward",
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := getPortForwardURL(&tc.config, tc.namespace, tc.pod)
+			if res.String() != tc.expected.String() {
+				t.Errorf("expected: %v, got: %v", tc.expected, res)
+			}
+		})
+	}
+}
 
 func Test_newContainer(t *testing.T) {
 	testCases := []struct {
@@ -91,6 +338,8 @@ func Test_newContainer(t *testing.T) {
 					t.Errorf("Expected arg %s at position %d, got %s", arg, i, container.Args[i])
 				}
 			}
+			// Reset verbose flag for other tests
+			SetVerbose(false)
 		})
 	}
 }
