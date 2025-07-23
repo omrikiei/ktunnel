@@ -409,8 +409,8 @@ func watchForReady(deployment *appsv1.Deployment, readyChan chan<- bool) {
 			}
 		}
 
-		//spec.progressDeadlineSeconds defaults to 600
-		progressDeadlineSeconds := int64(600)
+		//spec.progressDeadlineSeconds defaults to 20
+		progressDeadlineSeconds := int64(20)
 		if deployment.Spec.ProgressDeadlineSeconds != nil {
 			progressDeadlineSeconds = int64(*deployment.Spec.ProgressDeadlineSeconds)
 		}
