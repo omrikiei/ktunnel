@@ -178,6 +178,9 @@ func Test_InjectSidecar(t *testing.T) {
 	fakeClient := testclient.NewSimpleClientset()
 	deploymentsClient = fakeClient.AppsV1().Deployments(namespace)
 	podsClient = fakeClient.CoreV1().Pods(namespace)
+	svcClient = fakeClient.CoreV1().Services(namespace)
+	clients := Clients{Deployments: deploymentsClient, Pods: podsClient, Services: svcClient}
+	k := KubeService{clients: &clients}
 
 	err := createDeployment(deploymentsClient, objectName, 1, &containers)
 	if err != nil {
@@ -194,7 +197,7 @@ func Test_InjectSidecar(t *testing.T) {
 	}
 
 	// Test sidecar injection
-	injected, err := injectToDeployment(deployment, co, image, readyChan)
+	injected, err := k.injectToDeployment(deployment, co, image, readyChan)
 	if err != nil {
 		t.Errorf("injectToDeployment failed: %v", err)
 	}
@@ -234,7 +237,7 @@ func Test_InjectSidecar(t *testing.T) {
 	}
 
 	// Test duplicate injection (should return true with no error)
-	injected, err = injectToDeployment(deployment, co, image, readyChan)
+	injected, err = k.injectToDeployment(deployment, co, image, readyChan)
 	if err != nil {
 		t.Errorf("Unexpected error on duplicate injection: %v", err)
 	}

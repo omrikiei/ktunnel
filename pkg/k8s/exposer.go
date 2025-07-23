@@ -103,9 +103,9 @@ func (k *KubeService) ExposeAsService(
 	var deployment *appsv1.Deployment
 	var err error
 	deploymentCreated := false
-	existingDeployment, err := deploymentsClient.Get(context.Background(), name, v1.GetOptions{})
+	existingDeployment, err := k.clients.Deployments.Get(context.Background(), name, v1.GetOptions{})
 	if err != nil && apierrors.IsNotFound(err) {
-		deployment, err = deploymentsClient.Create(context.Background(), deploymentTemplate, v1.CreateOptions{
+		deployment, err = k.clients.Deployments.Create(context.Background(), deploymentTemplate, v1.CreateOptions{
 			TypeMeta:     v1.TypeMeta{},
 			DryRun:       nil,
 			FieldManager: "",
@@ -128,7 +128,7 @@ func (k *KubeService) ExposeAsService(
 		if err != nil {
 			return err
 		}
-		deployment, err = deploymentsClient.Patch(context.Background(), name, types.MergePatchType, patch, v1.PatchOptions{
+		deployment, err = k.clients.Deployments.Patch(context.Background(), name, types.MergePatchType, patch, v1.PatchOptions{
 			TypeMeta:     v1.TypeMeta{},
 			DryRun:       nil,
 			FieldManager: "",
@@ -149,10 +149,10 @@ func (k *KubeService) ExposeAsService(
 	if !DeploymentOnly {
 		var newSvc *v12.Service
 		serviceCreated := false
-		existingService, err := svcClient.Get(context.Background(), name, v1.GetOptions{})
+		existingService, err := k.clients.Services.Get(context.Background(), name, v1.GetOptions{})
 		if err != nil && apierrors.IsNotFound(err) {
 
-			newSvc, err = svcClient.Create(context.Background(), service, v1.CreateOptions{
+			newSvc, err = k.clients.Services.Create(context.Background(), service, v1.CreateOptions{
 				TypeMeta:     v1.TypeMeta{},
 				DryRun:       nil,
 				FieldManager: "",
@@ -173,7 +173,7 @@ func (k *KubeService) ExposeAsService(
 			if err != nil {
 				return err
 			}
-			newSvc, err = svcClient.Patch(context.Background(), name, types.MergePatchType, patch, v1.PatchOptions{
+			newSvc, err = k.clients.Services.Patch(context.Background(), name, types.MergePatchType, patch, v1.PatchOptions{
 				TypeMeta:     v1.TypeMeta{},
 				DryRun:       nil,
 				FieldManager: "",
@@ -192,7 +192,7 @@ func (k *KubeService) ExposeAsService(
 		log.Infof("Exposed service's cluster ip is: %s", newSvc.Spec.ClusterIP)
 	}
 
-	watchForReady(deployment, readyChan)
+	watchForReady(k, deployment, readyChan)
 	return nil
 }
 

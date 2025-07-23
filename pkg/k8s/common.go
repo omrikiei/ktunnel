@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	Image                   = "docker.io/omrieival/ktunnel"
+	Image                   = "ghcr.io/appmana/ktunnel"
 	kubeConfigEnvVar        = "KUBECONFIG"
 	deploymentNameLabel     = "app.kubernetes.io/name"
 	deploymentInstanceLabel = "app.kubernetes.io/instance"
@@ -296,7 +296,7 @@ func (k *KubeService) getPodNames(deploymentName string, pods []string) error {
 
 func (k *KubeService) PortForward(namespace, deploymentName string, targetPort string, fwdWaitGroup *sync.WaitGroup, stopChan <-chan struct{}) (*[]string, error) {
 	clientMutex.RLock()
-	deployment, err := deploymentsClient.Get(context.Background(), deploymentName, metav1.GetOptions{})
+	deployment, err := k.clients.Deployments.Get(context.Background(), deploymentName, metav1.GetOptions{})
 	clientMutex.RUnlock()
 	if err != nil {
 		return nil, err
@@ -397,7 +397,7 @@ func getPortForwardURL(config *rest.Config, namespace string, podName string) *u
 	}
 }
 
-func watchForReady(deployment *appsv1.Deployment, readyChan chan<- bool) {
+func watchForReady(k *KubeService, deployment *appsv1.Deployment, readyChan chan<- bool) {
 	go func() {
 		lastMsg := ""
 
@@ -419,7 +419,7 @@ func watchForReady(deployment *appsv1.Deployment, readyChan chan<- bool) {
 		progressDeadlineSeconds += 5
 
 		clientMutex.RLock()
-		watch, err := deploymentsClient.Watch(context.Background(), metav1.ListOptions{
+		watch, err := k.clients.Deployments.Watch(context.Background(), metav1.ListOptions{
 			LabelSelector:  labels.Set(deployment.Labels).String(),
 			TimeoutSeconds: &progressDeadlineSeconds,
 		})

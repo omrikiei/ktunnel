@@ -18,14 +18,14 @@ func SetLogLevel(l log.Level) {
 	}
 }
 
-func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, readyChan chan<- bool) (bool, error) {
+func (k *KubeService) injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, readyChan chan<- bool) (bool, error) {
 	if hasSidecar(o.Spec.Template.Spec, image) {
 		log.Warn(fmt.Sprintf("%s already injected to the deployment", image))
-		watchForReady(o, readyChan)
+		watchForReady(k, o, readyChan)
 		return true, nil
 	}
 	o.Spec.Template.Spec.Containers = append(o.Spec.Template.Spec.Containers, *c)
-	u, updateErr := deploymentsClient.Update(context.Background(), o, metav1.UpdateOptions{
+	u, updateErr := k.clients.Deployments.Update(context.Background(), o, metav1.UpdateOptions{
 		TypeMeta:     metav1.TypeMeta{},
 		DryRun:       nil,
 		FieldManager: "",
@@ -33,7 +33,7 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 	if updateErr != nil {
 		return false, updateErr
 	}
-	watchForReady(u, readyChan)
+	watchForReady(k, u, readyChan)
 	return true, nil
 }
 
@@ -51,7 +51,7 @@ func (k *KubeService) InjectSidecar(namespace, objectName *string, port *int, im
 	if *obj.Spec.Replicas > int32(1) {
 		return false, errors.New("sidecar injection only support deployments with one replica")
 	}
-	_, err = injectToDeployment(obj, co, image, readyChan)
+	_, err = k.injectToDeployment(obj, co, image, readyChan)
 	if err != nil {
 		return false, err
 	}
@@ -97,6 +97,6 @@ func (k *KubeService) RemoveSidecar(namespace, objectName *string, image string,
 	if updateErr != nil {
 		return false, updateErr
 	}
-	watchForReady(u, readyChan)
+	watchForReady(k, u, readyChan)
 	return true, nil
 }
