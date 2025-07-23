@@ -4,7 +4,7 @@ metadata:
   name: tunnel
 spec:
   version: {{ .TagName }}
-  homepage: https://github.com/omrikiei/ktunnel
+  homepage: https://github.com/appmana/ktunnel
   shortDescription: Reverse tunneling between cluster and your machine
   description: |
       This plugin establishes a reverse tunnel between the Kubernetes cluster
@@ -15,36 +15,36 @@ spec:
       matchLabels:
         os: darwin
         arch: amd64
-    {{addURIAndSha "https://github.com/omrikiei/ktunnel/releases/download/{{ .TagName }}/ktunnel_{{ slice .TagName 1 }}_Darwin_x86_64.tar.gz" .TagName }}
+    {{addURIAndSha "https://github.com/appmana/ktunnel/releases/download/{{ .TagName }}/ktunnel_{{ slice .TagName 1 }}_Darwin_x86_64.tar.gz" .TagName }}
     bin: ktunnel
   - selector:
       matchLabels:
         os: darwin
         arch: arm64
-    {{addURIAndSha "https://github.com/omrikiei/ktunnel/releases/download/{{ .TagName }}/ktunnel_{{ slice .TagName 1 }}_Darwin_arm64.tar.gz" .TagName }}
+    {{addURIAndSha "https://github.com/appmana/ktunnel/releases/download/{{ .TagName }}/ktunnel_{{ slice .TagName 1 }}_Darwin_arm64.tar.gz" .TagName }}
     bin: ktunnel
   - selector:
       matchLabels:
         os: linux
         arch: amd64
-    {{addURIAndSha "https://github.com/omrikiei/ktunnel/releases/download/{{ .TagName }}/ktunnel_{{ slice .TagName 1 }}_Linux_x86_64.tar.gz" .TagName }}
+    {{addURIAndSha "https://github.com/appmana/ktunnel/releases/download/{{ .TagName }}/ktunnel_{{ slice .TagName 1 }}_Linux_x86_64.tar.gz" .TagName }}
     bin: ktunnel
   - selector:
       matchLabels:
         os: linux
         arch: arm64
-    {{addURIAndSha "https://github.com/omrikiei/ktunnel/releases/download/{{ .TagName }}/ktunnel_{{ slice .TagName 1 }}_Linux_arm64.tar.gz" .TagName }}
+    {{addURIAndSha "https://github.com/appmana/ktunnel/releases/download/{{ .TagName }}/ktunnel_{{ slice .TagName 1 }}_Linux_arm64.tar.gz" .TagName }}
     bin: ktunnel
   - selector:
       matchLabels:
         os: windows
         arch: amd64
-    {{addURIAndSha "https://github.com/omrikiei/ktunnel/releases/download/{{ .TagName }}/ktunnel_{{ slice .TagName 1 }}_Windows_x86_64.tar.gz" .TagName }}
+    {{addURIAndSha "https://github.com/appmana/ktunnel/releases/download/{{ .TagName }}/ktunnel_{{ slice .TagName 1 }}_Windows_x86_64.tar.gz" .TagName }}
     bin: ktunnel.exe
   - selector:
       matchLabels:
         os: windows
         arch: arm64
-    {{addURIAndSha "https://github.com/omrikiei/ktunnel/releases/download/{{ .TagName }}/ktunnel_{{ slice .TagName 1 }}_Windows_arm64.tar.gz" .TagName }}
+    {{addURIAndSha "https://github.com/appmana/ktunnel/releases/download/{{ .TagName }}/ktunnel_{{ slice .TagName 1 }}_Windows_arm64.tar.gz" .TagName }}
     bin: ktunnel.exe
 
