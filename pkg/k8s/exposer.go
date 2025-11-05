@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/omrikiei/ktunnel/pkg/common"
 	log "github.com/sirupsen/logrus"
@@ -133,7 +132,6 @@ func (k *KubeService) ExposeAsService(
 			DryRun:       nil,
 			FieldManager: "",
 		})
-		time.Sleep(time.Millisecond * 300)
 		if err != nil {
 			return err
 		}
@@ -178,7 +176,6 @@ func (k *KubeService) ExposeAsService(
 				DryRun:       nil,
 				FieldManager: "",
 			})
-			time.Sleep(time.Millisecond * 300)
 			if err != nil {
 				return err
 			}

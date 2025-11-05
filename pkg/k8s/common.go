@@ -19,7 +19,6 @@ import (
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/azure"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/exec"
@@ -418,10 +417,44 @@ func watchForReady(k *KubeService, deployment *appsv1.Deployment, readyChan chan
 		log.Infof("ProgressDeadlineInSeconds is currently %vs. It may take this long to detect a deployment failure.", progressDeadlineSeconds)
 		progressDeadlineSeconds += 5
 
+		// First, check if the deployment is already ready
+		// This prevents race condition where deployment becomes ready before watch starts
+		clientMutex.RLock()
+		currentDeployment, err := k.clients.Deployments.Get(context.Background(), deployment.Name, metav1.GetOptions{})
+		clientMutex.RUnlock()
+
+		if err != nil {
+			log.Errorf("Failed to get deployment status: %v", err)
+			readyChan <- false
+			return
+		}
+
+		// Check if already ready
+		msg, ready, err := deploymentStatus(currentDeployment)
+		if err != nil {
+			log.Error(err)
+			readyChan <- false
+			return
+		}
+
+		if msg != lastMsg {
+			log.Info(msg)
+			lastMsg = msg
+		}
+
+		if ready {
+			readyChan <- true
+			return
+		}
+
+		// Not ready yet, start watching for changes
+		// Use ResourceVersion to watch from the current state
+		// Use FieldSelector to watch only this specific deployment
 		clientMutex.RLock()
 		watch, err := k.clients.Deployments.Watch(context.Background(), metav1.ListOptions{
-			LabelSelector:  labels.Set(deployment.Labels).String(),
-			TimeoutSeconds: &progressDeadlineSeconds,
+			FieldSelector:   "metadata.name=" + deployment.Name,
+			ResourceVersion: currentDeployment.ResourceVersion,
+			TimeoutSeconds:  &progressDeadlineSeconds,
 		})
 		clientMutex.RUnlock()
 
