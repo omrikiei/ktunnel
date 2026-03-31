@@ -1,4 +1,4 @@
-module github.com/omrikiei/ktunnel
+module github.com/AppMana/ktunnel
 
 go 1.24.5
 

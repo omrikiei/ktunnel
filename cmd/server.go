@@ -7,7 +7,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/omrikiei/ktunnel/pkg/server"
+	"github.com/AppMana/ktunnel/pkg/server"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )

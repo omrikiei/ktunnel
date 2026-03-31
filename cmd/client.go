@@ -8,7 +8,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/omrikiei/ktunnel/pkg/client"
+	"github.com/AppMana/ktunnel/pkg/client"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )

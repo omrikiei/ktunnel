@@ -11,8 +11,8 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/omrikiei/ktunnel/pkg/client"
-	"github.com/omrikiei/ktunnel/pkg/k8s"
+	"github.com/AppMana/ktunnel/pkg/client"
+	"github.com/AppMana/ktunnel/pkg/k8s"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	apiv1 "k8s.io/api/core/v1"

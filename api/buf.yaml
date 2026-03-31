@@ -1,5 +1,5 @@
 version: v1
-name: buf.build/omrikiei/ktunnel
+name: buf.build/appmana/ktunnel
 lint:
 deps:
   - buf.build/envoyproxy/protoc-gen-validate

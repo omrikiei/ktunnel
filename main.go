@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/omrikiei/ktunnel/cmd"
+	"github.com/AppMana/ktunnel/cmd"
 )
 
 func main() {

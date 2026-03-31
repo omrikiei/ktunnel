@@ -418,8 +418,6 @@ func watchForReady(k *KubeService, deployment *appsv1.Deployment, readyChan chan
 		log.Infof("ProgressDeadlineInSeconds is currently %vs. It may take this long to detect a deployment failure.", progressDeadlineSeconds)
 		progressDeadlineSeconds += 5
 
-		// First, check if the deployment is already ready
-		// This prevents race condition where deployment becomes ready before watch starts
 		clientMutex.RLock()
 		currentDeployment, err := k.clients.Deployments.Get(context.Background(), deployment.Name, metav1.GetOptions{})
 		clientMutex.RUnlock()
@@ -430,7 +428,6 @@ func watchForReady(k *KubeService, deployment *appsv1.Deployment, readyChan chan
 			return
 		}
 
-		// Check if already ready
 		msg, ready, err := deploymentStatus(currentDeployment)
 		if err != nil {
 			log.Error(err)
@@ -448,7 +445,6 @@ func watchForReady(k *KubeService, deployment *appsv1.Deployment, readyChan chan
 			return
 		}
 
-		// Poll deployment status every 2 seconds until ready
 		for {
 			time.Sleep(2 * time.Second)
 			clientMutex.RLock()

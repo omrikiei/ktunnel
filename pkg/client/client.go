@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	pb "github.com/omrikiei/ktunnel/api"
-	"github.com/omrikiei/ktunnel/pkg/common"
+	pb "github.com/AppMana/ktunnel/api"
+	"github.com/AppMana/ktunnel/pkg/common"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"

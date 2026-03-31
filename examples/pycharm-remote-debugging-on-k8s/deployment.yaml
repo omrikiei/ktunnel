@@ -20,7 +20,7 @@ spec:
         app.kubernetes.io/name: pyremotedebug
     spec:
       containers:
-      - image: quay.io/omrikiei/pyremotedebug:latest
+      - image: ghcr.io/appmana/pyremotedebug:latest
         imagePullPolicy: Always
         name: pyremotedebug
         ports:

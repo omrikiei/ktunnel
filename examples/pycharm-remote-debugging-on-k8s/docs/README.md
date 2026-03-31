@@ -14,7 +14,7 @@ It would probably work - but in order to make it transparent one will need to in
 Another alternative is using [telepresence](telepresence.io) to actually run the service locally, but that would mean one would need to build/install dependencies locally - which sometimes mean a lot of time and work and without even mentioning the CPU and memory that our app will consume.  
 
 ## Ktunnel to the rescue
-[Ktunnel](github.com/omrikiei/ktunnel) is a CLI that establishes a reverse tunnel from kubernetes and exposes your workstation to traffic from kubernetes, this means one can expose one's workstation to a kubernetes pod, 
+[Ktunnel](github.com/appmana/ktunnel) is a CLI that establishes a reverse tunnel from kubernetes and exposes your workstation to traffic from kubernetes, this means one can expose one's workstation to a kubernetes pod, 
 or even as a service. for our use case - it means one can tell a pod running our python app to connect to localhost on the debug port, 
 when actually behind the scenes a tunnel will be established to the IDE which is listening on that port on my workstation. pretty neat!
 
@@ -25,7 +25,7 @@ As an example I created a simple flask web server with two endpoints:
 
 When the `/debug` endpoint is called, the runtime should attempt to connect to the debugger and block until it succeeds.
 
-The code along with the kubernetes manifests can be found [here](https://github.com/omrikiei/ktunnel/tree/master/examples/pycharm-remote-debugging-on-k8s)
+The code along with the kubernetes manifests can be found [here](https://github.com/appmana/ktunnel/tree/master/examples/pycharm-remote-debugging-on-k8s)
 
 #### Step 1 - Deploy the app to kubernetes
 ```bash

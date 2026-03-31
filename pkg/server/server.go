@@ -12,8 +12,8 @@ import (
 
 	"github.com/pkg/errors"
 
-	pb "github.com/omrikiei/ktunnel/api"
-	"github.com/omrikiei/ktunnel/pkg/common"
+	pb "github.com/AppMana/ktunnel/api"
+	"github.com/AppMana/ktunnel/pkg/common"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"

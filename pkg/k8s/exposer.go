@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/omrikiei/ktunnel/pkg/common"
+	"github.com/AppMana/ktunnel/pkg/common"
 	log "github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	v12 "k8s.io/api/core/v1"
