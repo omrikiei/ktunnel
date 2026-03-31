@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
@@ -447,50 +448,32 @@ func watchForReady(k *KubeService, deployment *appsv1.Deployment, readyChan chan
 			return
 		}
 
-		// Not ready yet, start watching for changes
-		// Use ResourceVersion to watch from the current state
-		// Use FieldSelector to watch only this specific deployment
-		clientMutex.RLock()
-		watch, err := k.clients.Deployments.Watch(context.Background(), metav1.ListOptions{
-			FieldSelector:   "metadata.name=" + deployment.Name,
-			ResourceVersion: currentDeployment.ResourceVersion,
-			TimeoutSeconds:  &progressDeadlineSeconds,
-		})
-		clientMutex.RUnlock()
-
-		if err != nil {
-			log.Error(err)
-			readyChan <- false
-			return
-		}
-
-		defer watch.Stop()
-
-		for event := range watch.ResultChan() {
-			d, ok := event.Object.(*appsv1.Deployment)
-			if !ok {
-				continue
+		// Poll deployment status every 2 seconds until ready
+		for {
+			time.Sleep(2 * time.Second)
+			clientMutex.RLock()
+			d, err := k.clients.Deployments.Get(context.Background(), deployment.Name, metav1.GetOptions{})
+			clientMutex.RUnlock()
+			if err != nil {
+				log.Error(err)
+				readyChan <- false
+				return
 			}
-
 			msg, ready, err := deploymentStatus(d)
 			if err != nil {
 				log.Error(err)
 				readyChan <- false
 				return
 			}
-
 			if msg != lastMsg {
 				log.Info(msg)
 				lastMsg = msg
 			}
-
 			if ready {
 				readyChan <- true
 				return
 			}
 		}
-
-		readyChan <- false
 	}()
 }
 
