@@ -80,7 +80,7 @@ func (k *KubeService) ExposeAsService(
 		}
 	}
 
-	deployment := newDeployment(
+	deploymentTemplate := newDeployment(
 		namespace,
 		name,
 		tunnelPort,
@@ -100,12 +100,12 @@ func (k *KubeService) ExposeAsService(
 
 	service := newService(namespace, name, ports, v12.ServiceType(serviceType))
 
-	var d *appsv1.Deployment
+	var deployment *appsv1.Deployment
 	var err error
 	deploymentCreated := false
 	existingDeployment, err := deploymentsClient.Get(context.Background(), name, v1.GetOptions{})
 	if err != nil && apierrors.IsNotFound(err) {
-		d, err = deploymentsClient.Create(context.Background(), deployment, v1.CreateOptions{
+		deployment, err = deploymentsClient.Create(context.Background(), deploymentTemplate, v1.CreateOptions{
 			TypeMeta:     v1.TypeMeta{},
 			DryRun:       nil,
 			FieldManager: "",
@@ -119,16 +119,16 @@ func (k *KubeService) ExposeAsService(
 	}
 	if !deploymentCreated && Reuse {
 		// Copy annotations, labels and selectors to prevent PATCH issue with immutable fields
-		deployment.Annotations = existingDeployment.Annotations
-		deployment.Labels = existingDeployment.Labels
-		deployment.Spec.Selector = existingDeployment.Spec.Selector
-		deployment.Spec.Template.Labels = existingDeployment.Spec.Template.Labels
+		deploymentTemplate.Annotations = existingDeployment.Annotations
+		deploymentTemplate.Labels = existingDeployment.Labels
+		deploymentTemplate.Spec.Selector = existingDeployment.Spec.Selector
+		deploymentTemplate.Spec.Template.Labels = existingDeployment.Spec.Template.Labels
 
-		patch, err := json.Marshal(deployment)
+		patch, err := json.Marshal(deploymentTemplate)
 		if err != nil {
 			return err
 		}
-		d, err = deploymentsClient.Patch(context.Background(), name, types.MergePatchType, patch, v1.PatchOptions{
+		deployment, err = deploymentsClient.Patch(context.Background(), name, types.MergePatchType, patch, v1.PatchOptions{
 			TypeMeta:     v1.TypeMeta{},
 			DryRun:       nil,
 			FieldManager: "",
@@ -139,7 +139,7 @@ func (k *KubeService) ExposeAsService(
 		}
 	}
 
-	if d == nil {
+	if deployment == nil {
 		if !deploymentCreated {
 			return errors.New("deployment with same name already exists")
 		}
