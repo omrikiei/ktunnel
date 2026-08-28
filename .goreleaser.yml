@@ -1,53 +1,68 @@
-# This is an example goreleaser.yaml file with some sane defaults.
-# Make sure to check the documentation at http://goreleaser.com
+# Documentation: https://goreleaser.com
+version: 2
+
 project_name: ktunnel
+
 env:
   - GO111MODULE=on
 
 before:
   hooks:
     - go mod tidy
+
 builds:
-- env:
-  - CGO_ENABLED=0
-  ldflags:
-  - "-s -w"
-    #  hooks:
-      #    post: ./compress_binaries.sh
-  goos:
-    - darwin
-    - linux
-    - windows
-  goarch:
-    - amd64
-    - arm64
+  - id: ktunnel
+    env:
+      - CGO_ENABLED=0
+    # The version is stamped in from the git tag rather than read from a
+    # constant, so the binary, the release tag and the default --server-image
+    # tag can never drift apart.
+    ldflags:
+      - "-s -w -X github.com/omrikiei/ktunnel/cmd.version={{ trimprefix .Version \"v\" }}"
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
 archives:
+  # The name template is load-bearing: .krew.yaml and ktunnel.rb both build
+  # download URLs from it. Do not change it without updating both.
   - id: default
+    ids:
+      - ktunnel
     name_template: >-
-      {{.ProjectName}}_{{.Version}}_
+      {{ .ProjectName }}_{{ .Version }}_
       {{- title .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
+
 checksum:
   name_template: 'checksums.txt'
+
 snapshot:
-  name_template: "{{ .Tag }}-next"
+  version_template: "{{ .Tag }}-next"
+
 changelog:
   sort: asc
   filters:
     exclude:
-    - '^docs:'
-    - '^test:'
+      - '^docs:'
+      - '^test:'
+
 release:
   draft: false
-  name_template: "{{.ProjectName}}-v{{.Version}} {{.Env.USER}}"
   prerelease: auto
+  name_template: "ktunnel {{ .Tag }}"
+
 nfpms:
-  # note that this is an array of nfpm configs
   - id: ktunnel
     file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    builds:
+    ids:
       - ktunnel
     homepage: https://github.com/omrikiei/ktunnel
     maintainer: omrikiei <omrieival@gmail.com>
@@ -56,35 +71,24 @@ nfpms:
     formats:
       - deb
       - rpm
-
     bindir: /usr/bin
     epoch: 1
 
 brews:
-  -
-    tap:
+  - repository:
       owner: omrikiei
-      name: ktunnel
-
+      name: homebrew-ktunnel
+      # Publishing to the tap needs a PAT with write access to
+      # omrikiei/homebrew-ktunnel; the workflow's default GITHUB_TOKEN is
+      # scoped to this repo only. Without the secret the formula is still
+      # built into dist/ and the release itself succeeds.
+      token: "{{ if index .Env \"HOMEBREW_TAP_GITHUB_TOKEN\" }}{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}{{ end }}"
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_GITHUB_TOKEN" }}auto{{ else }}true{{ end }}'
     commit_author:
       name: omrikiei
       email: omrieival@gmail.com
-
     homepage: "https://github.com/omrikiei/ktunnel"
     description: "Network tunneling tool for kubernetes."
-
-    # Setting this will prevent goreleaser to actually try to commit the updated
-    # formula - instead, the formula file will be stored on the dist folder only,
-    # leaving the responsibility of publishing it to the user.
-    # If set to auto, the release will not be uploaded to the homebrew tap
-    # in case there is an indicator for prerelease in the tag e.g. v1.0.0-rc1
-    # Default is false.
-    skip_upload: auto
-
-    # Custom block for brew.
-    # Can be used to specify alternate downloads for devel or head releases.
-    # Default is empty.
-    custom_block: |
-      head "https://github.com/omrikiei/ktunnel.git"
+    license: "GPL-3.0"
     test: |
-      system "#{bin}/program version"
+      system "#{bin}/ktunnel", "version"

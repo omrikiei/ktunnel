@@ -9,9 +9,11 @@ import (
 	"github.com/spf13/cobra/doc"
 )
 
-const (
-	version = "2.0.0"
-)
+// version is the ktunnel version. It is overridden at build time by
+// goreleaser via -ldflags "-X github.com/omrikiei/ktunnel/cmd.version=...",
+// so that the binary, the git tag and the default --server-image tag
+// always agree. The literal here is only used for local builds.
+var version = "2.0.0"
 
 var port int
 var tls bool
