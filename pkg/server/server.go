@@ -87,9 +87,18 @@ func ReceiveData(conf *Config, stream pb.Tunnel_InitTunnelServer) {
 				continue
 			}
 
-			session, ok := common.GetSession(reqID)
-			if !ok && !message.ShouldClose {
-				conf.log.WithField("session", reqID).Errorf("session not found in openRequests")
+			session, ok := conf.sessions.Get(reqID)
+			if !ok {
+				// A close frame for a session we have already reaped is
+				// expected -- sessions linger only briefly after closing --
+				// and there is nothing left to close. Anything else is a
+				// genuine mismatch. Either way there is no session to
+				// dereference below, so both must stop here.
+				if message.ShouldClose {
+					conf.log.WithField("session", reqID).Debug("close for an already-closed session, ignoring")
+				} else {
+					conf.log.WithField("session", reqID).Errorf("session not found in openRequests")
+				}
 				continue
 			}
 
@@ -102,7 +111,7 @@ func ReceiveData(conf *Config, stream pb.Tunnel_InitTunnelServer) {
 			}).Debugf("received %d bytes from client", len(data))
 
 			// send data if we received any
-			if br > 0 && session.Open {
+			if br > 0 && session.IsOpen() {
 				conf.log.WithField("session", reqID).Debugf("writing %d bytes to conn", br)
 				_, err := session.Conn.Write(data)
 				if err != nil {
@@ -158,7 +167,7 @@ func readConn(ctx context.Context, conf *Config, session *common.Session, sessio
 			session.Unlock()
 
 			sessions <- session
-			if !session.Open {
+			if !session.IsOpen() {
 				return
 			}
 		}
@@ -230,7 +239,7 @@ func (t *TunnelServer) InitTunnel(stream pb.Tunnel_InitTunnelServer) error {
 		}
 
 		// socket -> stream
-		session := common.NewSession(connection)
+		session := t.conf.sessions.New(connection)
 		go readConn(stream.Context(), t.conf, session, sessions)
 	}
 }
@@ -285,6 +294,10 @@ func processArgs(opts []Option) (*Config, error) {
 		}
 	}
 
+	if opt.sessions == nil {
+		opt.sessions = common.NewSessionStore()
+	}
+
 	return opt, nil
 }
 
@@ -329,4 +342,14 @@ type Config struct {
 	keyFile  string
 	log      log.FieldLogger
 	certFile string
+	sessions *common.SessionStore
+}
+
+// WithSessionStore sets the store this server tracks its sessions in. If
+// unset, the server creates its own.
+func WithSessionStore(store *common.SessionStore) Option {
+	return func(opt *Config) error {
+		opt.sessions = store
+		return nil
+	}
 }

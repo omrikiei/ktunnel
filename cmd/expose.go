@@ -173,7 +173,19 @@ ktunnel expose redis 6379
 		}()
 
 		log.Info("waiting for deployment to be ready")
-		<-readyChan
+		ready, interrupted := waitForReady(ctx, readyChan)
+		if interrupted {
+			// The signal handler is already tearing down; wait for it
+			// rather than racing ahead to port-forward.
+			<-done
+			return
+		}
+		if !ready {
+			log.Error("deployment failed to become ready, cleaning up")
+			sigs <- syscall.SIGINT
+			<-done
+			return
+		}
 
 		// Kube Service
 		kubeService, err := k8s.NewKubeService(KubeContext, Namespace)
