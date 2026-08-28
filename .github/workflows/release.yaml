@@ -115,6 +115,13 @@ jobs:
           images: |
             docker.io/omrieival/ktunnel
             ghcr.io/${{ github.repository }}
+          # metadata-action defaults to `latest=auto`, which adds `latest` on
+          # any tag event *independently* of the tags list below -- so an
+          # `enable=false` on the explicit entry is not enough to stop it, as
+          # v2.0.0-rc1 demonstrated. Turning the automatic behaviour off makes
+          # the guarded entry below the only thing that can set `latest`.
+          flavor: |
+            latest=false
           # `type=ref,event=tag` produces v2.0.0, which is exactly what
           # cmd/expose.go builds as the default --server-image.
           tags: |

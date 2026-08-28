@@ -143,7 +143,11 @@ rehearsal has no effect on the outside world:
   PR against `kubernetes-sigs/krew-index`, a third-party repository, and
   a release candidate has no business being advertised there.
 - **It does not move the `latest` container tag.** `latest` is gated on
-  the tag having no prerelease suffix.
+  the tag having no prerelease suffix. Note that this needs *both* the
+  guard on the `type=raw,value=latest` entry and `flavor: latest=false`:
+  metadata-action defaults to `latest=auto`, which adds `latest` on any
+  tag event independently of the tags list. v2.0.0-rc1 moved `latest`
+  because only the first of those two was in place.
 
 All three are keyed on the hyphen that semver prerelease tags carry, so
 name rehearsal tags accordingly — `v2.0.0-rc1`, not `v2.0.0rc1`.
