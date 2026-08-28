@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.0.0
+## v2.0.1
 
 The first release since v1.6.1 (September 2023). It carries about two
 years of unreleased work on master, plus a round of repairs to the
@@ -10,6 +10,13 @@ shipped.
 If you have been running v1.6.1, or building from master and wondering
 why `ktunnel expose` pulled an image that did not exist, this is the
 release that fixes it.
+
+> **Why v2.0.1 and not v2.0.0?** A `v2.0.0` tag was pushed in December
+> 2024, back when the release pipeline was broken. It produced no
+> release and no artifacts, but it is a published tag and moving it
+> would silently break anyone who had already fetched it. Numbering
+> forward was cheaper than rewriting history. There is no v2.0.0
+> release, and there never was.
 
 ### Breaking changes
 
