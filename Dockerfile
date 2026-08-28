@@ -1,4 +1,4 @@
-FROM golang:1.19-alpine as builder
+FROM golang:1.25-alpine AS builder
 ENV GO111MODULE=on
 RUN apk update && \
     apk add upx
@@ -16,4 +16,5 @@ FROM scratch
 WORKDIR /ktunnel
 COPY --from=builder /build/ktunnel ./
 EXPOSE 28688
-CMD ["./ktunnel", "server"]
+ENTRYPOINT ["/ktunnel/ktunnel"]
+CMD ["server"]

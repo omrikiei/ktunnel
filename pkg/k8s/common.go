@@ -13,13 +13,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/azure"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/exec"
@@ -397,8 +397,23 @@ func getPortForwardURL(config *rest.Config, namespace string, podName string) *u
 	}
 }
 
+// readyPollInterval is how often watchForReady re-reads the deployment while
+// waiting for its rollout to finish.
+const readyPollInterval = time.Second
+
+// watchForReady reports on readyChan whether the deployment finished rolling
+// out.
+//
+// This polls rather than using a watch. A watch only delivers events that occur
+// after it is established, so a deployment that finished rolling out before we
+// got here produced no event at all and the caller blocked until the progress
+// deadline expired -- the "waiting for deployment to be ready" hang. Polling
+// reads the current state first, so an already-complete rollout is seen
+// immediately. Reading by name also avoids the previous label-selector watch,
+// which matched on whatever labels the caller happened to pass in.
 func watchForReady(deployment *appsv1.Deployment, readyChan chan<- bool) {
 	go func() {
+		name := deployment.Name
 		lastMsg := ""
 
 		if deployment.Spec.Strategy.RollingUpdate != nil &&
@@ -416,27 +431,21 @@ func watchForReady(deployment *appsv1.Deployment, readyChan chan<- bool) {
 		}
 
 		log.Infof("ProgressDeadlineInSeconds is currently %vs. It may take this long to detect a deployment failure.", progressDeadlineSeconds)
-		progressDeadlineSeconds += 5
 
-		clientMutex.RLock()
-		watch, err := deploymentsClient.Watch(context.Background(), metav1.ListOptions{
-			LabelSelector:  labels.Set(deployment.Labels).String(),
-			TimeoutSeconds: &progressDeadlineSeconds,
-		})
-		clientMutex.RUnlock()
+		// Kubernetes reports ProgressDeadlineExceeded itself, which
+		// deploymentStatus turns into an error. This deadline is only a
+		// backstop for the cases where it never will -- the deployment being
+		// deleted out from under us, for instance.
+		deadline := time.Now().Add(time.Duration(progressDeadlineSeconds+5) * time.Second)
 
-		if err != nil {
-			log.Error(err)
-			readyChan <- false
-			return
-		}
-
-		defer watch.Stop()
-
-		for event := range watch.ResultChan() {
-			d, ok := event.Object.(*appsv1.Deployment)
-			if !ok {
-				continue
+		for {
+			clientMutex.RLock()
+			d, err := deploymentsClient.Get(context.Background(), name, metav1.GetOptions{})
+			clientMutex.RUnlock()
+			if err != nil {
+				log.WithError(err).Errorf("failed reading deployment %q while waiting for it to be ready", name)
+				readyChan <- false
+				return
 			}
 
 			msg, ready, err := deploymentStatus(d)
@@ -455,9 +464,15 @@ func watchForReady(deployment *appsv1.Deployment, readyChan chan<- bool) {
 				readyChan <- true
 				return
 			}
-		}
 
-		readyChan <- false
+			if time.Now().After(deadline) {
+				log.Errorf("timed out after %vs waiting for deployment %q to be ready", progressDeadlineSeconds+5, name)
+				readyChan <- false
+				return
+			}
+
+			time.Sleep(readyPollInterval)
+		}
 	}()
 }
 

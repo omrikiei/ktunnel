@@ -1,49 +1,131 @@
 name: release
+
 on:
   push:
+    branches:
+      - master
     tags:
       - 'v*.*.*'
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
 jobs:
   goreleaser:
+    name: Build and publish release artifacts
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-    - name: Checkout
-      uses: actions/checkout@v3
-      with:
-        fetch-depth: 0
-    - name: Setup Go
-      uses: actions/setup-go@v3
-      with:
-        go-version: 1.23
-    - name: GoReleaser
-      uses: goreleaser/goreleaser-action@v4
-      with:
-        version: latest
-        args: release --clean
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    - name: Update new version in krew-index
-      uses: rajatjindal/krew-release-bot@v0.0.38
-  build-and-push-image:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          check-latest: true
+          cache: true
+
+      # Pinned deliberately. This config previously sat on `latest` and rotted
+      # into a state goreleaser v2 refused to parse, which would have failed
+      # the first tagged release. Bump this on purpose, not by drift.
+      - name: GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: '~> v2.18'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+
+      - name: Update new version in krew-index
+        uses: rajatjindal/krew-release-bot@v0.0.47
+
+  image:
+    name: Build and publish container image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: actions/checkout@v2
-      - name: Set output
-        id: vars
-        run: echo "tag=${GITHUB_REF#refs/*/}" >> $GITHUB_OUTPUT
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The server image is what `ktunnel expose` deploys into the cluster, and
+      # its tag is derived from the version string in cmd/root.go. If this job
+      # only ran on tags we would not find out it was broken until after a
+      # release was already published, so it also runs on master and on PRs
+      # (build only, no push).
+      - name: Detect Docker Hub credentials
+        id: dockerhub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          if [ -n "$DOCKERHUB_USERNAME" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Require Docker Hub credentials when releasing
+        if: startsWith(github.ref, 'refs/tags/v') && steps.dockerhub.outputs.available != 'true'
+        run: |
+          echo "::error::DOCKERHUB_USERNAME/DOCKERHUB_TOKEN are not set. Existing" \
+               "installs pull the server image from Docker Hub, so a tagged release" \
+               "must publish there. Set both secrets and re-run this job."
+          exit 1
+
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-      - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request' && steps.dockerhub.outputs.available == 'true'
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push
-        uses: docker/build-push-action@v4
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          push: true
+          images: |
+            docker.io/omrieival/ktunnel
+            ghcr.io/${{ github.repository }}
+          # `type=ref,event=tag` produces v2.0.0, which is exactly what
+          # cmd/expose.go builds as the default --server-image.
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=edge,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=sha,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
           context: .
           platforms: linux/amd64,linux/arm64
-          tags: docker.io/omrieival/ktunnel:${{ steps.vars.outputs.tag }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
