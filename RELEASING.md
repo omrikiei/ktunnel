@@ -219,6 +219,22 @@ The archive name template in `.goreleaser.yml` is also load-bearing:
 `.krew.yaml` and `ktunnel.rb` both construct download URLs from it.
 Changing it breaks krew and Homebrew installs.
 
+## A failed publish does not roll back the release
+
+goreleaser publishes the GitHub release *before* it updates the Homebrew
+tap, and validates the tap configuration at publish time rather than up
+front. A mistake there — v2.0.1 hit `expected {{ .Env.VAR_NAME }} only
+(no plain-text or other interpolation)` from a conditional in the tap
+`token` field — fails the job with the release already public, and the
+krew-index step skipped along with it.
+
+`goreleaser check` does not catch this; it validates schema, not
+template shape. If you change anything under `brews:`, the only real
+verification is a release.
+
+Recovering means fixing forward with a new patch tag. The published tag
+cannot be reused, and re-pushing it would be worse than a version bump.
+
 ## Known deprecation
 
 `brews` is deprecated in goreleaser in favour of `homebrew_casks`. It

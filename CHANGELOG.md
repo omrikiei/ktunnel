@@ -1,5 +1,22 @@
 # Changelog
 
+## v2.0.2
+
+Packaging fix. Functionally identical to v2.0.1 — same code, same
+container image contents.
+
+v2.0.1 published its GitHub release and container images correctly, but
+the Homebrew tap update failed on a configuration error: goreleaser
+requires the tap `token` field to be exactly `{{ .Env.VAR }}` and
+rejects anything else, including a conditional. It rejects it at
+*publish* time, after the release is already out, so the release
+succeeded and the packaging did not. The krew-index update was then
+skipped because the job had already failed.
+
+If you installed v2.0.1 from a GitHub release or a container registry,
+there is no reason to upgrade. If you install via Homebrew or krew,
+v2.0.2 is the first version you will see.
+
 ## v2.0.1
 
 The first release since v1.6.1 (September 2023). It carries about two

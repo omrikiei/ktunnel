@@ -99,12 +99,14 @@ brews:
   - repository:
       owner: omrikiei
       name: homebrew-ktunnel
-      # Publishing to the tap needs a PAT with write access to
-      # omrikiei/homebrew-ktunnel; the workflow's default GITHUB_TOKEN is
-      # scoped to this repo only. Without the secret the formula is still
-      # built into dist/ and the release itself succeeds.
-      token: "{{ if index .Env \"HOMEBREW_TAP_GITHUB_TOKEN\" }}{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}{{ end }}"
-    skip_upload: '{{ if index .Env "HOMEBREW_TAP_GITHUB_TOKEN" }}auto{{ else }}true{{ end }}'
+      # Must be exactly `{{ .Env.VAR }}` -- goreleaser rejects any
+      # conditional or surrounding text here with "expected
+      # {{ .Env.VAR_NAME }} only (no plain-text or other interpolation)",
+      # and it rejects it at publish time, after the release is already
+      # out. The secret is required; see RELEASING.md.
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    # `auto` skips the tap for prerelease tags (e.g. v2.1.0-rc1).
+    skip_upload: auto
     commit_author:
       name: omrikiei
       email: omrieival@gmail.com
