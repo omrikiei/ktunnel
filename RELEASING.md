@@ -118,8 +118,8 @@ registries — without touching the Homebrew tap, because `prerelease:
 auto` skips the tap update for tags that look like prereleases.
 
 ```sh
-git tag v2.0.0-rc1
-git push origin v2.0.0-rc1
+git tag v2.1.0-rc1
+git push origin v2.1.0-rc1
 ```
 
 Watch the run under **Actions**. Confirm all three of:
@@ -131,7 +131,7 @@ Watch the run under **Actions**. Confirm all three of:
 - the published binary reports the right version:
 
 ```sh
-docker run --rm docker.io/omrieival/ktunnel:v2.0.0-rc1 version
+docker run --rm docker.io/omrieival/ktunnel:v2.1.0-rc1 version
 ```
 
 Three things a prerelease deliberately does *not* do, so that a
@@ -150,7 +150,7 @@ rehearsal has no effect on the outside world:
   because only the first of those two was in place.
 
 All three are keyed on the hyphen that semver prerelease tags carry, so
-name rehearsal tags accordingly — `v2.0.0-rc1`, not `v2.0.0rc1`.
+name rehearsal tags accordingly — `v2.1.0-rc1`, not `v2.1.0rc1`.
 
 The flip side: because the tap is skipped, the tap push is only ever
 proven by a real release. If `HOMEBREW_TAP_GITHUB_TOKEN` is wrong you
@@ -160,22 +160,22 @@ token's repository scope when you create it.
 If anything failed, delete the tag and the draft release, fix, repeat:
 
 ```sh
-git push --delete origin v2.0.0-rc1
-git tag -d v2.0.0-rc1
+git push --delete origin v2.1.0-rc1
+git tag -d v2.1.0-rc1
 ```
 
 ### 3. Tag the real release
 
 ```sh
-git tag v2.0.0
-git push origin v2.0.0
+git tag v2.1.0
+git push origin v2.1.0
 ```
 
 ### 4. Verify
 
 ```sh
 # the image the CLI will actually deploy
-docker run --rm docker.io/omrieival/ktunnel:v2.0.0 version
+docker run --rm docker.io/omrieival/ktunnel:v2.1.0 version
 
 # the tap picked up the new formula
 brew update && brew info omrikiei/ktunnel/ktunnel
