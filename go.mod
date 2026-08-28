@@ -7,7 +7,7 @@ toolchain go1.23.2
 require (
 	github.com/google/uuid v1.6.0
 	github.com/pkg/errors v0.9.1
-	github.com/sirupsen/logrus v1.9.0
+	github.com/sirupsen/logrus v1.9.1
 	github.com/spf13/cobra v1.7.0
 	golang.org/x/net v0.30.0
 	google.golang.org/grpc v1.69.2
