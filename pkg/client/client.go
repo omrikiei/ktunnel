@@ -35,12 +35,28 @@ loop:
 				break loop
 			}
 
-			requestId, err := uuid.Parse(m.RequestID)
-			if err != nil {
-				conf.log.WithError(err).WithField("session", m.RequestID).Errorf("failed parsing session uuid from stream, skipping")
+			// The server reports its own failures on this stream -- a
+			// listener it could not bind, for instance -- and those frames
+			// carry no session ID, because they are not about a session.
+			// Report them; they are the actual diagnosis.
+			if m.HasErr {
+				logServerError(conf, m, host, port)
+				if m.GetRequestID() == "" {
+					continue
+				}
 			}
 
-			session, exists := common.GetSession(requestId)
+			requestId, err := uuid.Parse(m.RequestID)
+			if err != nil {
+				// Without a usable ID there is no session to act on. This
+				// used to fall through and operate on the zero UUID, which
+				// opened a bogus session and buried whatever the server was
+				// actually trying to say.
+				conf.log.WithError(err).WithField("session", m.RequestID).Errorf("failed parsing session uuid from stream, skipping")
+				continue
+			}
+
+			session, exists := conf.sessions.Get(requestId)
 			if exists == false {
 				conf.log.WithFields(log.Fields{
 					"session": m.RequestID,
@@ -64,11 +80,16 @@ loop:
 
 					continue
 				} else {
-					session = common.NewSessionFromStream(requestId, conn)
+					session, err = conf.sessions.NewFromStream(requestId, conn)
+					if err != nil {
+						conf.log.WithError(err).WithField("session", requestId).Errorf("failed tracking new session")
+						_ = conn.Close()
+						continue
+					}
 					go ReadFromSession(conf, session, sessionsOut)
 				}
 			} else if m.ShouldClose {
-				session.Open = false
+				session.SetOpen(false)
 			}
 
 			// process the data from the server
@@ -77,8 +98,36 @@ loop:
 	}
 }
 
+// logServerError surfaces an error the server reported over the stream. These
+// were previously discarded entirely, which is why a server that failed to
+// bind its listener showed up on the client as an unexplained UUID parse
+// error rather than as the permission or port conflict it actually was.
+func logServerError(conf *Config, m *pb.SocketDataResponse, host string, port int32) {
+	entry := conf.log.WithFields(log.Fields{"host": host, "port": port})
+	if session := m.GetRequestID(); session != "" {
+		entry = entry.WithField("session", session)
+	}
+
+	msg := m.GetLogMessage()
+	if msg == nil {
+		entry.Error("tunnel server reported an error but sent no message")
+		return
+	}
+
+	switch msg.GetLogLevel() {
+	case pb.LogLevel_DEBUG, pb.LogLevel_VERBOSE:
+		entry.Debugf("tunnel server: %s", msg.GetMessage())
+	case pb.LogLevel_INFO:
+		entry.Infof("tunnel server: %s", msg.GetMessage())
+	case pb.LogLevel_WARNING:
+		entry.Warnf("tunnel server: %s", msg.GetMessage())
+	default:
+		entry.Errorf("tunnel server: %s", msg.GetMessage())
+	}
+}
+
 func handleStreamData(conf *Config, m *pb.SocketDataResponse, session *common.Session) {
-	if session.Open == false {
+	if !session.IsOpen() {
 		conf.log.WithField("session", session.ID).Infof("closed session")
 		session.Close()
 		return
@@ -119,7 +168,7 @@ loop:
 					conf.log.WithField("session", session.ID).Debugf("got EOF from connection")
 				}
 
-				session.Open = false
+				session.SetOpen(false)
 				sessionsOut <- session
 				break loop
 			}
@@ -279,6 +328,10 @@ func processArgs(opts []Option) (*Config, error) {
 		return nil, fmt.Errorf("missing host configuration")
 	}
 
+	if opt.sessions == nil {
+		opt.sessions = common.NewSessionStore()
+	}
+
 	return opt, nil
 }
 
@@ -340,4 +393,14 @@ type Config struct {
 	scheme          string
 	log             log.FieldLogger
 	tunnels         []string
+	sessions        *common.SessionStore
+}
+
+// WithSessionStore sets the store this client tracks its sessions in. If
+// unset, the client creates its own.
+func WithSessionStore(store *common.SessionStore) Option {
+	return func(opt *Config) error {
+		opt.sessions = store
+		return nil
+	}
 }

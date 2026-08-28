@@ -85,7 +85,11 @@ ktunnel inject deployment mydeployment 3306 6379
 		}()
 
 		log.Info("Waiting for deployment to be ready")
-		success := <-readyChan
+		success, interrupted := waitForReady(ctx, readyChan)
+		if interrupted {
+			<-done
+			return
+		}
 		if !success {
 			sigs <- syscall.SIGQUIT
 			<-done
