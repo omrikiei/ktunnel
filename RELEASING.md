@@ -15,9 +15,9 @@ repository secret**.
 | Secret | Required | Provided by | What breaks without it |
 | --- | --- | --- | --- |
 | `GITHUB_TOKEN` | — | GitHub, automatically | Nothing. Never create this one. |
-| `DOCKERHUB_USERNAME` | **Yes** | You | Tagged releases fail fast, by design. |
-| `DOCKERHUB_TOKEN` | **Yes** | You | Same. |
-| `HOMEBREW_TAP_GITHUB_TOKEN` | Recommended | You | Release succeeds, but the Homebrew tap silently stays on the previous version. |
+| `DOCKERHUB_USERNAME` | **Yes** | You | Tagged releases fail fast, by design. Currently set and working. |
+| `DOCKERHUB_TOKEN` | **Yes** | You | Same. Currently set and working. |
+| `HOMEBREW_TAP_GITHUB_TOKEN` | Recommended | You | Release succeeds, but the Homebrew tap silently stays on the previous version. **Not yet set.** |
 | `CODECOV_TOKEN` | Optional | You | Coverage upload is skipped. CI still passes. |
 
 ### `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`
@@ -28,8 +28,11 @@ pulls from by default, so it is not optional — a tagged release without
 these credentials fails immediately with an explanatory error rather
 than publishing binaries that point at an image nobody pushed.
 
-Nothing has been pushed to Docker Hub since September 2023, so assume
-the existing token has expired and generate a new one.
+**These credentials are known to work.** The master push for #154 on
+2026-08-28 published `docker.io/omrieival/ktunnel:edge` successfully,
+which was the first push to Docker Hub since September 2023. There is no
+urgency to regenerate them — rotate on whatever schedule you prefer. The
+steps below are for when you do.
 
 1. Sign in to [hub.docker.com](https://hub.docker.com) as the account
    that owns the `omrieival/ktunnel` repository.
@@ -131,6 +134,13 @@ Watch the run under **Actions**. Confirm all three of:
 docker run --rm docker.io/omrieival/ktunnel:v2.0.0-rc1 version
 ```
 
+One thing a prerelease deliberately does *not* exercise: the Homebrew
+tap. `prerelease: auto` skips the tap update for rc tags, which is the
+point — rehearsals should not publish a formula. So the tap push is only
+ever proven by a real release. If `HOMEBREW_TAP_GITHUB_TOKEN` is wrong,
+you find out on the real tag, and the failure is silent. Double-check
+the token's repository scope when you create it.
+
 If anything failed, delete the tag and the draft release, fix, repeat:
 
 ```sh
@@ -165,6 +175,11 @@ Understanding this makes failures much faster to diagnose.
 
 - **`test.yml`** runs on every push to master and every pull request:
   formatting, `go vet`, `go test -race`, and `gosec`.
+Because the `image` job runs on master, every merge republishes the
+`edge` tag to both registries. That means the publish path — including
+whether the Docker Hub credentials still work — is continuously proven,
+rather than being discovered at tag time.
+
 - **`release.yaml`** has two jobs.
   - `goreleaser` is gated on `startsWith(github.ref, 'refs/tags/v')`. It
     only ever runs for tags.
