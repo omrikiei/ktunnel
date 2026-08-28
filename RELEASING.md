@@ -134,12 +134,24 @@ Watch the run under **Actions**. Confirm all three of:
 docker run --rm docker.io/omrieival/ktunnel:v2.0.0-rc1 version
 ```
 
-One thing a prerelease deliberately does *not* exercise: the Homebrew
-tap. `prerelease: auto` skips the tap update for rc tags, which is the
-point — rehearsals should not publish a formula. So the tap push is only
-ever proven by a real release. If `HOMEBREW_TAP_GITHUB_TOKEN` is wrong,
-you find out on the real tag, and the failure is silent. Double-check
-the token's repository scope when you create it.
+Three things a prerelease deliberately does *not* do, so that a
+rehearsal has no effect on the outside world:
+
+- **It does not update the Homebrew tap.** `prerelease: auto` skips the
+  formula for rc tags.
+- **It does not open a krew-index pull request.** The krew bot opens a
+  PR against `kubernetes-sigs/krew-index`, a third-party repository, and
+  a release candidate has no business being advertised there.
+- **It does not move the `latest` container tag.** `latest` is gated on
+  the tag having no prerelease suffix.
+
+All three are keyed on the hyphen that semver prerelease tags carry, so
+name rehearsal tags accordingly — `v2.0.0-rc1`, not `v2.0.0rc1`.
+
+The flip side: because the tap is skipped, the tap push is only ever
+proven by a real release. If `HOMEBREW_TAP_GITHUB_TOKEN` is wrong you
+find out on the real tag, and the failure is silent. Double-check the
+token's repository scope when you create it.
 
 If anything failed, delete the tag and the draft release, fix, repeat:
 
