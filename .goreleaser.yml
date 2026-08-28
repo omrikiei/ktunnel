@@ -58,6 +58,27 @@ release:
   draft: false
   prerelease: auto
   name_template: "ktunnel {{ .Tag }}"
+  header: |
+    ## ktunnel {{ .Tag }}
+
+    Curated notes for this release are in
+    [CHANGELOG.md](https://github.com/omrikiei/ktunnel/blob/{{ .Tag }}/CHANGELOG.md).
+
+    ### Install
+
+    ```sh
+    brew install omrikiei/ktunnel/ktunnel
+    kubectl krew install tunnel
+    ```
+
+    Container image:
+    `docker.io/omrieival/ktunnel:{{ .Tag }}`, mirrored at
+    `ghcr.io/omrikiei/ktunnel:{{ .Tag }}`.
+  footer: |
+    ---
+
+    Upgrading from v1.6.1? Read the **Breaking changes** and **Known
+    issues** sections of the changelog first.
 
 nfpms:
   - id: ktunnel
