@@ -5,13 +5,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/signal"
-	"strconv"
 	"strings"
-	"sync"
-	"syscall"
 
-	"github.com/omrikiei/ktunnel/pkg/client"
 	"github.com/omrikiei/ktunnel/pkg/k8s"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -53,8 +48,6 @@ ktunnel expose redis 6379
 			logger.SetLevel(log.DebugLevel)
 			k8s.SetLogLevel(log.DebugLevel)
 		}
-		o := sync.Once{}
-
 		// Create service and deployment
 		svcName, ports := args[0], args[1:]
 		readyChan := make(chan bool, 1)
@@ -147,87 +140,59 @@ ktunnel expose redis 6379
 		if err != nil {
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
 		}
-		sigs := make(chan os.Signal, 1)
-		wg := &sync.WaitGroup{}
-		done := make(chan bool, 1)
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-
-		// Teardown
-		go func() {
-			o.Do(func() {
-				<-sigs
-				if Reuse {
-					log.Info("Got exit signal, closing client tunnels")
-				} else {
-					log.Info("Got exit signal, closing client tunnels and removing k8s objects")
-				}
-				cancel()
-				if !Reuse {
-					err := svc.TeardownExposedService(svcName, DeploymentOnly)
-					if err != nil {
-						log.Errorf("Failed deleting k8s objects: %s", err)
-					}
-				}
-				done <- true
-			})
-		}()
+		// Teardown of the deployment and service this created runs exactly
+		// once, whether the command ends on Ctrl+C, on a failed rollout or
+		// because the supervisor gave up.
+		exitMsg := "Got exit signal, closing client tunnels and removing k8s objects"
+		if Reuse {
+			exitMsg = "Got exit signal, closing client tunnels"
+		}
+		sess := newTunnelSession(ctx, cancel, exitMsg, func() {
+			if Reuse {
+				return
+			}
+			if err := svc.TeardownExposedService(svcName, DeploymentOnly); err != nil {
+				logger.Errorf("Failed deleting k8s objects: %s", err)
+			}
+		})
+		defer sess.finish()
 
 		log.Info("waiting for deployment to be ready")
-		ready, interrupted := waitForReady(ctx, readyChan)
+		ready, interrupted := waitForReady(sess.ctx, readyChan)
 		if interrupted {
-			// The signal handler is already tearing down; wait for it
-			// rather than racing ahead to port-forward.
-			<-done
 			return
 		}
 		if !ready {
-			log.Error("deployment failed to become ready, cleaning up")
-			sigs <- syscall.SIGINT
-			<-done
-			return
+			// Not "cleaning up": under -r/--reuse the teardown deliberately
+			// leaves the deployment and service alone, and a line promising
+			// cleanup that never comes sends the user looking for the wrong
+			// thing.
+			log.Error("deployment failed to become ready")
+			// Exit non-zero, like every other way this command can fail. A
+			// plain return exited 0, so a systemd unit or a CI step saw
+			// success for a tunnel server that never started -- and this
+			// branch now documents its exit codes, which has to mean all of
+			// them. finish first: os.Exit runs no deferred function, and
+			// the deployment and service are already in the cluster.
+			sess.finish()
+			os.Exit(1)
 		}
 
 		// Kube Service
 		kubeService, err := k8s.NewKubeService(KubeContext, Namespace)
 		if err != nil {
-			log.Fatalf("Failed to start k8s clients: %v", err)
-			os.Exit(1)
+			// Not log.Fatalf: os.Exit would skip the teardown above and
+			// leave the deployment and service behind.
+			log.Errorf("Failed to start k8s clients: %v", err)
+			return
 		}
-		// port-Forward
-		strPort := strconv.FormatInt(int64(port), 10)
-		stopChan := make(chan struct{}, 1)
-		// Create a tunnel client for each replica
-		sourcePorts, err := kubeService.PortForward(Namespace, svcName, strPort, wg, stopChan)
-		if err != nil {
-			log.Fatalf("Failed to run port forwarding: %v", err)
-			os.Exit(1)
-		}
-		for _, srcPort := range *sourcePorts {
-			go func(port string) {
-				p, err := strconv.ParseInt(port, 10, 0)
-				if err != nil {
-					log.Fatalf("Failed to run client: %v", err)
-				}
-				prt := int(p)
-				opts := []client.Option{
-					client.WithServer(Host, prt),
-					client.WithTunnels(Scheme, ports...),
-					client.WithLogger(&logger),
-				}
-				if tls {
-					opts = append(opts, client.WithTLS(CaFile, ServerHostOverride))
-				}
-				err = client.RunClient(ctx, opts...)
-				if err != nil {
-					log.Fatalf("Failed to run client: %v", err)
-				}
-			}(srcPort)
-		}
-		<-done
+
+		supervise(sess, forwardAndTunnelAttempt(kubeService, Namespace, svcName, port, ports))
 	},
 }
 
 func init() {
+	exposeCmd.PreRunE = rejectInClusterTLS("expose")
 	exposeCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
 	exposeCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	exposeCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
@@ -249,5 +214,6 @@ func init() {
 	exposeCmd.Flags().Int64Var(&ServerCPULimit, "server-cpu-limit", 500, "Server container CPU Limit in milli-cpus")
 	exposeCmd.Flags().Int64Var(&ServerMemRequest, "server-memory-request", 100, "Server container CPU Request in mega-bytes")
 	exposeCmd.Flags().Int64Var(&ServerMemLimit, "server-memory-limit", 1000, "Server container CPU Limit in mega-bytes")
+	addReconnectFlags(exposeCmd)
 	rootCmd.AddCommand(exposeCmd)
 }

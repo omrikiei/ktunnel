@@ -137,9 +137,9 @@ func GetKubeConfig(kubeCtx string) *rest.Config {
 	return kubeconfig
 }
 
-func (k *KubeService) getPodsFilteredByLabel(labelSelector string) (*apiv1.PodList, error) {
+func (k *KubeService) getPodsFilteredByLabel(ctx context.Context, labelSelector string) (*apiv1.PodList, error) {
 	pods, err := k.clients.Pods.List(
-		context.Background(), metav1.ListOptions{
+		ctx, metav1.ListOptions{
 			LabelSelector: labelSelector,
 		},
 	)
@@ -269,24 +269,32 @@ func newService(namespace, name string, ports []apiv1.ServicePort, serviceType a
 	}
 }
 
-func (k *KubeService) getPodNames(deploymentName string, pods []string) error {
+func (k *KubeService) getPodNames(ctx context.Context, deploymentName string, pods []string) error {
 	labelSelector := deploymentNameLabel + "=" + deploymentName + "," + deploymentInstanceLabel + "=" + deploymentName
-	filteredPods, err := k.getPodsFilteredByLabel(labelSelector)
+	filteredPods, err := k.getPodsFilteredByLabel(ctx, labelSelector)
 	if err != nil {
 		return err
 	}
+	// Every running pod is collected and the newest len(pods) of them taken
+	// below. The counter that used to guard this loop was never incremented,
+	// so its early exit and the "All pods located" line it logged could only
+	// fire when there were no pods to locate at all.
 	matchingPods := ByCreationTime{}
-	pIndex := 0
 	for _, p := range filteredPods.Items {
-		if pIndex >= len(pods) {
-			log.Info("All pods located for port-forwarding")
-			break
-		}
 		if p.Status.Phase == apiv1.PodRunning {
 			matchingPods = append(matchingPods, p)
 		}
 	}
 	sort.Sort(matchingPods)
+	if len(matchingPods) < len(pods) {
+		// Indexing past the end used to panic here, taking the whole process
+		// down. That is not a hypothetical: it is the gap between a tunnel
+		// server pod being deleted and its replacement reaching Running --
+		// exactly the case reconnecting exists to survive. Reported as an
+		// error, it is one failed attempt that the supervisor backs off and
+		// retries until the new pod is up.
+		return fmt.Errorf("found %d running pod(s) for deployment %s, want %d", len(matchingPods), deploymentName, len(pods))
+	}
 	for i := 0; i < len(pods); i++ {
 		pods[i] = matchingPods[i].Name
 	}
@@ -294,32 +302,63 @@ func (k *KubeService) getPodNames(deploymentName string, pods []string) error {
 	return nil
 }
 
-func (k *KubeService) PortForward(namespace, deploymentName string, targetPort string, fwdWaitGroup *sync.WaitGroup, stopChan <-chan struct{}) (*[]string, error) {
+// PortForward forwards targetPort on every pod of the deployment to a local
+// port, and returns those local ports once the forwards are up.
+//
+// ctx bounds the calls to the API server that resolve the deployment and its
+// pods. It does not bound the SPDY dial inside the forwarder itself, which
+// client-go gives no way to cancel; see forwardHandle in cmd for how a caller
+// keeps that from wedging a retry loop.
+//
+// The returned channel carries failures that happen after startup. A forward
+// that dies takes the tunnel above it with it, and the only way a caller can
+// learn about that is to be told: this used to be an unbuffered channel read
+// exactly once, during startup, so a later failure blocked its forwarder
+// forever and the tunnel just went quiet.
+//
+// It is buffered for every forwarder, so reading it is optional and a caller
+// that walks away cannot wedge a forwarder that outlives it. It closes once
+// every forwarder has returned, which happens when stopChan is closed. It is
+// returned alongside a non-nil error too, because forwarders already launched
+// hold local ports whether or not startup succeeded. See watchForward in cmd
+// for why a caller about to retry has to wait for that close.
+func (k *KubeService) PortForward(ctx context.Context, namespace, deploymentName string, targetPort string, stopChan <-chan struct{}) ([]string, <-chan error, error) {
 	clientMutex.RLock()
-	deployment, err := deploymentsClient.Get(context.Background(), deploymentName, metav1.GetOptions{})
+	deployment, err := deploymentsClient.Get(ctx, deploymentName, metav1.GetOptions{})
 	clientMutex.RUnlock()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	podNames := make([]string, *deployment.Spec.Replicas)
-	err = k.getPodNames(deploymentName, podNames)
-	fwdWaitGroup.Add(int(*deployment.Spec.Replicas))
-
+	err = k.getPodNames(ctx, deploymentName, podNames)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	log.Debugf("Injecting to this pods: %v", podNames)
 	sourcePorts := make([]string, *deployment.Spec.Replicas)
 	numPort, err := strconv.ParseInt(targetPort, 10, 32)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for i := 0; i < len(sourcePorts); i++ {
 		sourcePorts[i] = strconv.FormatInt(numPort+int64(i), 10)
 	}
 
-	forwarderErrChan := make(chan error)
+	// ready counts down as each forward reports itself up. It used to be
+	// supplied by the caller, which meant a counter that outlived one call
+	// and an Add that ran before the error returns above could leave it
+	// permanently non-zero. Nothing outside this function ever read it.
+	var ready sync.WaitGroup
+	ready.Add(len(podNames))
+
+	forwarderErrChan := make(chan error, len(podNames))
+	var forwarders sync.WaitGroup
+	forwarders.Add(len(podNames))
+	go func() {
+		forwarders.Wait()
+		close(forwarderErrChan)
+	}()
 	for i, podName := range podNames {
 		readyChan := make(chan struct{}, 1)
 		ports := []string{fmt.Sprintf("%s:%s", sourcePorts[i], targetPort)}
@@ -327,7 +366,13 @@ func (k *KubeService) PortForward(namespace, deploymentName string, targetPort s
 
 		transport, upgrader, err := spdy.RoundTripperFor(k.config)
 		if err != nil {
-			return nil, err
+			// Release the forwarders that will now never be launched, so
+			// the goroutine waiting to close forwarderErrChan is not left
+			// waiting on them.
+			for j := i; j < len(podNames); j++ {
+				forwarders.Done()
+			}
+			return nil, forwarderErrChan, err
 		}
 		log.Infof("port forwarding to %s", serverURL)
 		dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, serverURL)
@@ -335,25 +380,51 @@ func (k *KubeService) PortForward(namespace, deploymentName string, targetPort s
 		out, errOut := new(bytes.Buffer), new(bytes.Buffer)
 		forwarder, err := portforward.New(dialer, ports, stopChan, readyChan, out, errOut)
 		if err != nil {
-			log.Error(err)
+			// Returned rather than logged: the forwarder is nil on this
+			// path, and the goroutine below would dereference it. Nothing
+			// reaches it today, but it is the same shape as the two nil
+			// dereferences this loop has already had to be fixed for, and
+			// it now sits inside a retry loop where a panic recurs.
+			for j := i; j < len(podNames); j++ {
+				forwarders.Done()
+			}
+			return nil, forwarderErrChan, err
 		}
 
 		go func() {
-			for range readyChan { // Kubernetes will close this channel when it has something to tell us.
+			// This forwarder stops being pending exactly once, whatever
+			// happens to it. client-go closes readyChan only after a dial
+			// *and* a listen have both succeeded, so the two most common
+			// failures on the retry path -- an API server that cannot be
+			// reached, a local port the previous attempt has not released
+			// -- never close it. Waiting on it alone parked this goroutine
+			// for good, and the one waiting on `ready` below with it: two
+			// per failed attempt, retained for the life of the process, on
+			// precisely the path reconnecting exercises.
+			//
+			// stopChan is the escape, and the caller always closes it --
+			// release() does, on every path an attempt can end by.
+			defer ready.Done()
+
+			select {
+			case <-readyChan: // closed once Kubernetes has something to tell us
+			case <-stopChan:
+				// Torn down before it ever became ready. Nothing is coming.
+				return
 			}
+
 			if len(errOut.String()) != 0 {
 				log.Errorf("Failed forwarding. %s", errOut.String())
-				fwdWaitGroup.Done()
 			} else if len(out.String()) != 0 {
 				log.Info(out.String())
-				if strings.HasPrefix(out.String(), "Forwarding") {
-					fwdWaitGroup.Done()
-				}
 			}
 		}()
 		go func() {
-			if err = forwarder.ForwardPorts(); err != nil { // Locks until stopChan is closed.
-				forwarderErrChan <- err
+			defer forwarders.Done()
+			// err is declared here rather than assigned to the function's
+			// own, which every forwarder would otherwise have written to.
+			if err := forwarder.ForwardPorts(); err != nil { // Locks until stopChan is closed.
+				forwarderErrChan <- fmt.Errorf("port forward to pod %s failed: %w", podName, err)
 			}
 		}()
 	}
@@ -362,15 +433,41 @@ func (k *KubeService) PortForward(namespace, deploymentName string, targetPort s
 
 	doneCh := make(chan struct{})
 	go func() {
-		fwdWaitGroup.Wait()
+		ready.Wait()
 		close(doneCh)
 	}()
 
 	select {
-	case err := <-forwarderErrChan:
-		return nil, err
+	case <-ctx.Done():
+		// Neither of the cases below is guaranteed to arrive. doneCh needs
+		// every forward to report itself ready, which cannot happen until
+		// its SPDY dial completes, and that dial is not cancellable by any
+		// means client-go exposes -- so a forward opening against an
+		// unresponsive API server parks this select indefinitely. The
+		// caller's release timeout does not cover it, because the caller is
+		// still inside this call and has not registered it yet. Handing back
+		// the error channel lets it release on the path that already works.
+		return nil, forwarderErrChan, ctx.Err()
+	case err, ok := <-forwarderErrChan:
+		if ok {
+			return nil, forwarderErrChan, err
+		}
+		// The channel is closed, meaning every forwarder has already
+		// returned. With no pods to forward to there were none to start
+		// with, and both cases of this select are ready at once -- so half
+		// the time this branch is taken and a receive from a closed channel
+		// is reported as a nil error. The ports are returned with it, and
+		// they are empty, which is what the caller checks for.
+		//
+		// It used to return them as a *[]string, and this path returned a
+		// nil one: callers dereferenced it to check for emptiness and
+		// panicked instead, inside a retry loop, on roughly half the
+		// attempts. A plain slice cannot express the difference between
+		// "none" and "not there", so the panic is now unrepresentable
+		// rather than guarded against.
+		return sourcePorts, forwarderErrChan, nil
 	case <-doneCh:
-		return &sourcePorts, nil
+		return sourcePorts, forwarderErrChan, nil
 	}
 }
 

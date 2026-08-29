@@ -91,6 +91,25 @@ func (s *SessionStore) Delete(id uuid.UUID) {
 	s.sessions.Delete(id)
 }
 
+// CloseAll closes every session in the store and empties it.
+//
+// A store is only ever dropped when the tunnel that filled it is gone, and
+// dropping the bookkeeping does not drop the sockets: every open session
+// still holds a net.Conn to the local service and a goroutine reading from
+// it. Without this, each reconnect left a full set of both behind, and a
+// tunnel that flapped overnight ran the process out of file descriptors.
+func (s *SessionStore) CloseAll() {
+	s.sessions.Range(func(key, value interface{}) bool {
+		// Deleted here so lookups fail immediately: the store is being
+		// emptied now, and nothing is left that could still be looking these
+		// sessions up. Close still schedules its reaper, which then finds
+		// nothing to remove.
+		s.sessions.Delete(key)
+		value.(*Session).Close()
+		return true
+	})
+}
+
 // Len reports how many sessions the store currently holds.
 func (s *SessionStore) Len() int {
 	n := 0

@@ -3,9 +3,6 @@ package cmd
 import (
 	"context"
 	"os"
-	"os/signal"
-	"sync"
-	"syscall"
 
 	"github.com/omrikiei/ktunnel/pkg/server"
 	log "github.com/sirupsen/logrus"
@@ -28,25 +25,32 @@ ktunnel server -p 8181
 		if verbose {
 			logger.SetLevel(log.DebugLevel)
 		}
-		o := sync.Once{}
-		// Run tunnel client and establish connection
 
-		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-		go func() {
-			o.Do(func() {
-				<-sigs
-				log.Info("Got exit signal, closing client tunnels")
-				cancel()
-			})
-		}()
+		// The same signal handling as every other command, which this one
+		// was left out of: the first signal asks the server to stop, and a
+		// second kills the process. The handler it replaces wrapped a
+		// blocking receive in a sync.Once -- so the Once guarded nothing,
+		// and every signal after the first was swallowed. That escape hatch
+		// matters more here than anywhere else now, because stopping waits
+		// for every open tunnel's handler to return, which is a strictly
+		// longer shutdown than closing a listener was.
+		//
+		// No teardown: the server creates nothing outside its own process.
+		sess := newTunnelSession(ctx, cancel, "Got exit signal, stopping the tunnel server", nil)
+		defer sess.finish()
+
 		config := []server.Option{server.WithPort(port), server.WithLogger(&logger)}
 		if tls {
 			config = append(config, server.WithTLS(CertFile, KeyFile))
 		}
-		err := server.RunServer(ctx, config...)
-		if err != nil {
-			log.Fatalf("Error running server: %v", err)
+		if err := server.RunServer(sess.ctx, config...); err != nil {
+			// Not log.Fatal: that skips every deferred function, and this
+			// one exits through the session like the other commands do.
+			// RunServer reports a shutdown the user asked for as nil, so
+			// reaching here is a genuine failure.
+			logger.WithError(err).Error("error running server")
+			sess.finish()
+			os.Exit(1)
 		}
 	},
 }

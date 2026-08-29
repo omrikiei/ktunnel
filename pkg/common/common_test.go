@@ -113,6 +113,67 @@ func TestSession_CloseIsSafeWithoutAStore(t *testing.T) {
 	s.Close()
 }
 
+// TestSessionStore_CloseAllClosesTheConnections is the reconnect case: a
+// tunnel that dies takes its store with it, and the store going out of scope
+// closes nothing.
+func TestSessionStore_CloseAllClosesTheConnections(t *testing.T) {
+	store := NewSessionStore()
+
+	// The far ends are kept, because whether they notice the close is the
+	// whole point: an unclosed socket is what leaks.
+	var peers []net.Conn
+	var sessions []*Session
+	for range 3 {
+		near, far := net.Pipe()
+		t.Cleanup(func() {
+			_ = near.Close()
+			_ = far.Close()
+		})
+		peers = append(peers, far)
+		sessions = append(sessions, store.New(near))
+	}
+
+	store.CloseAll()
+
+	if store.Len() != 0 {
+		t.Errorf("CloseAll left %d session(s) in the store; a reconnect would inherit sessions from a stream that no longer exists", store.Len())
+	}
+
+	for i, session := range sessions {
+		if session.IsOpen() {
+			t.Errorf("session %d was still marked open after CloseAll", i)
+		}
+		select {
+		case <-session.Context.Done():
+		default:
+			t.Errorf("session %d's context was not cancelled by CloseAll, so the goroutine reading it never stops", i)
+		}
+		// Read in a goroutine: a connection CloseAll failed to close would
+		// block here forever rather than failing the test. net.Pipe cannot
+		// take a read deadline once either end is closed, which is the very
+		// state being asserted.
+		read := make(chan error, 1)
+		go func() {
+			_, err := peers[i].Read(make([]byte, 1))
+			read <- err
+		}()
+		select {
+		case err := <-read:
+			if err == nil {
+				t.Errorf("connection %d was still open after CloseAll; every reconnect would leak one socket per session", i)
+			}
+		case <-time.After(5 * time.Second):
+			t.Errorf("connection %d was never closed by CloseAll; every reconnect would leak one socket per session", i)
+		}
+	}
+}
+
+// TestSessionStore_CloseAllOnAnEmptyStore guards the ordinary case: a tunnel
+// that never carried a connection must still tear down without complaint.
+func TestSessionStore_CloseAllOnAnEmptyStore(t *testing.T) {
+	NewSessionStore().CloseAll()
+}
+
 func TestParsePorts(t *testing.T) {
 	cases := []struct {
 		name       string

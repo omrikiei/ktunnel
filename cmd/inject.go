@@ -5,12 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/signal"
-	"strconv"
-	"sync"
-	"syscall"
 
-	"github.com/omrikiei/ktunnel/pkg/client"
 	"github.com/omrikiei/ktunnel/pkg/k8s"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -42,7 +37,6 @@ ktunnel inject deployment mydeployment 3306 6379
 			logger.SetLevel(log.DebugLevel)
 			k8s.SetLogLevel(log.DebugLevel)
 		}
-		o := sync.Once{}
 		// Inject
 		deployment := args[0]
 		readyChan := make(chan bool, 1)
@@ -56,76 +50,42 @@ ktunnel inject deployment mydeployment 3306 6379
 			log.Fatalf("failed injecting sidecar: %v", err)
 		}
 
-		done := make(chan bool, 1)
-
-		// Signal hook to remove sidecar
-		sigs := make(chan os.Signal, 1)
-		wg := &sync.WaitGroup{}
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-		stopChan := make(chan struct{}, 1)
-
-		go func() {
-			o.Do(func() {
-				<-sigs
-				log.Info("Stopping streams")
-				cancel()
-				wg.Wait()
-				if eject {
-					readyChan = make(chan bool, 1)
-					ok, err := svc.RemoveSidecar(&Namespace, &deployment, ServerImage, readyChan, &KubeContext)
-					if !ok {
-						log.Errorf("Failed removing tunnel sidecar; %v", err)
-					}
-					<-readyChan
-				}
-				log.Info("Finished, exiting")
-				done <- true
-
-			})
-		}()
+		// Ejecting the sidecar runs exactly once, whether the command ends on
+		// Ctrl+C, on a failed rollout or because the supervisor gave up. It
+		// runs after the supervisor has returned, so the deployment is only
+		// patched back once nothing is still forwarding to it.
+		sess := newTunnelSession(ctx, cancel, "Stopping streams", func() {
+			if !eject {
+				return
+			}
+			ejectReady := make(chan bool, 1)
+			ok, err := svc.RemoveSidecar(&Namespace, &deployment, ServerImage, ejectReady, &KubeContext)
+			if !ok {
+				logger.Errorf("Failed removing tunnel sidecar; %v", err)
+				return
+			}
+			<-ejectReady
+			logger.Info("Finished, exiting")
+		})
+		defer sess.finish()
 
 		log.Info("Waiting for deployment to be ready")
-		success, interrupted := waitForReady(ctx, readyChan)
+		success, interrupted := waitForReady(sess.ctx, readyChan)
 		if interrupted {
-			<-done
 			return
 		}
 		if !success {
-			sigs <- syscall.SIGQUIT
-			<-done
-			return
-		}
-
-		// port-Forward
-		strPort := strconv.FormatInt(int64(port), 10)
-		// Create a tunnel client for each replica
-		sourcePorts, err := svc.PortForward(Namespace, deployment, strPort, wg, stopChan)
-		if err != nil {
-			log.Fatalf("Failed to run port forwarding: %v", err)
+			// Not "removing the sidecar": with --eject=false the teardown
+			// deliberately leaves it in place.
+			log.Error("deployment failed to become ready")
+			// Exit non-zero, for the reason given in expose: a rollout that
+			// never completed is not a successful run, and this branch
+			// documents its exit codes.
+			sess.finish()
 			os.Exit(1)
 		}
-		for _, srcPort := range *sourcePorts {
-			go func(port string) {
-				p, err := strconv.ParseInt(port, 10, 0)
-				if err != nil {
-					log.Fatalf("Failed to run client: %v", err)
-				}
-				prt := int(p)
-				opts := []client.Option{
-					client.WithServer(Host, prt),
-					client.WithTunnels(Scheme, args[1:]...),
-					client.WithLogger(&logger),
-				}
-				if tls {
-					opts = append(opts, client.WithTLS(CaFile, ServerHostOverride))
-				}
-				err = client.RunClient(ctx, opts...)
-				if err != nil {
-					log.Fatalf("Failed to run client: %v", err)
-				}
-			}(srcPort)
-		}
-		<-done
+
+		supervise(sess, forwardAndTunnelAttempt(svc, Namespace, deployment, port, args[1:]))
 	},
 }
 
@@ -137,6 +97,7 @@ func init() {
 	injectCmd.Flags().StringVar(&KubeContext, "context", "", "Kubernetes Context")
 	injectCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
 	injectCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
+	injectDeploymentCmd.PreRunE = rejectInClusterTLS("inject deployment")
 	injectDeploymentCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "tls cert auth file")
 	injectDeploymentCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	injectDeploymentCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
@@ -146,6 +107,7 @@ func init() {
 	injectDeploymentCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
 	injectDeploymentCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
 	injectDeploymentCmd.Flags().BoolVarP(&eject, "eject", "e", true, "Eject the sidecar when finished")
+	addReconnectFlags(injectDeploymentCmd)
 	injectCmd.AddCommand(injectDeploymentCmd)
 	rootCmd.AddCommand(injectCmd)
 }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -17,6 +18,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 )
 
 type TunnelServer struct {
@@ -132,9 +134,37 @@ func ReceiveData(conf *Config, stream pb.Tunnel_InitTunnelServer) {
 	}
 }
 
+// sendSession hands a session to SendData, or gives up if the tunnel it
+// belongs to ends while it waits. It reports whether the send happened.
+//
+// The bare send this replaces had nobody left to receive it once SendData had
+// returned with its stream, so the reader of every still-open connection
+// parked here forever holding its socket. That was survivable when a dead
+// tunnel took the process with it. It is not now: a server pod stays up for
+// days and sees a stream die every time a client's network blinks, leaking a
+// goroutine and a socket per open session each time.
+//
+// Giving up closes the session, because on this side nothing else will. The
+// client closes its store when RunClient returns; the server has no such
+// moment -- it serves many streams over its lifetime -- so the connection
+// would otherwise stay open with nothing at either end of it.
+func sendSession(ctx context.Context, session *common.Session, sessions chan<- *common.Session) bool {
+	select {
+	case sessions <- session:
+		return true
+	case <-ctx.Done():
+	case <-session.Context.Done():
+	}
+
+	session.Close()
+	return false
+}
+
 func readConn(ctx context.Context, conf *Config, session *common.Session, sessions chan<- *common.Session) {
 	conf.log.WithField("session", session.ID.String()).Info("new connection")
-	sessions <- session
+	if !sendSession(ctx, session, sessions) {
+		return
+	}
 
 	for {
 
@@ -166,7 +196,9 @@ func readConn(ctx context.Context, conf *Config, session *common.Session, sessio
 			}
 			session.Unlock()
 
-			sessions <- session
+			if !sendSession(ctx, session, sessions) {
+				return
+			}
 			if !session.IsOpen() {
 				return
 			}
@@ -251,13 +283,41 @@ func RunServer(ctx context.Context, opts ...Option) error {
 		return errors.Wrap(err, "failed to parse arguments")
 	}
 
-	var grpcOpts []grpc.ServerOption
+	// Clients keep the tunnel's connection alive with pings, and a gRPC
+	// server rejects pings closer together than five minutes by default:
+	// after three of them it sends GOAWAY "too_many_pings" and drops the
+	// connection. The server would then be tearing down the very tunnel the
+	// pings exist to protect, roughly every two minutes. MinTime is gRPC's
+	// own client-side floor, so any conformant client is permitted.
+	//
+	// The pairing is with keepaliveTime in pkg/client/client.go, currently
+	// 30s: this value has to stay below it. Raising it above what the
+	// client sends reintroduces exactly the disconnection described above.
+	grpcOpts := []grpc.ServerOption{
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
+		// Without this, Stop returns once the connections are closed and
+		// leaves the method handlers running. Here the handler *is* the
+		// tunnel: InitTunnel owns the listener on the tunnelled port and
+		// closes it on its way out, so a Stop that does not wait for it
+		// reports the server down while the port is still bound. Whoever
+		// binds it next -- a reconnecting client, a restarted pod -- loses
+		// that race, intermittently and for no visible reason.
+		//
+		// The wait is bounded by the handlers themselves: closing the
+		// transports cancels every stream, and each InitTunnel closes its
+		// listener when its stream is cancelled, which is what ends its
+		// accept loop.
+		grpc.WaitForHandlers(true),
+	}
 	if conf.TLS {
 		creds, err := credentials.NewServerTLSFromFile(conf.certFile, conf.keyFile)
 		if err != nil {
 			conf.log.Fatalf("Failed to generate credentials %v", err)
 		}
-		grpcOpts = []grpc.ServerOption{grpc.Creds(creds)}
+		grpcOpts = append(grpcOpts, grpc.Creds(creds))
 	}
 
 	conf.log.Infof("Starting to listen on port %d", conf.port)
@@ -266,15 +326,57 @@ func RunServer(ctx context.Context, opts ...Option) error {
 		return errors.Wrap(err, "failed to start GRPC listener")
 	}
 
-	// handle context cancellation, shut down the server
-	go func() {
-		<-ctx.Done()
-		_ = lis.Close()
-	}()
-
 	grpcServer := grpc.NewServer(grpcOpts...)
 	pb.RegisterTunnelServer(grpcServer, NewServer(conf))
-	return grpcServer.Serve(lis)
+
+	// Cancelling the context has to stop the server, not just its listener.
+	// Closing lis only stops new connections being accepted: every stream
+	// already open keeps running, and each of those streams is an
+	// InitTunnel holding a listener of its own on a tunnelled port. A
+	// "stopped" server therefore went on serving traffic and holding ports,
+	// so nothing could take its place -- a caller that restarts a server on
+	// the same ports got a bind failure, or worse, silently kept talking to
+	// the old one.
+	//
+	// Stop, not GracefulStop: GracefulStop stops accepting and then blocks
+	// until every open RPC has finished. Every RPC here is a tunnel that
+	// ends only when its client goes away, so on the shutdown path that
+	// matters -- the client is still connected -- GracefulStop would never
+	// return, and Ctrl+C would hang. Stop closes the transports, which
+	// cancels the streams, which is what makes each InitTunnel release its
+	// tunnelled port.
+	stopped := make(chan struct{})
+	watch, endWatch := context.WithCancel(ctx)
+	defer endWatch()
+	go func() {
+		defer close(stopped)
+		<-watch.Done()
+		grpcServer.Stop()
+	}()
+
+	err = grpcServer.Serve(lis)
+
+	// Serve has returned, so nothing is left to watch for. If the caller
+	// never cancelled -- Serve failed on its own -- this releases the
+	// watcher and stops the server for tidiness; if the caller did, Stop is
+	// already running and this changes nothing.
+	endWatch()
+
+	// Waiting for Stop is the point of all this: it is what closes the
+	// tunnelled listeners, and it returns only once the InitTunnel handlers
+	// holding them have. A RunServer that returned before that would report
+	// the server down while its ports were still bound, which is precisely
+	// the race a restart on the same port loses.
+	<-stopped
+
+	if ctx.Err() != nil {
+		// A shutdown the caller asked for. Serve reports it as a closed
+		// listener or ErrServerStopped, neither of which is a failure the
+		// caller wants to see -- `ktunnel server` used to log.Fatal on
+		// Ctrl+C because of it.
+		return nil
+	}
+	return err
 }
 
 // processArgs processes functional args
