@@ -15,10 +15,22 @@ import (
 // errAttemptFailed stands in for whatever kills a tunnel.
 var errAttemptFailed = errors.New("rpc error: code = Unavailable")
 
+// testStableAfter is an hour so that no backoff delay a test configures --
+// capped at 30s by default -- can collide with it, which is what lets the fake
+// clock tell a stability timer from a backoff delay.
+const testStableAfter = time.Hour
+
+type waitKind int
+
+const (
+	backoffWait waitKind = iota
+	stabilityWait
+)
+
 // fakeClock replaces time.After so tests drive the supervisor's waits instead
 // of sleeping through them. Waits are kept in creation order and addressed by
-// (duration, nth) because a supervisor has two kinds in flight at once: the
-// stability timer of the running attempt and the backoff delay of the last
+// (duration, nth), because a supervisor can have two in flight at once: the
+// stability timer of an established attempt and the backoff delay of the last
 // failure.
 type fakeClock struct {
 	mu    sync.Mutex
@@ -26,17 +38,23 @@ type fakeClock struct {
 }
 
 type fakeWait struct {
-	d  time.Duration
-	ch chan time.Time
+	kind waitKind
+	d    time.Duration
+	ch   chan time.Time
 }
 
 func newFakeClock() *fakeClock { return &fakeClock{} }
 
 func (c *fakeClock) After(d time.Duration) <-chan time.Time {
+	kind := backoffWait
+	if d == testStableAfter {
+		kind = stabilityWait
+	}
+
 	ch := make(chan time.Time, 1)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.waits = append(c.waits, fakeWait{d: d, ch: ch})
+	c.waits = append(c.waits, fakeWait{kind: kind, d: d, ch: ch})
 	return ch
 }
 
@@ -68,25 +86,37 @@ func (c *fakeClock) await(t *testing.T, d time.Duration, nth int) chan time.Time
 		c.mu.Unlock()
 
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for wait #%d of %s; waits so far: %v", nth, d, c.durations(0))
+			t.Fatalf("timed out waiting for wait #%d of %s; backoff delays so far: %v", nth, d, c.backoffDelays())
 		}
 		time.Sleep(time.Millisecond)
 	}
 }
 
-// durations returns the waits requested so far, in order, skipping `except` so
-// a test can assert the backoff sequence without the stability timers.
-func (c *fakeClock) durations(except time.Duration) []time.Duration {
+// backoffDelays returns the retry delays the supervisor waited out, in order.
+func (c *fakeClock) backoffDelays() []time.Duration {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	out := make([]time.Duration, 0, len(c.waits))
 	for _, w := range c.waits {
-		if except != 0 && w.d == except {
-			continue
+		if w.kind == backoffWait {
+			out = append(out, w.d)
 		}
-		out = append(out, w.d)
 	}
 	return out
+}
+
+// stabilityWaits counts the stability timers started, i.e. how many attempts
+// reported themselves established.
+func (c *fakeClock) stabilityWaits() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, w := range c.waits {
+		if w.kind == stabilityWait {
+			n++
+		}
+	}
+	return n
 }
 
 // syncBuffer collects log output written from the supervisor's goroutine while
@@ -108,12 +138,12 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-func newTestLogger() (*log.Logger, *syncBuffer) {
+func newTestLogger(level log.Level) (*log.Logger, *syncBuffer) {
 	buf := &syncBuffer{}
 	return &log.Logger{
 		Out:       buf,
 		Formatter: &log.TextFormatter{DisableColors: true, DisableTimestamp: true},
-		Level:     log.InfoLevel,
+		Level:     level,
 	}, buf
 }
 
@@ -147,12 +177,23 @@ func equalDurations(a, b []time.Duration) bool {
 	return true
 }
 
+func assertLogged(t *testing.T, out *syncBuffer, want ...string) {
+	t.Helper()
+	logged := out.String()
+	for _, w := range want {
+		if !strings.Contains(logged, w) {
+			t.Errorf("log is missing %q; these lines are what replaces users' wrapper scripts.\nlog:\n%s", w, logged)
+		}
+	}
+}
+
 func TestRunExitOnFirstReturnsTheFailureWithoutRetrying(t *testing.T) {
 	c := newFakeClock()
 	calls := 0
 	s := &Supervisor{
-		Attempt:     func(context.Context) error { calls++; return errAttemptFailed },
+		Attempt:     func(context.Context, func()) error { calls++; return errAttemptFailed },
 		ExitOnFirst: true,
+		StableAfter: testStableAfter,
 		after:       c.After,
 	}
 
@@ -164,21 +205,49 @@ func TestRunExitOnFirstReturnsTheFailureWithoutRetrying(t *testing.T) {
 	if calls != 1 {
 		t.Errorf("attempt ran %d times, want 1: ExitOnFirst must not retry", calls)
 	}
-	if got := c.durations(0); len(got) > 1 {
+	if got := c.backoffDelays(); len(got) > 0 {
 		t.Errorf("supervisor waited %v; ExitOnFirst must not wait out a backoff", got)
 	}
 }
 
-func TestRunExitOnFirstReturnsNilWhenTheAttemptEndsCleanly(t *testing.T) {
+func TestRunExitOnFirstReportsAnAttemptThatEndedCleanly(t *testing.T) {
 	c := newFakeClock()
 	s := &Supervisor{
-		Attempt:     func(context.Context) error { return nil },
+		Attempt:     func(context.Context, func()) error { return nil },
 		ExitOnFirst: true,
+		StableAfter: testStableAfter,
 		after:       c.After,
 	}
 
-	if err := s.Run(context.Background()); err != nil {
-		t.Errorf("Run returned %v, want nil: an attempt that ended without an error is not a failure", err)
+	err := s.Run(context.Background())
+
+	// --exit-on-disconnect exists to give a process supervisor a non-zero
+	// exit. A tunnel that ended is a disconnect however it ended, so this
+	// must not disagree with the MaxAttempts path about the same event.
+	if err == nil {
+		t.Fatal("Run returned nil for an attempt that ended; the caller has nothing to exit non-zero on")
+	}
+	if !errors.Is(err, errAttemptEnded) {
+		t.Errorf("Run returned %v, want an error explaining that the attempt ended without one", err)
+	}
+}
+
+func TestRunExitOnFirstOutranksMaxAttempts(t *testing.T) {
+	c := newFakeClock()
+	calls := 0
+	s := &Supervisor{
+		Attempt:     func(context.Context, func()) error { calls++; return errAttemptFailed },
+		ExitOnFirst: true,
+		MaxAttempts: 5,
+		StableAfter: testStableAfter,
+		after:       c.After,
+	}
+
+	if err := s.Run(context.Background()); !errors.Is(err, errAttemptFailed) {
+		t.Errorf("Run returned %v, want the first failure", err)
+	}
+	if calls != 1 {
+		t.Errorf("attempt ran %d times, want 1: ExitOnFirst outranks MaxAttempts", calls)
 	}
 }
 
@@ -186,10 +255,10 @@ func TestRunGivesUpAfterMaxAttempts(t *testing.T) {
 	c := newFakeClock()
 	calls := 0
 	s := &Supervisor{
-		Attempt:     func(context.Context) error { calls++; return errAttemptFailed },
+		Attempt:     func(context.Context, func()) error { calls++; return errAttemptFailed },
 		Backoff:     Backoff{rand: fixedRand(0.5)},
 		MaxAttempts: 3,
-		StableAfter: time.Minute,
+		StableAfter: testStableAfter,
 		after:       c.After,
 	}
 
@@ -201,14 +270,32 @@ func TestRunGivesUpAfterMaxAttempts(t *testing.T) {
 	if !errors.Is(err, errAttemptFailed) {
 		t.Errorf("Run returned %v, want an error wrapping the last failure so the cause survives", err)
 	}
-	if !strings.Contains(err.Error(), "3") {
+	if !strings.Contains(err.Error(), "3 attempts") {
 		t.Errorf("Run returned %q, want the number of attempts in the message", err)
 	}
 	if calls != 3 {
 		t.Errorf("attempt ran %d times, want 3 (MaxAttempts)", calls)
 	}
-	if got, want := c.durations(time.Minute), []time.Duration{time.Second, 2 * time.Second}; !equalDurations(got, want) {
+	if got, want := c.backoffDelays(), []time.Duration{time.Second, 2 * time.Second}; !equalDurations(got, want) {
 		t.Errorf("backoff delays were %v, want %v", got, want)
+	}
+}
+
+func TestRunGiveUpMessageIsSingularForOneAttempt(t *testing.T) {
+	c := newFakeClock()
+	s := &Supervisor{
+		Attempt:     func(context.Context, func()) error { return errAttemptFailed },
+		MaxAttempts: 1,
+		StableAfter: testStableAfter,
+		after:       c.After,
+	}
+
+	err := s.Run(context.Background())
+	if err == nil {
+		t.Fatal("Run returned nil after exhausting MaxAttempts")
+	}
+	if strings.Contains(err.Error(), "1 attempts") {
+		t.Errorf("Run returned %q; this message is user-facing", err)
 	}
 }
 
@@ -219,7 +306,7 @@ func TestRunRetriesForeverUntilTheContextIsCancelled(t *testing.T) {
 
 	calls := 0
 	s := &Supervisor{
-		Attempt: func(context.Context) error {
+		Attempt: func(context.Context, func()) error {
 			calls++
 			if calls == 4 {
 				cancel()
@@ -227,7 +314,7 @@ func TestRunRetriesForeverUntilTheContextIsCancelled(t *testing.T) {
 			return errAttemptFailed
 		},
 		Backoff:     Backoff{rand: fixedRand(0.5)},
-		StableAfter: time.Minute,
+		StableAfter: testStableAfter,
 		after:       c.After,
 	}
 
@@ -243,7 +330,7 @@ func TestRunRetriesForeverUntilTheContextIsCancelled(t *testing.T) {
 	if calls != 4 {
 		t.Errorf("attempt ran %d times, want 4: MaxAttempts 0 must keep retrying", calls)
 	}
-	if got, want := c.durations(time.Minute), []time.Duration{time.Second, 2 * time.Second, 4 * time.Second}; !equalDurations(got, want) {
+	if got, want := c.backoffDelays(), []time.Duration{time.Second, 2 * time.Second, 4 * time.Second}; !equalDurations(got, want) {
 		t.Errorf("backoff delays were %v, want %v", got, want)
 	}
 }
@@ -254,9 +341,9 @@ func TestRunReturnsPromptlyWhenCancelledDuringBackoff(t *testing.T) {
 	defer cancel()
 
 	s := &Supervisor{
-		Attempt:     func(context.Context) error { return errAttemptFailed },
+		Attempt:     func(context.Context, func()) error { return errAttemptFailed },
 		Backoff:     Backoff{rand: fixedRand(0.5)},
-		StableAfter: time.Minute,
+		StableAfter: testStableAfter,
 		after:       c.After,
 	}
 
@@ -271,21 +358,58 @@ func TestRunReturnsPromptlyWhenCancelledDuringBackoff(t *testing.T) {
 	}
 }
 
+func TestRunWaitsForTheAttemptToReturnBeforeShuttingDown(t *testing.T) {
+	c := newFakeClock()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	running := make(chan struct{})
+	release := make(chan struct{})
+	s := &Supervisor{
+		Attempt: func(context.Context, func()) error {
+			close(running)
+			<-release
+			return nil
+		},
+		StableAfter: testStableAfter,
+		after:       c.After,
+	}
+
+	errCh := start(ctx, s)
+	<-running
+	cancel()
+
+	// The attempt still holds its local port here. Returning now would let
+	// the caller tear down or retry underneath it, and the next attempt
+	// would fail with "address already in use" -- and so would every one
+	// after it.
+	select {
+	case err := <-errCh:
+		t.Fatalf("Run returned %v while the attempt was still running; it must wait for the attempt to release what it holds", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+	if err := waitForRun(t, errCh); err != nil {
+		t.Errorf("Run returned %v, want nil once the attempt had returned", err)
+	}
+}
+
 func TestRunResetsBackoffAfterAStableAttempt(t *testing.T) {
 	c := newFakeClock()
-	logger, out := newTestLogger()
+	logger, out := newTestLogger(log.DebugLevel)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	release := make(chan error)
 	calls := 0
 	s := &Supervisor{
-		Attempt: func(context.Context) error {
+		Attempt: func(_ context.Context, established func()) error {
 			calls++
 			switch calls {
 			case 2:
-				// Stays up until the test says otherwise, long enough to
-				// cross the stability threshold.
+				// Up, and stays up until the test says otherwise.
+				established()
 				return <-release
 			case 3:
 				cancel()
@@ -293,72 +417,172 @@ func TestRunResetsBackoffAfterAStableAttempt(t *testing.T) {
 			return errAttemptFailed
 		},
 		Backoff:     Backoff{rand: fixedRand(0.5)},
-		StableAfter: time.Minute,
+		StableAfter: testStableAfter,
 		Log:         logger,
 		after:       c.After,
 	}
 
 	errCh := start(ctx, s)
-	c.fire(t, time.Second, 1) // first failure: back off 1s, start attempt 2
-	c.fire(t, time.Minute, 2) // attempt 2 has now been up long enough to count
-	release <- errAttemptFailed
-	c.fire(t, time.Second, 2) // must be 1s again, not 2s
+	c.fire(t, time.Second, 1)     // first failure: back off 1s, start attempt 2
+	c.fire(t, testStableAfter, 1) // attempt 2 has now been up long enough to count
+	release <- errAttemptFailed   // and only then dies
+	c.fire(t, time.Second, 2)     // so the delay must be 1s again, not 2s
 	if err := waitForRun(t, errCh); err != nil {
 		t.Errorf("Run returned %v, want nil", err)
 	}
 
-	if got, want := c.durations(time.Minute), []time.Duration{time.Second, time.Second}; !equalDurations(got, want) {
+	if got, want := c.backoffDelays(), []time.Duration{time.Second, time.Second}; !equalDurations(got, want) {
 		t.Errorf("backoff delays were %v, want %v: a tunnel that stayed up must not keep growing the delay", got, want)
 	}
 
-	logged := out.String()
-	for _, want := range []string{
+	assertLogged(t, out,
 		"tunnel lost: rpc error: code = Unavailable",
 		"reconnecting in 1s (attempt 2)",
-		"tunnel re-established",
-	} {
-		if !strings.Contains(logged, want) {
-			t.Errorf("log is missing %q; these lines are what replaces users' wrapper scripts.\nlog:\n%s", want, logged)
-		}
-	}
+		"tunnel established",
+		"attempt stable, backoff reset",
+	)
 }
 
-func TestRunDoesNotAnnounceReestablishmentOnTheFirstAttempt(t *testing.T) {
+func TestRunStableAttemptClearsTheMaxAttemptsStreak(t *testing.T) {
 	c := newFakeClock()
-	logger, out := newTestLogger()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	release := make(chan error)
+	calls := 0
 	s := &Supervisor{
-		Attempt: func(context.Context) error {
-			cancel()
-			return <-release
+		Attempt: func(_ context.Context, established func()) error {
+			calls++
+			if calls == 2 {
+				established()
+				return <-release
+			}
+			return errAttemptFailed
 		},
-		StableAfter: time.Minute,
-		Log:         logger,
+		Backoff:     Backoff{rand: fixedRand(0.5)},
+		MaxAttempts: 2,
+		StableAfter: testStableAfter,
 		after:       c.After,
 	}
 
 	errCh := start(ctx, s)
-	c.fire(t, time.Minute, 1)
-	release <- nil
-	_ = waitForRun(t, errCh)
+	c.fire(t, time.Second, 1)
+	c.fire(t, testStableAfter, 1)
+	release <- errAttemptFailed
+	c.fire(t, time.Second, 2)
+	err := waitForRun(t, errCh)
 
-	if strings.Contains(out.String(), "re-established") {
-		t.Errorf("a first attempt that simply stayed up was reported as re-established:\n%s", out.String())
+	if err == nil {
+		t.Fatal("Run returned nil, want a give-up error after two consecutive failures")
+	}
+	// Two failures either side of a tunnel that worked for a while are not
+	// a streak. Without the reset the third attempt never happens and
+	// --max-reconnect-attempts fires on a link that is merely flaky.
+	if calls != 3 {
+		t.Errorf("attempt ran %d times, want 3: a stable attempt must clear the MaxAttempts streak", calls)
+	}
+}
+
+func TestRunDoesNotTreatASlowFailureAsStable(t *testing.T) {
+	c := newFakeClock()
+	calls := 0
+	s := &Supervisor{
+		// Never reports itself established: this is the attempt that spends
+		// 75 seconds in connect() against a dead network before failing.
+		Attempt:     func(context.Context, func()) error { calls++; return errAttemptFailed },
+		Backoff:     Backoff{rand: fixedRand(0.5)},
+		MaxAttempts: 3,
+		StableAfter: testStableAfter,
+		after:       c.After,
+	}
+
+	errCh := start(context.Background(), s)
+	c.fire(t, time.Second, 1)
+	c.fire(t, 2*time.Second, 1)
+	err := waitForRun(t, errCh)
+
+	// Timing an attempt from its launch would let a slow failure cross
+	// StableAfter, reset the backoff to 1s and clear the streak -- a hot
+	// retry loop that also logs the opposite of what happened.
+	if n := c.stabilityWaits(); n != 0 {
+		t.Errorf("supervisor started %d stability timer(s) for an attempt that never reported itself up; only an established attempt can become stable", n)
+	}
+	if got, want := c.backoffDelays(), []time.Duration{time.Second, 2 * time.Second}; !equalDurations(got, want) {
+		t.Errorf("backoff delays were %v, want %v: a slow failure must not reset the backoff", got, want)
+	}
+	if calls != 3 || err == nil {
+		t.Errorf("attempt ran %d times and Run returned %v, want 3 and a give-up error", calls, err)
+	}
+}
+
+func TestRunReportsEstablishmentEvenWhenTheAttemptFailsImmediately(t *testing.T) {
+	c := newFakeClock()
+	logger, out := newTestLogger(log.InfoLevel)
+	s := &Supervisor{
+		Attempt: func(_ context.Context, established func()) error {
+			established()
+			return errAttemptFailed
+		},
+		MaxAttempts: 1,
+		StableAfter: testStableAfter,
+		Log:         logger,
+		after:       c.After,
+	}
+
+	if err := s.Run(context.Background()); err == nil {
+		t.Fatal("Run returned nil, want a give-up error")
+	}
+
+	// A tunnel that came up and died a moment later must still be reported
+	// as having come up; otherwise the log makes it look like it never did.
+	// Which of the two signals Run observes first is a scheduling detail --
+	// measurably both, a few percent of the time -- so the assertion is that
+	// the line appears exactly once either way.
+	assertLogged(t, out, "tunnel established", "tunnel lost")
+	if n := strings.Count(out.String(), "tunnel established"); n != 1 {
+		t.Errorf("logged establishment %d times, want once", n)
+	}
+}
+
+func TestRunEstablishedIsSafeToCallRepeatedlyAndAfterCancellation(t *testing.T) {
+	c := newFakeClock()
+	logger, out := newTestLogger(log.InfoLevel)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s := &Supervisor{
+		Attempt: func(ctx context.Context, established func()) error {
+			// Real closures will be messier than "call it exactly once":
+			// none of this may block, panic or double-report.
+			established()
+			established()
+			cancel()
+			<-ctx.Done()
+			established()
+			return errAttemptFailed
+		},
+		StableAfter: testStableAfter,
+		Log:         logger,
+		after:       c.After,
+	}
+
+	if err := waitForRun(t, start(ctx, s)); err != nil {
+		t.Errorf("Run returned %v, want nil", err)
+	}
+	if n := strings.Count(out.String(), "tunnel established"); n != 1 {
+		t.Errorf("logged establishment %d times, want once however often the attempt reports it", n)
 	}
 }
 
 func TestRunReportsAnAttemptThatEndedWithoutAnError(t *testing.T) {
 	c := newFakeClock()
-	logger, out := newTestLogger()
+	logger, out := newTestLogger(log.InfoLevel)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	calls := 0
 	s := &Supervisor{
-		Attempt: func(context.Context) error {
+		Attempt: func(context.Context, func()) error {
 			calls++
 			if calls == 2 {
 				cancel()
@@ -366,7 +590,7 @@ func TestRunReportsAnAttemptThatEndedWithoutAnError(t *testing.T) {
 			return nil
 		},
 		Backoff:     Backoff{rand: fixedRand(0.5)},
-		StableAfter: time.Minute,
+		StableAfter: testStableAfter,
 		Log:         logger,
 		after:       c.After,
 	}
@@ -380,18 +604,16 @@ func TestRunReportsAnAttemptThatEndedWithoutAnError(t *testing.T) {
 	if calls != 2 {
 		t.Errorf("attempt ran %d times, want 2: an attempt that returns nil has still ended and must be retried", calls)
 	}
-	if !strings.Contains(out.String(), "tunnel lost") {
-		t.Errorf("an attempt that ended without an error was not reported:\n%s", out.String())
-	}
+	assertLogged(t, out, "tunnel lost")
 }
 
 func TestRunGivingUpOnANilFailureStillReportsWhy(t *testing.T) {
 	c := newFakeClock()
 	s := &Supervisor{
-		Attempt:     func(context.Context) error { return nil },
+		Attempt:     func(context.Context, func()) error { return nil },
 		Backoff:     Backoff{rand: fixedRand(0.5)},
 		MaxAttempts: 2,
-		StableAfter: time.Minute,
+		StableAfter: testStableAfter,
 		after:       c.After,
 	}
 
@@ -405,6 +627,9 @@ func TestRunGivingUpOnANilFailureStillReportsWhy(t *testing.T) {
 	if strings.Contains(err.Error(), "%!w") {
 		t.Errorf("Run returned %q: a nil failure was formatted as a wrapped error", err)
 	}
+	if !errors.Is(err, errAttemptEnded) {
+		t.Errorf("Run returned %q, want it to wrap the reason the last attempt ended", err)
+	}
 }
 
 func TestRunReturnsNilWhenTheContextIsAlreadyCancelled(t *testing.T) {
@@ -413,7 +638,7 @@ func TestRunReturnsNilWhenTheContextIsAlreadyCancelled(t *testing.T) {
 
 	calls := 0
 	s := &Supervisor{
-		Attempt: func(context.Context) error { calls++; return errAttemptFailed },
+		Attempt: func(context.Context, func()) error { calls++; return errAttemptFailed },
 		after:   newFakeClock().After,
 	}
 
@@ -427,8 +652,12 @@ func TestRunReturnsNilWhenTheContextIsAlreadyCancelled(t *testing.T) {
 
 func TestRunWithoutALoggerDoesNotPanic(t *testing.T) {
 	s := &Supervisor{
-		Attempt:     func(context.Context) error { return errAttemptFailed },
+		Attempt: func(_ context.Context, established func()) error {
+			established()
+			return errAttemptFailed
+		},
 		ExitOnFirst: true,
+		StableAfter: testStableAfter,
 		after:       newFakeClock().After,
 	}
 
@@ -440,12 +669,11 @@ func TestRunWithoutALoggerDoesNotPanic(t *testing.T) {
 func TestRunWaitsOnRealTimeWhenNoClockIsInjected(t *testing.T) {
 	calls := 0
 	s := &Supervisor{
-		Attempt: func(context.Context) error { calls++; return errAttemptFailed },
+		Attempt: func(context.Context, func()) error { calls++; return errAttemptFailed },
 		// Short enough that the real wait costs the suite nothing, long
 		// enough that a supervisor which never waited would be a bug.
 		Backoff:     Backoff{Base: time.Millisecond, Max: time.Millisecond},
 		MaxAttempts: 2,
-		StableAfter: time.Hour,
 	}
 
 	if err := s.Run(context.Background()); !errors.Is(err, errAttemptFailed) {

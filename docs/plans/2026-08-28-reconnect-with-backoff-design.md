@@ -43,8 +43,9 @@ A new `pkg/supervisor` package owning one idea: run an attempt until it
 fails, then retry with backoff.
 
 ```go
-// Attempt establishes a tunnel and blocks until it fails.
-type Attempt func(ctx context.Context) error
+// Attempt establishes a tunnel and blocks until it fails. It calls
+// established once the tunnel is actually up, before it blocks serving it.
+type Attempt func(ctx context.Context, established func()) error
 
 type Supervisor struct {
     Attempt     Attempt
@@ -58,13 +59,22 @@ Each command supplies a closure that establishes its whole stack and
 blocks:
 
 - **expose / inject** — resolve pod name, build the SPDY forward, dial
-  gRPC, open `InitTunnel`, block until any layer fails.
-- **client** — dial gRPC, open `InitTunnel`, block. No forward layer.
+  gRPC, open `InitTunnel`, call `established`, block until any layer
+  fails.
+- **client** — dial gRPC, open `InitTunnel`, call `established`, block.
+  No forward layer.
 
 One loop, different closures.
 
 Backoff resets to its floor once a tunnel has stayed up for 60 seconds,
-so a flaky link does not creep to a permanent 30-second delay.
+so a flaky link does not creep to a permanent 30-second delay. That
+minute is timed from `established`, not from the attempt starting. The
+headline #114 scenario is a dead network, where a connect blocks for
+around 75 seconds on default Linux and macOS timeouts before it fails —
+longer than the threshold. An attempt timed from its launch would call
+that a stable tunnel, reset the backoff to 1s and clear the
+`MaxAttempts` streak: a hot retry loop that also logs the opposite of
+what happened.
 
 ### Prerequisite changes
 
@@ -108,8 +118,14 @@ this is what replaces the wrapper scripts:
 tunnel lost: rpc error: code = Unavailable ...
 reconnecting in 4s (attempt 3)
 port forwarding to .../pods/proxy-7d9f-x2m1/portforward
-tunnel re-established
+tunnel established
 ```
+
+`tunnel established` is emitted the moment the attempt reports itself up,
+because that is the line a user is waiting for. Crossing the 60-second
+stability threshold a minute later logs `attempt stable, backoff reset`
+at DEBUG: it is internal observability, not a second announcement of
+something already reported.
 
 Exit codes: `0` on Ctrl+C, `1` on give-up.
 
