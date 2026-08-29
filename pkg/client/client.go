@@ -362,11 +362,14 @@ func RunClient(ctx context.Context, opts ...Option) error {
 	// first is. Reporting on the first would announce a client that is
 	// serving some of the ports it was asked for, which is the state
 	// RunClient refuses to call working everywhere else.
-	pending := int32(len(tunnels))
+	// int64 rather than int32: len() is an int, and widening cannot overflow
+	// on any platform, so the conversion needs no bounds check.
+	var pending atomic.Int64
+	pending.Store(int64(len(tunnels)))
 	opened := func() {
 		// Only the transition to zero fires, so established is called at
 		// most once per RunClient however many tunnels there are.
-		if atomic.AddInt32(&pending, -1) == 0 && conf.established != nil {
+		if pending.Add(-1) == 0 && conf.established != nil {
 			conf.established()
 		}
 	}

@@ -240,9 +240,11 @@ func forwardAndTunnel(svc portForwarder, run clientRunner, namespace, deployment
 
 		// established fires when the last client reports its streams open, so
 		// a partly-connected tunnel is never announced as up.
-		pending := int32(len(sourcePorts))
+		// int64 rather than int32: widening from len()'s int cannot overflow.
+		var pending atomic.Int64
+		pending.Store(int64(len(sourcePorts)))
 		up := func() {
-			if atomic.AddInt32(&pending, -1) == 0 {
+			if pending.Add(-1) == 0 {
 				established()
 			}
 		}
