@@ -115,7 +115,6 @@ func (k *KubeService) ExposeAsService(
 		}
 		deploymentCreated = true
 		tracker.AddDeployment(name)
-		tracker.StartCleanupOnSignal()
 	}
 	if !deploymentCreated && Reuse {
 		// Copy annotations, labels and selectors to prevent PATCH issue with immutable fields
@@ -196,17 +195,23 @@ func (k *KubeService) ExposeAsService(
 	return nil
 }
 
+// TeardownExposedService deletes the deployment and service that expose
+// created. It is idempotent: a resource that is already gone is not an error,
+// because teardown races with anything else that may have removed it -- a
+// `kubectl delete` from another terminal, or a previous teardown of the same
+// session -- and reporting "not found" as a failure sends the user looking for
+// resources that were, in fact, cleaned up.
 func (k *KubeService) TeardownExposedService(name string, DeploymentOnly bool) error {
 	if !DeploymentOnly {
 		log.Infof("Deleting service %s", name)
 		err := k.clients.Services.Delete(context.Background(), name, v1.DeleteOptions{})
-		if err != nil {
+		if err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
 	log.Infof("Deleting deployment %s", name)
 	err := k.clients.Deployments.Delete(context.Background(), name, v1.DeleteOptions{})
-	if err != nil {
+	if err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
 	return nil
