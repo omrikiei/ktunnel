@@ -26,6 +26,7 @@
 - [About](#about)
 - [Usage](#usage)
 - [Documentation](./docs/index.md)
+- [Roadmap](./ROADMAP.md)
 - [Authors](https://github.com/omrikiei/ktunnel/contributors)
 
 ## 🏁 Installation <a name = "installation"></a>
