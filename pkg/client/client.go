@@ -499,11 +499,15 @@ func WithServer(host string, p int) Option {
 // WithTLS configures the tunnel to use TLS
 // and sets the certificate expected, and a optional
 // tls hostname override.
+//
+// The flag used to be set from opt.certFile before the assignment below --
+// that is, from the certificate of a previous WithTLS on the same config, of
+// which there is never one. So opt.TLS stayed false, RunClient took the
+// insecure branch, and --tls silently did nothing on every command that has
+// ever offered it.
 func WithTLS(cert, tlsHostOverride string) Option {
 	return func(opt *Config) error {
-		if opt.certFile != "" {
-			opt.TLS = true
-		}
+		opt.TLS = true
 		opt.certFile = cert
 		opt.tlsHostOverride = tlsHostOverride
 		return nil

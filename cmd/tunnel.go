@@ -359,3 +359,32 @@ func watchForward(stopChan chan struct{}, fwdErrChan <-chan error, releaseTimeou
 		},
 	}
 }
+
+// rejectInClusterTLS refuses --tls on the commands that run the tunnel server
+// inside the cluster, before they create anything there.
+//
+// --tls never worked at all: the client option that turns it on never set its
+// flag, so every ktunnel run with --tls connected in plaintext. Fixing that
+// leaves expose and inject in a worse place than it found them, because the
+// in-cluster server is still plaintext -- it is never started with --tls, and
+// there would be nothing for it to serve if it were: no volume mounts a
+// certificate into its container, and --cert/--key reach it as a single
+// unparsed argument that cobra never splits. So the fixed client would fail
+// its handshake against the server it just created, reporting an error about a
+// server preface, with a Deployment and a Service already in the cluster.
+//
+// Failing here instead costs the user nothing and tells them the truth. This
+// is a gap in ktunnel, not a mistake in their command line, so the message
+// says what is missing and what does work today.
+func rejectInClusterTLS(command string) func(*cobra.Command, []string) error {
+	return func(*cobra.Command, []string) error {
+		if !tls {
+			return nil
+		}
+		return fmt.Errorf("--tls is not supported for `ktunnel %s`: the in-cluster tunnel server has no "+
+			"certificate provisioning -- nothing mounts a certificate into its container, and --cert/--key "+
+			"reach it as a single unparsed argument -- so it serves plaintext and the tunnel would fail to "+
+			"connect.\nFor an encrypted tunnel today, run `ktunnel server --tls --cert CERT --key KEY` "+
+			"yourself and connect to it with `ktunnel client --tls --ca-file CERT`", command)
+	}
+}

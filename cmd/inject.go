@@ -92,6 +92,7 @@ func init() {
 	injectCmd.Flags().StringVar(&KubeContext, "context", "", "Kubernetes Context")
 	injectCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
 	injectCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
+	injectDeploymentCmd.PreRunE = rejectInClusterTLS("inject deployment")
 	injectDeploymentCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "tls cert auth file")
 	injectDeploymentCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	injectDeploymentCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")

@@ -50,6 +50,52 @@ func TestReconnectFlagsAreRegistered(t *testing.T) {
 	}
 }
 
+// TestExposeAndInject_RejectTLSBeforeTouchingTheCluster pins --tls being
+// refused by the two commands that run the tunnel server inside the cluster.
+//
+// --tls used to be inert everywhere: the client option that turns it on never
+// set its flag, so a tunnel asked to be encrypted was not. Now that the client
+// honours it, expose and inject would speak TLS to an in-cluster server that
+// has no certificate to serve -- and would find that out only after creating a
+// Deployment and a Service, reporting it as an unreadable server preface. The
+// refusal has to come from PreRunE, before any of that exists.
+func TestExposeAndInject_RejectTLSBeforeTouchingTheCluster(t *testing.T) {
+	commands := map[string]*cobra.Command{
+		"expose":            exposeCmd,
+		"inject deployment": injectDeploymentCmd,
+	}
+
+	for name, cmd := range commands {
+		t.Run(name, func(t *testing.T) {
+			if cmd.PreRunE == nil {
+				t.Fatalf("ktunnel %s validates nothing before it runs, so --tls is only discovered after the cluster resources exist", name)
+			}
+			prev := tls
+			t.Cleanup(func() { tls = prev })
+
+			tls = false
+			if err := cmd.PreRunE(cmd, []string{"kewlapp", "8000"}); err != nil {
+				t.Fatalf("ktunnel %s refused to run without --tls: %v", name, err)
+			}
+
+			tls = true
+			err := cmd.PreRunE(cmd, []string{"kewlapp", "8000"})
+			if err == nil {
+				t.Fatalf("ktunnel %s --tls was accepted; the client now speaks TLS to an in-cluster server that serves plaintext, "+
+					"so it fails its handshake with a Deployment and a Service already created", name)
+			}
+			// The message has to say what is missing and what does work, or
+			// the user reads it as a mistake in their command line and goes
+			// looking for the certificate flag that would fix it.
+			for _, want := range []string{"--tls is not supported", "ktunnel server --tls", "ktunnel client --tls"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("the refusal does not mention %q: %v", want, err)
+				}
+			}
+		})
+	}
+}
+
 // withReconnectFlags sets the flag variables for the duration of a test.
 func withReconnectFlags(t *testing.T, exitOnDisconnect bool, maxAttempts int) {
 	t.Helper()
@@ -648,7 +694,7 @@ func TestTunnelClientAttempt_ReconnectsAfterTheConnectionDrops(t *testing.T) {
 
 	echoPort := startEchoServer(t)
 	grpcPort := freePort(t)
-	startTunnelServer(t, grpcPort)
+	_ = startTunnelServer(t, grpcPort)
 	proxyPort, cut := startCuttableProxy(t, grpcPort)
 	tunnelPort := freePort(t)
 
@@ -686,6 +732,91 @@ func TestTunnelClientAttempt_ReconnectsAfterTheConnectionDrops(t *testing.T) {
 	}
 	if after := established.Load(); after <= before {
 		t.Fatalf("the tunnel reported itself established %d time(s), the same as before the connection was cut; "+
+			"a reconnect that is never reported never resets the backoff, so the delays keep doubling on a link that recovers", after)
+	}
+
+	cancel()
+	select {
+	case err := <-runErr:
+		if err != nil {
+			t.Fatalf("the supervisor reported %v after Ctrl+C; the command would exit non-zero on a shutdown the user asked for", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the supervisor did not return after its context was cancelled; Ctrl+C would hang")
+	}
+}
+
+// TestTunnelClientAttempt_ReconnectsAfterTheServerRestarts is #114 as it
+// actually happens: the tunnel server is not briefly unreachable, it is gone.
+// A rescheduled pod is a new server process, binding the same port, with none
+// of the old one's state and no memory of the sessions the client was holding.
+//
+// The proxy-cutting test above cannot express that. It takes the network away
+// from the same server and gives it back, so nothing there checks that a
+// stopped server lets go of the tunnelled port the replacement needs, or that
+// the client can open InitTunnel against a server it has never spoken to.
+// Until RunServer was made to actually stop, it could not be written at all:
+// a cancelled server kept serving its open streams, so "restarting" it left
+// two servers, and the client never noticed the first one had been asked to
+// die.
+func TestTunnelClientAttempt_ReconnectsAfterTheServerRestarts(t *testing.T) {
+	quietLogger(t)
+	withReconnectFlags(t, false, 0)
+
+	echoPort := startEchoServer(t)
+	grpcPort := freePort(t)
+	stopServer := startTunnelServer(t, grpcPort)
+	tunnelPort := freePort(t)
+
+	var established atomic.Int32
+	attempt := tunnelClientAttempt("127.0.0.1", grpcPort, []string{fmt.Sprintf("%d:127.0.0.1:%d", tunnelPort, echoPort)})
+	counted := func(ctx context.Context, report func()) error {
+		return attempt(ctx, func() {
+			established.Add(1)
+			report()
+		})
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sup := newSupervisor(counted)
+	// Retrying on the scale a test can wait for. The sequence itself is the
+	// supervisor package's to test.
+	sup.Backoff = supervisor.Backoff{Base: 50 * time.Millisecond, Max: 200 * time.Millisecond}
+	runErr := make(chan error, 1)
+	go func() { runErr <- sup.Run(ctx) }()
+
+	if got, want := roundTripEventually(t, tunnelPort, "hello", 30*time.Second), "HELLO"; got != want {
+		t.Fatalf("round trip returned %q, want %q -- the tunnel was not up before the test killed the server", got, want)
+	}
+	before := established.Load()
+
+	// A connection that is already open when the server dies. It does not
+	// survive, deliberately, and the documentation says so -- but a user who
+	// believes otherwise waits on a curl that is never going to answer
+	// instead of running it again.
+	live := openTunnelConn(t, tunnelPort)
+	defer func() { _ = live.Close() }()
+
+	// The pod goes away.
+	stopServer()
+
+	if err := stillCarriesTraffic(live); err == nil {
+		t.Fatal("a connection opened before the server died was still carrying traffic afterwards; " +
+			"either the old server is still serving after being told to stop, or the docs promise a reconnect that resumes connections and it does not")
+	}
+	awaitTunnelDown(t, tunnelPort, 30*time.Second,
+		"the tunnelled port was still being served after the server was stopped; a stopped server that keeps forwarding traffic "+
+			"cannot be replaced -- the new one fails to bind, and the user has two tunnels and no way to tell which one answered")
+
+	// A different server process, on the same port, as a rescheduled pod is.
+	_ = startTunnelServer(t, grpcPort)
+
+	if got, want := roundTripEventually(t, tunnelPort, "again", 60*time.Second), "AGAIN"; got != want {
+		t.Fatalf("round trip returned %q, want %q after the tunnel server was restarted -- this is #114: the tunnel never comes back and the user restarts ktunnel by hand", got, want)
+	}
+	if after := established.Load(); after <= before {
+		t.Fatalf("the tunnel reported itself established %d time(s), the same as before the server was killed; "+
 			"a reconnect that is never reported never resets the backoff, so the delays keep doubling on a link that recovers", after)
 	}
 
@@ -738,6 +869,60 @@ func TestTunnelClientAttempt_GivesUpWhenAskedTo(t *testing.T) {
 }
 
 // --- helpers ----------------------------------------------------------------
+
+// openTunnelConn opens a connection through the tunnel and proves it works,
+// so that a later failure on it cannot be mistaken for one that never worked.
+func openTunnelConn(t *testing.T, tunnelPort int) net.Conn {
+	t.Helper()
+
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", tunnelPort), 5*time.Second)
+	if err != nil {
+		t.Fatalf("failed opening a connection through the tunnel: %v", err)
+	}
+	if err := stillCarriesTraffic(conn); err != nil {
+		_ = conn.Close()
+		t.Fatalf("a freshly opened tunnel connection did not carry traffic: %v", err)
+	}
+	return conn
+}
+
+// stillCarriesTraffic reports whether conn can still round-trip through the
+// tunnel, by using it rather than by inspecting it: an idle TCP connection
+// looks alive long after the thing on the other end has stopped listening.
+func stillCarriesTraffic(conn net.Conn) error {
+	if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return err
+	}
+	if _, err := conn.Write([]byte("still there")); err != nil {
+		return err
+	}
+	buf := make([]byte, 64)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return err
+	}
+	if got := string(buf[:n]); got != "STILL THERE" {
+		return fmt.Errorf("the echo came back as %q", got)
+	}
+	return nil
+}
+
+// awaitTunnelDown waits until the tunnelled port stops carrying traffic.
+func awaitTunnelDown(t *testing.T, tunnelPort int, timeout time.Duration, consequence string) {
+	t.Helper()
+
+	addr := fmt.Sprintf("127.0.0.1:%d", tunnelPort)
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := roundTripOnce(addr, "anyone home"); err != nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s is still answering after %s. %s", addr, timeout, consequence)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
 
 // quietLogger keeps the command's own logger out of the test output.
 //
@@ -800,8 +985,11 @@ func startEchoServer(t *testing.T) int {
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
-// startTunnelServer runs the real tunnel server, standing in for the pod.
-func startTunnelServer(t *testing.T, grpcPort int) {
+// startTunnelServer runs the real tunnel server, standing in for the pod. The
+// returned stop kills it the way deleting the pod does, and does not return
+// until the server is down and its ports are free -- so a test that restarts a
+// server on the same port is not racing the old one for the bind.
+func startTunnelServer(t *testing.T, grpcPort int) (stop func()) {
 	t.Helper()
 
 	quiet := log.New()
@@ -809,7 +997,9 @@ func startTunnelServer(t *testing.T, grpcPort int) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		_ = server.RunServer(ctx, server.WithPort(grpcPort), server.WithLogger(quiet))
 	}()
 
@@ -818,12 +1008,21 @@ func startTunnelServer(t *testing.T, grpcPort int) {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", grpcPort), 200*time.Millisecond)
 		if err == nil {
 			_ = conn.Close()
-			return
+			break
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("the tunnel server never started listening on %d: %v", grpcPort, err)
 		}
 		time.Sleep(25 * time.Millisecond)
+	}
+
+	return func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(30 * time.Second):
+			t.Error("the tunnel server did not shut down when its context was cancelled")
+		}
 	}
 }
 

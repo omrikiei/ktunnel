@@ -1,5 +1,140 @@
 # Changelog
 
+## Unreleased
+
+A tunnel that loses its connection now comes back on its own.
+
+### Added
+
+- **Reconnect with backoff.** ([#114]) `expose`, `inject deployment` and
+  `client` no longer die with their tunnel, and no longer sit there
+  holding a dead one. When the connection is lost, ktunnel says so and
+  rebuilds it: 1 second before the first retry, doubling to a ceiling of
+  30 seconds, spread by ±20% so that everyone who lost the same cluster
+  does not come back at the same instant. The delay returns to 1 second
+  once a tunnel has stayed up for a minute, so a link that flaps once an
+  hour does not creep to the maximum and stay there.
+
+  What that covers, in the terms it happens to you: a closed laptop lid,
+  a VPN that drops, a network that comes and goes, and — for `expose`
+  and `inject` — a tunnel server pod that is rescheduled onto another
+  node. The pod case rebuilds the whole local stack, not just the gRPC
+  stream: the pod is resolved again by name and the port-forward is
+  built again, because a forward is bound to the pod name it was created
+  with and a replacement pod has a different one.
+
+  The state changes are logged at INFO and are meant to be grepped, since
+  that is what they replace:
+
+  ```
+  tunnel lost: rpc error: code = Unavailable ...
+  reconnecting in 4s (attempt 3)
+  tunnel established
+  ```
+
+  If you have a wrapper script that tails ktunnel's logs for a lost
+  connection and kills the process, you can delete it.
+
+- **`--exit-on-disconnect`**, for running ktunnel under a process
+  supervisor: exit non-zero the first time the tunnel drops, instead of
+  reconnecting. ([#133])
+
+- **`--max-reconnect-attempts`**, to give up after N consecutive failed
+  attempts. `0`, the default, retries forever.
+
+  Both flags are on `expose`, `inject deployment` and `client`. The
+  defaults keep the interactive behaviour you would expect — a tunnel
+  that just keeps working — and Ctrl+C still exits 0. Giving up exits 1.
+
+- **gRPC keepalive on the client**: a ping every 30 seconds, timing out
+  after 10. Without it a half-open connection — the suspended laptop —
+  never errors at all: the stream goes quiet and the client waits
+  forever for data that is not coming. There is nothing to reconnect if
+  nothing ever notices.
+
+### Open connections do not survive a reconnect
+
+This is worth stating plainly, because "it reconnects" invites the
+opposite assumption. When the tunnel drops, every TCP connection that
+was open through it stops working, and the reconnect binds a fresh
+listener on the same port. Anything using the tunnel has to reconnect
+too — the same as when any TCP proxy restarts. A long-running database
+session or a streaming request is ended, not resumed. Resuming them
+would need a session-resumption protocol on both sides, which is not
+something a development tool should carry.
+
+A connection that was idle across the break may still *look* open from
+the cluster side until something is sent on it; the first use is what
+fails. Reconnect on failure rather than trusting an idle socket.
+
+### Fixed
+
+- **`--tls` never did anything.** ([#114] work, found on the way) The
+  option that turns TLS on read the certificate path *before* it was
+  assigned, so the flag it set was always false. Every ktunnel ever run
+  with `--tls` and `--ca-file` connected in plaintext and said nothing
+  about it. If you believed a tunnel of yours was encrypted, it was not.
+  It is now — see the known issue below for `expose` and `inject`, where
+  it still cannot work end to end.
+
+- **The tunnel server did not stop when it was told to.** Cancelling its
+  context closed the port it accepts connections on and nothing else, so
+  every tunnel already open kept running and kept its forwarded ports
+  bound. A stopped server went on carrying traffic, and nothing could
+  take its place. `ktunnel server` also reported the resulting closed
+  listener as a fatal error on Ctrl+C; a shutdown you asked for is now
+  a shutdown, and exits 0.
+
+- **Neither side leaks a goroutine and a socket per session, per
+  reconnect.** On both the client and the in-cluster server, the reader
+  for each open connection handed it over to the sender on a channel
+  that no longer had anybody reading it once the stream died, and parked
+  there for good. Harmless when a dead tunnel ended the process; not
+  harmless now that the tunnel is rebuilt whenever the network blinks,
+  and least of all on a server pod that stays up for days.
+
+### Known issues
+
+- **A v2.1 client against a v2.0.x server image loses its tunnel every
+  two minutes.** The client now sends a keepalive ping every 30 seconds.
+  A gRPC server rejects pings closer together than five minutes unless
+  it is configured otherwise, and after three of them it sends GOAWAY
+  `too_many_pings` and drops the connection — so the tunnel dies roughly
+  every two minutes, reconnects, and dies again.
+
+  The v2.1 server image permits them, so this only bites when the
+  in-cluster server is older than the client: `--server-image` pinned to
+  a v2.0.x tag, or an existing deployment reused with `-r`/`--reuse`
+  that is still running one. The default image tracks the client
+  version, so an unpinned `expose` is unaffected. The fix is to let the
+  image follow the client, or pin it to v2.1 or later.
+
+- **`--tls` is now rejected by `expose` and `inject deployment`.** It
+  never worked there and cannot be made to work by fixing the client
+  alone: nothing mounts a certificate into the in-cluster server's
+  container, it is never started with `--tls`, and `--cert`/`--key`
+  reach it as a single unparsed argument (the v2.0.1 known issue, still
+  open). There is no certificate provisioning to speak of.
+
+  So rather than let a `--tls` client fail its handshake against the
+  plaintext server it has just created — after creating a Deployment and
+  a Service — both commands refuse the flag before they touch the
+  cluster, and say what does work. If you were passing `--tls` to
+  `expose` and it appeared to work, it was never encrypting anything.
+  TLS between a standalone `ktunnel client` and `ktunnel server` does
+  work, and is now the way to have an encrypted tunnel.
+
+- **Reconnecting the port-forward to a *renamed* pod is not covered by
+  an automated test**, because it cannot be exercised without a real API
+  server — and it is the scenario [#114] is actually about. The stream
+  layer above it is tested end to end, including killing the tunnel
+  server and restarting it. This path is covered by code review and
+  manual testing only.
+
+- The tunnel is still unauthenticated, `--scheme udp` is still ignored,
+  and `inject` still supports only single-replica Deployments. See the
+  v2.0.1 known issues.
+
 ## v2.0.2
 
 Packaging fix. Functionally identical to v2.0.1 — same code, same

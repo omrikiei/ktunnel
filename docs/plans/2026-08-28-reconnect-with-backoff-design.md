@@ -89,10 +89,19 @@ what happened.
 ## Failure semantics
 
 **Open connections do not survive a reconnect.** When the stream dies,
-the server closes its listener and drops every cluster-side TCP
-connection. On reconnect a fresh listener binds the same port. This is
-what any TCP proxy restart does; the documentation should say so rather
-than implying seamless resumption.
+the server closes its listener and every cluster-side connection it was
+carrying stops working. On reconnect a fresh listener binds the same
+port. This is what any TCP proxy restart does; the documentation should
+say so rather than implying seamless resumption.
+
+A caveat, observed while writing the restart test: a cluster-side socket
+that is *idle* when the stream dies is not closed at that moment. Its
+reader is blocked in `Conn.Read` and only learns the tunnel is gone
+after the peer next writes — the session is closed then, and the peer
+sees the connection go. So such a connection is unusable immediately but
+not necessarily closed immediately. Closing it eagerly needs the reader
+to stop blocking in `Conn.Read` (a read deadline, or closing the conn
+from the watcher that closes the listener); not done here.
 
 **Each attempt gets a fresh `SessionStore`.** Because the store is now
 per-side and injectable rather than a process global, a reconnect hands
@@ -146,12 +155,23 @@ requested in [#133](https://github.com/omrikiei/ktunnel/pull/133).
 jitter bounds, `MaxAttempts`, `ExitOnFirst`, reset-after-stable, and
 context cancellation.
 
-**gRPC-level reconnect** is tested end to end with the loopback harness
-from #158: start a server and client, confirm bytes flow, kill the
-server, assert the loss is detected, restart it on the same port, and
-assert the tunnel re-establishes and bytes flow again. This also asserts
-that a session from the dead stream does not survive into the next
-attempt.
+**gRPC-level reconnect** is tested end to end, over real TCP, with the
+supervisor and the closure the `client` command actually runs
+(`TestTunnelClientAttempt_ReconnectsAfterTheServerRestarts` in `cmd`):
+start a server and a client, confirm bytes flow, **stop the server**,
+assert the tunnel stops carrying traffic and that a connection open
+across the break is dropped, restart a server on the same port, and
+assert the tunnel re-establishes and bytes flow again. A second test
+does the same by cutting a TCP proxy, which is the dropped-VPN shape of
+the same failure: the network goes away and comes back to the same
+server.
+
+Killing the server required `RunServer` to actually stop, which it did
+not: cancelling its context closed the accept listener and left every
+open stream serving, each holding a tunnelled port. That is fixed, and
+pinned by `TestRunServer_StopsWhenItsContextIsCancelled` in
+`pkg/server`, which asserts both ports are bindable again once RunServer
+returns.
 
 **The establish step sits behind an interface**, so the supervisor's
 sequencing — release the port, re-resolve, rebuild, reconnect — is
@@ -161,7 +181,12 @@ tested with a fake that has no cluster behind it.
 
 Rebuilding a SPDY forward against a **newly named pod** is not covered
 by any automated test, because it cannot be exercised without a real API
-server. That is precisely the scenario in #114.
+server. That is precisely the scenario in #114, and it is **still
+open**: the reconnect tests above cover everything from the gRPC stream
+upwards, on both sides of a server that genuinely goes away and comes
+back, but there is no forward and no API server underneath them. What is
+untested is the k8s layer specifically — resolving the replacement pod's
+name and building a forward to it.
 
 A `kind`-based CI job was considered and deliberately not taken, to
 avoid the CI cost and flakiness. The consequence is that this path is
@@ -169,8 +194,8 @@ covered only by code review and manual testing, so **before releasing
 v2.1, verify by hand**: run `ktunnel expose`, `kubectl delete pod` the
 tunnel server, and confirm the tunnel recovers on its own.
 
-This gap should be recorded in the v2.1 release notes' known issues if
-it has not been closed by then.
+This gap is recorded in the v2.1 known issues in `CHANGELOG.md`, and
+should stay there until it is closed.
 
 ## Out of scope
 
