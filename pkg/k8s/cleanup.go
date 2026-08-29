@@ -3,10 +3,7 @@ package k8s
 
 import (
 	"context"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -157,30 +154,6 @@ func (rt *ResourceTracker) Cleanup(ctx context.Context) error {
 		}
 		return nil
 	}
-}
-
-// StartCleanupOnSignal starts a goroutine that will clean up resources when a shutdown signal is received
-func (rt *ResourceTracker) StartCleanupOnSignal() {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		sig := <-sigChan
-		log.Infof("Received %v signal, cleaning up resources...", sig)
-
-		ctx := context.Background()
-		if err := rt.Cleanup(ctx); err != nil {
-			if err == context.DeadlineExceeded {
-				log.Errorf("Cleanup timed out after %v", rt.timeout)
-			} else {
-				log.Errorf("Failed to clean up resources: %v", err)
-			}
-			os.Exit(1)
-		}
-
-		log.Info("Cleanup completed successfully")
-		os.Exit(0)
-	}()
 }
 
 // GetTrackedResources returns the currently tracked resources (useful for testing)
