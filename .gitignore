@@ -9,3 +9,4 @@ dist/
 ktunnel
 site/
 coverage.txt
+.worktrees/
