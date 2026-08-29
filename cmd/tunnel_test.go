@@ -459,7 +459,7 @@ func TestWatchForward_ReleaseStopsWaitingOnShutdown(t *testing.T) {
 // was handed, so a test can watch the forward being released, and hands back an
 // error channel the test closes when it wants the forwarders to count as gone.
 type fakeForwarder struct {
-	sourcePorts *[]string
+	sourcePorts []string
 	err         error
 	errChan     chan error
 
@@ -468,14 +468,10 @@ type fakeForwarder struct {
 }
 
 func newFakeForwarder(ports []string, err error) *fakeForwarder {
-	f := &fakeForwarder{err: err, errChan: make(chan error, 1)}
-	if ports != nil {
-		f.sourcePorts = &ports
-	}
-	return f
+	return &fakeForwarder{sourcePorts: ports, err: err, errChan: make(chan error, 1)}
 }
 
-func (f *fakeForwarder) PortForward(ctx context.Context, namespace, deployment, targetPort string, stopChan <-chan struct{}) (*[]string, <-chan error, error) {
+func (f *fakeForwarder) PortForward(ctx context.Context, namespace, deployment, targetPort string, stopChan <-chan struct{}) ([]string, <-chan error, error) {
 	f.mu.Lock()
 	f.stopChan = stopChan
 	f.mu.Unlock()
@@ -592,14 +588,21 @@ func TestForwardAndTunnel_StopsTheClientsBeforeReleasingTheForward(t *testing.T)
 	}
 }
 
-// TestForwardAndTunnel_NilPortsIsAnError covers the deployment scaled to zero.
-// PortForward can report success with a nil port list, and the emptiness check
-// that exists for exactly this case was the thing dereferencing it.
-func TestForwardAndTunnel_NilPortsIsAnError(t *testing.T) {
+// TestForwardAndTunnel_NoPortsIsAnError covers the deployment scaled to zero.
+// PortForward reports that as success with an empty port list, and an attempt
+// with no client to run is not a working tunnel.
+//
+// The recover below outlived the bug it was written for -- PortForward used to
+// return a *[]string, and this path returned a nil one for the emptiness check
+// to dereference. A plain slice cannot express that, so the panic is now
+// unrepresentable rather than caught. It is kept because an attempt that
+// panics inside the retry loop is a crash that recurs, and that is worth one
+// deferred function.
+func TestForwardAndTunnel_NoPortsIsAnError(t *testing.T) {
 	quietLogger(t)
 
-	forwarder := newFakeForwarder(nil, nil)
-	close(forwarder.errChan) // nothing was ever launched
+	forwarder := newFakeForwarder(nil, nil) // no ports, no failure
+	close(forwarder.errChan)                // nothing was ever launched
 
 	attempt := forwardAndTunnel(forwarder, unusedClientRunner(t), "default", "proxy", 28688, []string{"8000"})
 
@@ -865,6 +868,47 @@ func TestTunnelClientAttempt_GivesUpWhenAskedTo(t *testing.T) {
 
 	if got := attempts.Load(); got != 3 {
 		t.Fatalf("made %d attempts, want 3", got)
+	}
+}
+
+// TestTunnelClientAttempt_DoesNotRetryATypo is the command-level form of the
+// same rule, on the closure `ktunnel client` actually runs.
+//
+// With the default policy -- retry forever -- a bad ports argument produced
+// "tunnel lost: failed to parse tunnel ..." followed by "reconnecting in 1.9s"
+// for as long as the user left it running. On master it was one message and
+// exit 1.
+func TestTunnelClientAttempt_DoesNotRetryATypo(t *testing.T) {
+	quietLogger(t)
+	withReconnectFlags(t, false, 0)
+
+	var attempts atomic.Int32
+	attempt := tunnelClientAttempt("127.0.0.1", freePort(t), []string{"8000:not:a:port:spec"})
+	counted := func(ctx context.Context, report func()) error {
+		attempts.Add(1)
+		return attempt(ctx, report)
+	}
+
+	sup := newSupervisor(counted)
+	sup.Backoff = supervisor.Backoff{Base: 10 * time.Millisecond, Max: 50 * time.Millisecond}
+
+	done := make(chan error, 1)
+	go func() { done <- sup.Run(context.Background()) }()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a tunnel spec that cannot be parsed exited 0")
+		}
+		if !strings.Contains(err.Error(), "not:a:port:spec") {
+			t.Errorf("the error does not name the spec that was wrong: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("ktunnel kept reconnecting against a typo; with the default policy that is forever, and the user watches their own mistake scroll past every backoff interval")
+	}
+
+	if got := attempts.Load(); got != 1 {
+		t.Errorf("made %d attempts to parse the same unparseable argument, want 1", got)
 	}
 }
 

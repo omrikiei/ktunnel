@@ -289,6 +289,10 @@ func RunServer(ctx context.Context, opts ...Option) error {
 	// connection. The server would then be tearing down the very tunnel the
 	// pings exist to protect, roughly every two minutes. MinTime is gRPC's
 	// own client-side floor, so any conformant client is permitted.
+	//
+	// The pairing is with keepaliveTime in pkg/client/client.go, currently
+	// 30s: this value has to stay below it. Raising it above what the
+	// client sends reintroduces exactly the disconnection described above.
 	grpcOpts := []grpc.ServerOption{
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 			MinTime:             10 * time.Second,

@@ -19,6 +19,37 @@ const DefaultStableAfter = time.Minute
 // them a nil to exit on.
 var errAttemptEnded = errors.New("the attempt ended without an error")
 
+// ErrPermanent marks a failure that no retry can fix. Run returns as soon as
+// an Attempt's error wraps it, whatever the give-up policy says.
+//
+// Reconnecting exists for a network that comes and goes. A malformed port
+// spec, a scheme ktunnel does not speak, a certificate file that is not
+// there: waiting and trying again produces the identical failure forever, at
+// whatever delay the backoff has crept to, and with the default policy --
+// retry forever -- the user reads the same line every 30 seconds until they
+// work out that ktunnel is never going to fix itself. These were fatal on the
+// spot before the supervisor existed, and that is the behaviour to keep.
+var ErrPermanent = errors.New("permanent failure")
+
+// Permanent marks err as something no retry can fix. It returns nil for a nil
+// error, so a call's result can be wrapped directly.
+func Permanent(err error) error {
+	if err == nil {
+		return nil
+	}
+	return permanent{err}
+}
+
+// permanent carries the mark without changing what the error says. A wrapper
+// built with fmt.Errorf("%w: %w", ErrPermanent, err) would prefix every such
+// message with "permanent failure:", and these messages are read by users who
+// need to see their own typo, not our taxonomy.
+type permanent struct{ error }
+
+func (p permanent) Is(target error) bool { return target == ErrPermanent }
+
+func (p permanent) Unwrap() error { return p.error }
+
 // Attempt establishes something and blocks until it fails. Returning nil means
 // the attempt ended without an error, which still counts as an end.
 //
@@ -158,6 +189,16 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			// The attempt ended because we cancelled it. That is a clean
 			// shutdown, not something to report or retry.
 			return nil
+		}
+
+		if errors.Is(err, ErrPermanent) {
+			// Retrying this changes nothing, so it is reported once, in the
+			// terms of the thing that is wrong, and handed back. It is not
+			// announced as a lost tunnel: nothing was ever up to lose, and
+			// the user has a configuration to correct rather than a network
+			// to wait for.
+			logger.Errorf("cannot continue: %v", err)
+			return err
 		}
 
 		failures++

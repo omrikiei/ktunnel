@@ -4,6 +4,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/omrikiei/ktunnel/pkg/k8s"
@@ -167,7 +168,14 @@ ktunnel expose redis 6379
 			// cleanup that never comes sends the user looking for the wrong
 			// thing.
 			log.Error("deployment failed to become ready")
-			return
+			// Exit non-zero, like every other way this command can fail. A
+			// plain return exited 0, so a systemd unit or a CI step saw
+			// success for a tunnel server that never started -- and this
+			// branch now documents its exit codes, which has to mean all of
+			// them. finish first: os.Exit runs no deferred function, and
+			// the deployment and service are already in the cluster.
+			sess.finish()
+			os.Exit(1)
 		}
 
 		// Kube Service

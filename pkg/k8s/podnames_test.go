@@ -96,17 +96,22 @@ func zeroReplicaDeployment(name string) *appsv1.Deployment {
 	}
 }
 
-// TestPortForward_NoPodsNeverReportsSuccessWithNoPorts is the regression test
-// for a nil dereference in the caller.
+// TestPortForward_NoPodsNeverReportsSuccessWithNoPorts pins what PortForward
+// hands back for a deployment nobody has any pods for.
 //
 // With no pods to forward to, every forwarder has already returned before the
 // final select is reached, so both of its cases are ready at once and Go picks
 // between them uniformly. The forwarder-error case receives the zero value
-// from the closed channel and returned it as (nil ports, nil error): a success
-// with nothing in it. Callers check the returned slice for emptiness, which
-// dereferences the nil pointer and panics -- inside a retry loop, on roughly
-// half of the attempts, which reads as intermittent and is miserable to
-// diagnose.
+// from the closed channel and reports it as a nil error: a success with
+// nothing in it, on roughly half the runs, which is why this repeats.
+//
+// It used to return the ports as a *[]string and hand back a nil one here.
+// Callers check the list for emptiness, which dereferenced the nil and
+// panicked -- inside a retry loop, intermittently, on a deployment someone had
+// merely scaled down. The return is a plain slice now, so "none" and "not
+// there" are the same value and that panic cannot be written. What still has
+// to hold is the part this test asserts: never a port that is not being
+// forwarded.
 func TestPortForward_NoPodsNeverReportsSuccessWithNoPorts(t *testing.T) {
 	name := "scaled-to-zero"
 	fake := testclient.NewSimpleClientset(zeroReplicaDeployment(name))
@@ -126,15 +131,12 @@ func TestPortForward_NoPodsNeverReportsSuccessWithNoPorts(t *testing.T) {
 
 		if err != nil {
 			// Reporting "no pods" as an error would be fine too; what must
-			// never happen is success with nothing to hand back.
+			// never happen is success with ports that do not exist.
 			continue
 		}
-		if sourcePorts == nil {
-			t.Fatalf("run %d: PortForward reported success with a nil port list; "+
-				"the caller checks that list for emptiness, which dereferences the nil and panics the reconnect loop", i)
-		}
-		if len(*sourcePorts) != 0 {
-			t.Fatalf("run %d: PortForward returned %d ports for a deployment with no pods", i, len(*sourcePorts))
+		if len(sourcePorts) != 0 {
+			t.Fatalf("run %d: PortForward returned %d ports for a deployment with no pods; "+
+				"the caller would start a tunnel client over a local port nothing is forwarding", i, len(sourcePorts))
 		}
 	}
 }

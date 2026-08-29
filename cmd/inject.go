@@ -4,6 +4,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/omrikiei/ktunnel/pkg/k8s"
 	log "github.com/sirupsen/logrus"
@@ -77,7 +78,11 @@ ktunnel inject deployment mydeployment 3306 6379
 			// Not "removing the sidecar": with --eject=false the teardown
 			// deliberately leaves it in place.
 			log.Error("deployment failed to become ready")
-			return
+			// Exit non-zero, for the reason given in expose: a rollout that
+			// never completed is not a successful run, and this branch
+			// documents its exit codes.
+			sess.finish()
+			os.Exit(1)
 		}
 
 		supervise(sess, forwardAndTunnelAttempt(svc, Namespace, deployment, port, args[1:]))

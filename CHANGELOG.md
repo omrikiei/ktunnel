@@ -4,6 +4,24 @@
 
 A tunnel that loses its connection now comes back on its own.
 
+### Breaking changes
+
+Three exported signatures changed. All three are internal to ktunnel's
+own client and server, so this affects you only if you imported these
+packages directly.
+
+- **`k8s.KubeService.PortForward`** takes a `context.Context` and no
+  longer takes a `*sync.WaitGroup`, and returns
+  `([]string, <-chan error, error)` rather than `(*[]string, error)`.
+  The context is what makes a forward against an unresponsive API server
+  cancellable; the channel is how a forward that dies *after* startup
+  reports it, which previously went to a channel nobody read. The ports
+  are a plain slice because a `*[]string` could be nil, and callers
+  checking it for emptiness dereferenced it.
+- **`client.ReceiveData`** takes a `context.Context` and returns an
+  `error`; **`client.SendData`** returns an `error`. A tunnel that
+  stopped carrying traffic previously had no way to say so.
+
 ### Added
 
 - **Reconnect with backoff.** ([#114]) `expose`, `inject deployment` and
@@ -92,6 +110,49 @@ fails. Reconnect on failure rather than trusting an idle socket.
   there for good. Harmless when a dead tunnel ended the process; not
   harmless now that the tunnel is rebuilt whenever the network blinks,
   and least of all on a server pod that stays up for days.
+
+- **A failed port-forward no longer leaks two goroutines.** client-go
+  closes its ready channel only after a dial *and* a listen have both
+  succeeded, so the two most common reconnect failures — the API server
+  unreachable, the local port not yet released by the previous attempt —
+  never closed it, and the two goroutines waiting on it stayed for the
+  life of the process. Measured at exactly two per failed attempt,
+  unbounded: a laptop left overnight on a dead VPN accumulated
+  thousands.
+
+- **A configuration error is no longer retried forever.** ktunnel now
+  tells a network that will come back apart from a command line that
+  will not. A malformed port spec, a scheme it does not speak, a
+  `--ca-file` that is not there: reported once, exit 1 — as before the
+  reconnect loop existed. Anything else is retried. Without this,
+  `ktunnel client 8000:not:a:port` logged the same parse failure every
+  backoff interval, forever, under the default policy.
+
+- **`getPodNames` no longer panics** when fewer pods are Running than
+  the deployment asks for. It wrote into a slice sized by the replica
+  count and indexed past the end — a crash, taking the process with it,
+  during precisely the window between a pod being deleted and its
+  replacement reaching Running. That window is the case reconnecting
+  exists for.
+
+- **`PortForward` no longer panics on a deployment scaled to zero.** It
+  could report success with a nil port list, which the caller
+  dereferenced while checking it for emptiness — intermittently, on
+  about half of attempts, because the race behind it is a uniform choice
+  between two ready channels.
+
+- **A second Ctrl+C now kills the process.** Every signal after the
+  first used to be swallowed, so a user watching a slow teardown — or an
+  attempt stuck in a call to an unreachable API server — had no way out
+  but another terminal. The first signal still shuts down cleanly; the
+  second is handed back to the runtime. `ktunnel server` was the last
+  command without this and now has it too.
+
+- **`expose` and `inject` exit non-zero when the rollout fails.** They
+  logged `deployment failed to become ready` and exited 0, so a systemd
+  unit or a CI step saw success for a tunnel server that never started.
+  Cluster resources created by the failed run are still cleaned up
+  first.
 
 ### Known issues
 

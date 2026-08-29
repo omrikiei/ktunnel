@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	pb "github.com/omrikiei/ktunnel/api"
 	"github.com/omrikiei/ktunnel/pkg/common"
+	"github.com/omrikiei/ktunnel/pkg/supervisor"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
@@ -280,6 +281,15 @@ const (
 	// VPN -- never errors: the stream goes quiet and the client waits
 	// forever for data that is never coming, which is the hang in #114.
 	// gRPC raises anything below 10s to 10s.
+	//
+	// It must also stay above the server's MinTime -- the
+	// KeepaliveEnforcementPolicy in pkg/server/server.go, currently 10s. A
+	// client that pings more often than the server permits is disconnected
+	// with too_many_pings after three of them, so lowering this without
+	// lowering that turns the keepalive into the thing that kills the
+	// tunnel, roughly every two minutes. That is not hypothetical: it is
+	// what a v2.1 client does against a v2.0.x server image, whose default
+	// minimum is five minutes.
 	keepaliveTime = 30 * time.Second
 	// keepaliveTimeout is how long to wait for a ping to be answered before
 	// declaring the connection dead.
@@ -292,7 +302,11 @@ const (
 func RunClient(ctx context.Context, opts ...Option) error {
 	conf, err := processArgs(opts)
 	if err != nil {
-		return errors.Wrap(err, "failed to parse arguments")
+		// Permanent: everything processArgs rejects -- an unusable scheme,
+		// no tunnels, no host -- is a configuration error. A supervisor
+		// retrying one waits, fails identically, and waits longer, forever
+		// by default.
+		return supervisor.Permanent(errors.Wrap(err, "failed to parse arguments"))
 	}
 
 	// Parse every tunnel before dialling. A malformed port spec is a
@@ -303,7 +317,8 @@ func RunClient(ctx context.Context, opts ...Option) error {
 	for _, rawTunnelData := range conf.tunnels {
 		tunnelData, err := common.ParsePorts(rawTunnelData)
 		if err != nil {
-			return errors.Wrapf(err, "failed to parse tunnel %q", rawTunnelData)
+			// A typo in a port spec is not a network that will come back.
+			return supervisor.Permanent(errors.Wrapf(err, "failed to parse tunnel %q", rawTunnelData))
 		}
 		tunnels = append(tunnels, tunnelData)
 	}
@@ -318,7 +333,10 @@ func RunClient(ctx context.Context, opts ...Option) error {
 	if conf.TLS {
 		creds, err := credentials.NewClientTLSFromFile(conf.certFile, conf.tlsHostOverride)
 		if err != nil {
-			return errors.Wrap(err, "failed to create TLS credentials")
+			// Reachable only since --tls started working: an unreadable or
+			// malformed --ca-file. The file is not going to appear because
+			// we asked again.
+			return supervisor.Permanent(errors.Wrap(err, "failed to create TLS credentials"))
 		}
 		grpcOpts = append(grpcOpts, grpc.WithTransportCredentials(creds))
 	} else {

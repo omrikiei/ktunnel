@@ -158,7 +158,7 @@ func tunnelClientAttempt(host string, grpcPort int, tunnels []string) supervisor
 // before the forward -- can be tested without an API server behind it. The one
 // production implementation is *k8s.KubeService.
 type portForwarder interface {
-	PortForward(ctx context.Context, namespace, deployment, targetPort string, stopChan <-chan struct{}) (*[]string, <-chan error, error)
+	PortForward(ctx context.Context, namespace, deployment, targetPort string, stopChan <-chan struct{}) ([]string, <-chan error, error)
 }
 
 // clientRunner runs one tunnel client over a forwarded local port and blocks
@@ -212,11 +212,10 @@ func forwardAndTunnel(svc portForwarder, run clientRunner, namespace, deployment
 			return fmt.Errorf("failed forwarding to %s/%s: %w", namespace, deployment, err)
 		}
 
-		// nil rather than empty is a real case, not defensive padding: a
-		// deployment scaled to zero has no pods to forward to, and
-		// PortForward has more than one way of saying so. Dereferencing it
-		// panics, and inside a retry loop that is a crash that recurs.
-		if sourcePorts == nil || len(*sourcePorts) == 0 {
+		// A deployment scaled to zero has no pods to forward to, and
+		// PortForward reports that as success with no ports rather than as
+		// an error.
+		if len(sourcePorts) == 0 {
 			// Nothing to run a client over. Without this the attempt would
 			// block on a select no goroutine can ever wake, and the
 			// supervisor -- which waits for the attempt -- would never
@@ -241,15 +240,15 @@ func forwardAndTunnel(svc portForwarder, run clientRunner, namespace, deployment
 
 		// established fires when the last client reports its streams open, so
 		// a partly-connected tunnel is never announced as up.
-		pending := int32(len(*sourcePorts))
+		pending := int32(len(sourcePorts))
 		up := func() {
 			if atomic.AddInt32(&pending, -1) == 0 {
 				established()
 			}
 		}
 
-		clientErrs := make(chan error, len(*sourcePorts))
-		for _, srcPort := range *sourcePorts {
+		clientErrs := make(chan error, len(sourcePorts))
+		for _, srcPort := range sourcePorts {
 			localPort, err := strconv.Atoi(srcPort)
 			if err != nil {
 				return fmt.Errorf("failed to parse the forwarded local port %q: %w", srcPort, err)

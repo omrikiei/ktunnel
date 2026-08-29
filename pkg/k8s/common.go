@@ -322,7 +322,7 @@ func (k *KubeService) getPodNames(ctx context.Context, deploymentName string, po
 // returned alongside a non-nil error too, because forwarders already launched
 // hold local ports whether or not startup succeeded. See watchForward in cmd
 // for why a caller about to retry has to wait for that close.
-func (k *KubeService) PortForward(ctx context.Context, namespace, deploymentName string, targetPort string, stopChan <-chan struct{}) (*[]string, <-chan error, error) {
+func (k *KubeService) PortForward(ctx context.Context, namespace, deploymentName string, targetPort string, stopChan <-chan struct{}) ([]string, <-chan error, error) {
 	clientMutex.RLock()
 	deployment, err := deploymentsClient.Get(ctx, deploymentName, metav1.GetOptions{})
 	clientMutex.RUnlock()
@@ -380,20 +380,43 @@ func (k *KubeService) PortForward(ctx context.Context, namespace, deploymentName
 		out, errOut := new(bytes.Buffer), new(bytes.Buffer)
 		forwarder, err := portforward.New(dialer, ports, stopChan, readyChan, out, errOut)
 		if err != nil {
-			log.Error(err)
+			// Returned rather than logged: the forwarder is nil on this
+			// path, and the goroutine below would dereference it. Nothing
+			// reaches it today, but it is the same shape as the two nil
+			// dereferences this loop has already had to be fixed for, and
+			// it now sits inside a retry loop where a panic recurs.
+			for j := i; j < len(podNames); j++ {
+				forwarders.Done()
+			}
+			return nil, forwarderErrChan, err
 		}
 
 		go func() {
-			for range readyChan { // Kubernetes will close this channel when it has something to tell us.
+			// This forwarder stops being pending exactly once, whatever
+			// happens to it. client-go closes readyChan only after a dial
+			// *and* a listen have both succeeded, so the two most common
+			// failures on the retry path -- an API server that cannot be
+			// reached, a local port the previous attempt has not released
+			// -- never close it. Waiting on it alone parked this goroutine
+			// for good, and the one waiting on `ready` below with it: two
+			// per failed attempt, retained for the life of the process, on
+			// precisely the path reconnecting exercises.
+			//
+			// stopChan is the escape, and the caller always closes it --
+			// release() does, on every path an attempt can end by.
+			defer ready.Done()
+
+			select {
+			case <-readyChan: // closed once Kubernetes has something to tell us
+			case <-stopChan:
+				// Torn down before it ever became ready. Nothing is coming.
+				return
 			}
+
 			if len(errOut.String()) != 0 {
 				log.Errorf("Failed forwarding. %s", errOut.String())
-				ready.Done()
 			} else if len(out.String()) != 0 {
 				log.Info(out.String())
-				if strings.HasPrefix(out.String(), "Forwarding") {
-					ready.Done()
-				}
 			}
 		}()
 		go func() {
@@ -432,13 +455,19 @@ func (k *KubeService) PortForward(ctx context.Context, namespace, deploymentName
 		// The channel is closed, meaning every forwarder has already
 		// returned. With no pods to forward to there were none to start
 		// with, and both cases of this select are ready at once -- so half
-		// the time this branch was taken, and a receive from a closed
-		// channel was reported as a nil error alongside nil ports. Callers
-		// then dereferenced the nil, which is a panic rather than the empty
-		// list they were checking for.
-		return &sourcePorts, forwarderErrChan, nil
+		// the time this branch is taken and a receive from a closed channel
+		// is reported as a nil error. The ports are returned with it, and
+		// they are empty, which is what the caller checks for.
+		//
+		// It used to return them as a *[]string, and this path returned a
+		// nil one: callers dereferenced it to check for emptiness and
+		// panicked instead, inside a retry loop, on roughly half the
+		// attempts. A plain slice cannot express the difference between
+		// "none" and "not there", so the panic is now unrepresentable
+		// rather than guarded against.
+		return sourcePorts, forwarderErrChan, nil
 	case <-doneCh:
-		return &sourcePorts, forwarderErrChan, nil
+		return sourcePorts, forwarderErrChan, nil
 	}
 }
 
