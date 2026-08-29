@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.1.0
 
 A tunnel that loses its connection now comes back on its own.
 
@@ -153,6 +153,18 @@ fails. Reconnect on failure rather than trusting an idle socket.
   unit or a CI step saw success for a tunnel server that never started.
   Cluster resources created by the failed run are still cleaned up
   first.
+
+- **`expose` no longer reports a cleanup failure for a cleanup that
+  worked.** Two signal handlers raced to delete the same deployment and
+  service -- one installed by the resource tracker, one by the tunnel
+  session -- and whichever lost the race logged `Failed deleting k8s
+  objects: services "..." not found` on every clean Ctrl+C, for work that
+  had in fact succeeded. The tracker's handler is gone rather than
+  coordinated with: it called `os.Exit` itself, so it could also cut the
+  session's teardown short and override the exit code the supervisor
+  meant to return, and it handled a strictly smaller set of signals.
+  Teardown is idempotent besides, so a `kubectl delete` from another
+  terminal is not reported as a failed cleanup either.
 
 ### Known issues
 
