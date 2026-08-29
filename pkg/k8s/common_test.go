@@ -71,9 +71,13 @@ func Test_newContainer(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.verbose {
-				SetVerbose(true)
-			}
+			// verbose is package-level state that newContainer reads, so it
+			// has to be set for every case and restored afterwards. Setting
+			// it only for the verbose case leaked into subsequent runs of the
+			// same binary, which made `go test -count=2` fail with a stray
+			// -v argument -- and made the flag unusable for flake detection.
+			SetVerbose(tc.verbose)
+			t.Cleanup(func() { SetVerbose(false) })
 
 			container := newContainer(tc.port, tc.image, tc.containerPorts, tc.cert, tc.key, tc.cReq, tc.cLimit, tc.mReq, tc.mLimit)
 
