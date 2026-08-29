@@ -3,12 +3,7 @@ package cmd
 
 import (
 	"context"
-	"os"
-	"os/signal"
-	"sync"
-	"syscall"
 
-	"github.com/omrikiei/ktunnel/pkg/client"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -32,30 +27,13 @@ ktunnel client --host ktunnel-server.yourcompany.com -s tcp 8000 8001:8432
 		if verbose {
 			logger.SetLevel(log.DebugLevel)
 		}
-		o := sync.Once{}
-		// Run tunnel client and establish connection
+		// Nothing was created in the cluster, so there is nothing to tear
+		// down; the session is here for the signal handling and the context
+		// the supervisor runs under.
+		sess := newTunnelSession(ctx, cancel, "Got exit signal, closing client tunnels", nil)
+		defer sess.finish()
 
-		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-		go func() {
-			o.Do(func() {
-				<-sigs
-				log.Info("Got exit signal, closing client tunnels")
-				cancel()
-			})
-		}()
-
-		opts := []client.Option{
-			client.WithServer(Host, port),
-			client.WithTunnels(Scheme, args...),
-			client.WithLogger(&logger),
-			client.WithTLS(CaFile, ServerHostOverride),
-		}
-
-		err := client.RunClient(ctx, opts...)
-		if err != nil {
-			log.Fatalf("Failed to run client: %v", err)
-		}
+		supervise(sess, tunnelClientAttempt(Host, port, args))
 	},
 }
 
@@ -64,5 +42,6 @@ func init() {
 	clientCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
 	clientCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	clientCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
+	addReconnectFlags(clientCmd)
 	rootCmd.AddCommand(clientCmd)
 }

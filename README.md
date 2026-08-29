@@ -87,6 +87,34 @@ This will currently only work for deployments with 1 replica - it will expose a 
 ktunnel inject deployment mydeployment 3306
 ```
 
+### Reconnecting
+`expose`, `inject` and `client` reconnect on their own when a tunnel drops -- a
+dropped VPN, a suspended laptop, a rescheduled pod. Each attempt rebuilds the
+whole local side: it re-resolves the tunnel server's pod, rebuilds the
+port-forward and reopens the stream, with an exponential backoff from 1s up to
+30s that resets once a tunnel has stayed up for a minute.
+
+**Open connections do not survive a reconnect.** The cluster-side listener is
+closed and every connection through it is dropped, exactly as any TCP proxy
+restart does; a fresh listener binds the same port when the tunnel comes back.
+
+Cluster resources are never recreated by a reconnect. If the deployment is
+deleted mid-session, ktunnel keeps retrying and says why, rather than quietly
+recreating what you removed.
+
+The default is to retry forever, which is what an interactive session wants.
+Under a process supervisor, ask for an exit code instead:
+
+```bash
+# exit non-zero the moment the tunnel drops, and let systemd restart it
+ktunnel expose myapp 80:8000 --exit-on-disconnect
+
+# or give up after 10 consecutive failed attempts
+ktunnel expose myapp 80:8000 --max-reconnect-attempts 10
+```
+
+ktunnel exits 0 on Ctrl+C and 1 when it gives up.
+
 ### Resource Cleanup
 ktunnel now automatically tracks and cleans up resources (deployments and services) when the process exits. This ensures no orphaned resources are left in your cluster, even after unexpected shutdowns.
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -182,7 +183,7 @@ loop:
 				}
 
 				session.SetOpen(false)
-				sessionsOut <- session
+				sendSession(session, sessionsOut)
 				break loop
 			}
 
@@ -199,11 +200,31 @@ loop:
 				conf.log.WithField("session", session.ID).WithError(err).Errorf("failed writing to session buffer")
 				break loop
 			}
-			sessionsOut <- session
+			if !sendSession(session, sessionsOut) {
+				break loop
+			}
 		}
 
 	}
 	conf.log.WithField("session", session.ID).Debugf("finished reading session")
+}
+
+// sendSession hands a session to the sender, or gives up if the session is
+// closed while we wait. It reports whether the send happened.
+//
+// The bare send this replaces had nobody left to receive it once SendData had
+// returned, so every still-open session's reader parked here forever holding
+// its net.Conn. One dead tunnel was survivable; with a supervisor rebuilding
+// the tunnel it leaked a goroutine and a socket per session per reconnect.
+// Closing the session -- which is what tearing a tunnel down does -- now
+// releases them.
+func sendSession(session *common.Session, sessionsOut chan<- *common.Session) bool {
+	select {
+	case sessionsOut <- session:
+		return true
+	case <-session.Context.Done():
+		return false
+	}
 }
 
 // SendData serves the local-to-cluster direction of a tunnel. It returns nil
@@ -310,14 +331,34 @@ func RunClient(ctx context.Context, opts ...Option) error {
 	}
 	defer conn.Close()
 
+	// Returning means these tunnels are over, and the sessions they opened
+	// are sockets to the local service that nothing will read again. The
+	// store going out of scope does not close them; this does. A supervisor
+	// calls RunClient once per attempt, so anything left here accumulates
+	// for as long as the process runs.
+	defer conf.sessions.CloseAll()
+
 	client := pb.NewTunnelClient(conn)
+
+	// A tunnel is up when every one of its streams is open -- not when the
+	// first is. Reporting on the first would announce a client that is
+	// serving some of the ports it was asked for, which is the state
+	// RunClient refuses to call working everywhere else.
+	pending := int32(len(tunnels))
+	opened := func() {
+		// Only the transition to zero fires, so established is called at
+		// most once per RunClient however many tunnels there are.
+		if atomic.AddInt32(&pending, -1) == 0 && conf.established != nil {
+			conf.established()
+		}
+	}
 
 	// Room for every tunnel, so one that fails after we have returned still
 	// reports and exits instead of blocking on a channel nobody reads.
 	failed := make(chan error, len(tunnels))
 	for _, tunnelData := range tunnels {
 		go func() {
-			failed <- runTunnel(ctx, conf, client, tunnelData)
+			failed <- runTunnel(ctx, conf, client, tunnelData, opened)
 		}()
 	}
 
@@ -337,9 +378,9 @@ func RunClient(ctx context.Context, opts ...Option) error {
 }
 
 // runTunnel opens one tunnel's stream and serves it until it stops carrying
-// traffic. It always returns non-nil: its return is what tells the caller the
-// tunnel is gone, and why.
-func runTunnel(ctx context.Context, conf *Config, client pb.TunnelClient, tunnelData *common.RedirectRequest) error {
+// traffic. It calls opened once the stream is up, and always returns non-nil:
+// its return is what tells the caller the tunnel is gone, and why.
+func runTunnel(ctx context.Context, conf *Config, client pb.TunnelClient, tunnelData *common.RedirectRequest, opened func()) error {
 	conf.log.Infof("starting %s tunnel from source %d to target %s:%d", conf.scheme, tunnelData.Source, tunnelData.TargetHost, tunnelData.TargetPort)
 
 	req := &pb.SocketDataRequest{
@@ -364,6 +405,14 @@ func runTunnel(ctx context.Context, conf *Config, client pb.TunnelClient, tunnel
 	if err := stream.Send(req); err != nil {
 		return errors.Wrapf(err, "failed sending the initial tunnel request for source port %d", tunnelData.Source)
 	}
+
+	// The stream is open and the server has been told which port to listen
+	// on. That is as far as being "up" can be observed from here: the
+	// protocol has no acknowledgement, and a server that cannot bind reports
+	// it later as an error frame, which ends the tunnel like any other
+	// failure. gRPC does not hand back a stream until the connection is
+	// ready, so reaching this line does mean we are talking to a server.
+	opened()
 
 	sessions := make(chan *common.Session)
 	sendFailed := make(chan error, 1)
@@ -499,6 +548,25 @@ type Config struct {
 	log          log.FieldLogger
 	tunnels      []string
 	sessions     *common.SessionStore
+	established  func()
+}
+
+// WithEstablishedCallback sets a function to be called once the client's
+// tunnels are open, before RunClient blocks serving them.
+//
+// RunClient does not return while a tunnel is working, so "it is up" cannot be
+// reported by returning. A supervisor needs to know: an attempt that never
+// reports itself established never resets its backoff, so without this a
+// healthy tunnel that flaps once an hour would creep to the maximum retry
+// delay and stay there.
+//
+// The callback runs on the goroutine that opened the last stream, so it should
+// not block.
+func WithEstablishedCallback(f func()) Option {
+	return func(opt *Config) error {
+		opt.established = f
+		return nil
+	}
 }
 
 // WithSessionStore sets the store this client tracks its sessions in. If
