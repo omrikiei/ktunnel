@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -17,6 +18,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 )
 
 type TunnelServer struct {
@@ -251,13 +253,24 @@ func RunServer(ctx context.Context, opts ...Option) error {
 		return errors.Wrap(err, "failed to parse arguments")
 	}
 
-	var grpcOpts []grpc.ServerOption
+	// Clients keep the tunnel's connection alive with pings, and a gRPC
+	// server rejects pings closer together than five minutes by default:
+	// after three of them it sends GOAWAY "too_many_pings" and drops the
+	// connection. The server would then be tearing down the very tunnel the
+	// pings exist to protect, roughly every two minutes. MinTime is gRPC's
+	// own client-side floor, so any conformant client is permitted.
+	grpcOpts := []grpc.ServerOption{
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	}
 	if conf.TLS {
 		creds, err := credentials.NewServerTLSFromFile(conf.certFile, conf.keyFile)
 		if err != nil {
 			conf.log.Fatalf("Failed to generate credentials %v", err)
 		}
-		grpcOpts = []grpc.ServerOption{grpc.Creds(creds)}
+		grpcOpts = append(grpcOpts, grpc.Creds(creds))
 	}
 
 	conf.log.Infof("Starting to listen on port %d", conf.port)

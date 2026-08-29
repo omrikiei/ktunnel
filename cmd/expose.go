@@ -197,16 +197,54 @@ ktunnel expose redis 6379
 		strPort := strconv.FormatInt(int64(port), 10)
 		stopChan := make(chan struct{}, 1)
 		// Create a tunnel client for each replica
-		sourcePorts, err := kubeService.PortForward(Namespace, svcName, strPort, wg, stopChan)
+		sourcePorts, fwdErrChan, err := kubeService.PortForward(Namespace, svcName, strPort, wg, stopChan)
 		if err != nil {
 			log.Fatalf("Failed to run port forwarding: %v", err)
 			os.Exit(1)
+		}
+		// A forward that dies later takes its tunnel with it. Reporting it
+		// is all we can do for now; reconnecting is the supervisor's job.
+		// The range ends when PortForward closes the channel, once the
+		// forwards it is watching are gone.
+		go func() {
+			for err := range fwdErrChan {
+				log.Errorf("Port forwarding failed: %v", err)
+			}
+		}()
+		// RunClient used to return only when its context was cancelled, so
+		// this path never ran. Now that a lost tunnel gets here, log.Fatalf
+		// would call os.Exit and skip the teardown that lives in the signal
+		// handler, leaving the deployment and service it created behind after a
+		// network blip. Ask for the shutdown Ctrl+C asks for, and record
+		// that this exit is not a clean one.
+		//
+		// The signal is sent but done is deliberately not read here: it
+		// carries a single value the main goroutine is already waiting on,
+		// and a second receiver would take it and leave the command blocked
+		// forever. Retrying instead of shutting down is the supervisor's
+		// job, in the next commit.
+		clientFailed := make(chan struct{}, 1)
+		shutdown := func() {
+			// Neither send blocks: several replicas can fail at once, and
+			// one record and one signal are all that is needed.
+			select {
+			case clientFailed <- struct{}{}:
+			default:
+			}
+			select {
+			case sigs <- syscall.SIGINT:
+			default:
+				// The buffer already holds a signal the handler has not
+				// picked up yet; it will act on that one.
+			}
 		}
 		for _, srcPort := range *sourcePorts {
 			go func(port string) {
 				p, err := strconv.ParseInt(port, 10, 0)
 				if err != nil {
-					log.Fatalf("Failed to run client: %v", err)
+					log.Errorf("Failed to parse the forwarded local port %q: %v", port, err)
+					shutdown()
+					return
 				}
 				prt := int(p)
 				opts := []client.Option{
@@ -217,13 +255,25 @@ ktunnel expose redis 6379
 				if tls {
 					opts = append(opts, client.WithTLS(CaFile, ServerHostOverride))
 				}
-				err = client.RunClient(ctx, opts...)
-				if err != nil {
-					log.Fatalf("Failed to run client: %v", err)
+				if err := client.RunClient(ctx, opts...); err != nil {
+					log.Errorf("Tunnel lost, shutting down: %v", err)
+					shutdown()
+					return
 				}
 			}(srcPort)
 		}
 		<-done
+
+		// A tunnel that ended on its own is not a clean exit. The restart
+		// wrappers this feature exists to replace -- Restart=on-failure,
+		// `until ktunnel ...` -- read the exit code, and log.Fatalf, which
+		// the client goroutines above used to call, exited 1. Which code
+		// belongs to which give-up policy is the supervisor's to decide.
+		select {
+		case <-clientFailed:
+			os.Exit(1)
+		default:
+		}
 	},
 }
 

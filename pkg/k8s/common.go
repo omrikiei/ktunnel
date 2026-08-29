@@ -294,12 +294,26 @@ func (k *KubeService) getPodNames(deploymentName string, pods []string) error {
 	return nil
 }
 
-func (k *KubeService) PortForward(namespace, deploymentName string, targetPort string, fwdWaitGroup *sync.WaitGroup, stopChan <-chan struct{}) (*[]string, error) {
+// PortForward forwards targetPort on every pod of the deployment to a local
+// port, and returns those local ports once the forwards are up.
+//
+// The returned channel carries failures that happen after startup. A forward
+// that dies takes the tunnel above it with it, and the only way a caller can
+// learn about that is to be told: this used to be an unbuffered channel read
+// exactly once, during startup, so a later failure blocked its forwarder
+// forever and the tunnel just went quiet.
+//
+// It is buffered for every forwarder, so reading it is optional and a caller
+// that walks away cannot wedge a forwarder that outlives it. It closes once
+// every forwarder has returned, which happens when stopChan is closed, so a
+// reader can range over it and be released with the forwards it is watching
+// rather than waiting on a channel that will never speak again.
+func (k *KubeService) PortForward(namespace, deploymentName string, targetPort string, fwdWaitGroup *sync.WaitGroup, stopChan <-chan struct{}) (*[]string, <-chan error, error) {
 	clientMutex.RLock()
 	deployment, err := deploymentsClient.Get(context.Background(), deploymentName, metav1.GetOptions{})
 	clientMutex.RUnlock()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	podNames := make([]string, *deployment.Spec.Replicas)
@@ -307,19 +321,25 @@ func (k *KubeService) PortForward(namespace, deploymentName string, targetPort s
 	fwdWaitGroup.Add(int(*deployment.Spec.Replicas))
 
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	log.Debugf("Injecting to this pods: %v", podNames)
 	sourcePorts := make([]string, *deployment.Spec.Replicas)
 	numPort, err := strconv.ParseInt(targetPort, 10, 32)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for i := 0; i < len(sourcePorts); i++ {
 		sourcePorts[i] = strconv.FormatInt(numPort+int64(i), 10)
 	}
 
-	forwarderErrChan := make(chan error)
+	forwarderErrChan := make(chan error, len(podNames))
+	var forwarders sync.WaitGroup
+	forwarders.Add(len(podNames))
+	go func() {
+		forwarders.Wait()
+		close(forwarderErrChan)
+	}()
 	for i, podName := range podNames {
 		readyChan := make(chan struct{}, 1)
 		ports := []string{fmt.Sprintf("%s:%s", sourcePorts[i], targetPort)}
@@ -327,7 +347,13 @@ func (k *KubeService) PortForward(namespace, deploymentName string, targetPort s
 
 		transport, upgrader, err := spdy.RoundTripperFor(k.config)
 		if err != nil {
-			return nil, err
+			// Release the forwarders that will now never be launched, so
+			// the goroutine waiting to close forwarderErrChan is not left
+			// waiting on them.
+			for j := i; j < len(podNames); j++ {
+				forwarders.Done()
+			}
+			return nil, nil, err
 		}
 		log.Infof("port forwarding to %s", serverURL)
 		dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, serverURL)
@@ -352,8 +378,11 @@ func (k *KubeService) PortForward(namespace, deploymentName string, targetPort s
 			}
 		}()
 		go func() {
-			if err = forwarder.ForwardPorts(); err != nil { // Locks until stopChan is closed.
-				forwarderErrChan <- err
+			defer forwarders.Done()
+			// err is declared here rather than assigned to the function's
+			// own, which every forwarder would otherwise have written to.
+			if err := forwarder.ForwardPorts(); err != nil { // Locks until stopChan is closed.
+				forwarderErrChan <- fmt.Errorf("port forward to pod %s failed: %w", podName, err)
 			}
 		}()
 	}
@@ -368,9 +397,9 @@ func (k *KubeService) PortForward(namespace, deploymentName string, targetPort s
 
 	select {
 	case err := <-forwarderErrChan:
-		return nil, err
+		return nil, nil, err
 	case <-doneCh:
-		return &sourcePorts, nil
+		return &sourcePorts, forwarderErrChan, nil
 	}
 }
 
