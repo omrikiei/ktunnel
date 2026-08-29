@@ -17,7 +17,7 @@ repository secret**.
 | `GITHUB_TOKEN` | — | GitHub, automatically | Nothing. Never create this one. |
 | `DOCKERHUB_USERNAME` | **Yes** | You | Tagged releases fail fast, by design. Currently set and working. |
 | `DOCKERHUB_TOKEN` | **Yes** | You | Same. Currently set and working. |
-| `HOMEBREW_TAP_GITHUB_TOKEN` | Recommended | You | Release succeeds, but the Homebrew tap silently stays on the previous version. **Not yet set.** |
+| `HOMEBREW_TAP_GITHUB_TOKEN` | Recommended | You | Release succeeds, but the Homebrew tap silently stays on the previous version. Currently set and working. |
 | `CODECOV_TOKEN` | Optional | You | Coverage upload is skipped. CI still passes. |
 
 ### `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`
