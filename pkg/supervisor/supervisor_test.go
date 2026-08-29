@@ -535,12 +535,91 @@ func TestRunReportsEstablishmentEvenWhenTheAttemptFailsImmediately(t *testing.T)
 
 	// A tunnel that came up and died a moment later must still be reported
 	// as having come up; otherwise the log makes it look like it never did.
-	// Which of the two signals Run observes first is a scheduling detail --
-	// measurably both, a few percent of the time -- so the assertion is that
-	// the line appears exactly once either way.
+	// Run almost always observes the establishment signal first here, so
+	// this asserts the common path only. The rare opposite interleaving is
+	// what TestRunReportsEstablishmentWhenTheFailureIsObservedFirst covers.
 	assertLogged(t, out, "tunnel established", "tunnel lost")
 	if n := strings.Count(out.String(), "tunnel established"); n != 1 {
 		t.Errorf("logged establishment %d times, want once", n)
+	}
+}
+
+// countingWriter tallies log lines containing a phrase. Cheaper than
+// accumulating and parsing megabytes of buffer in the stress test below.
+type countingWriter struct {
+	phrase string
+	n      int
+}
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	if bytes.Contains(p, []byte(w.phrase)) {
+		w.n++
+	}
+	return len(p), nil
+}
+
+func TestRunReportsEstablishmentWhenTheFailureIsObservedFirst(t *testing.T) {
+	// An attempt can report itself up and then fail before Run gets back to
+	// its select, leaving both signals ready and the choice between them to
+	// the runtime. Run parks on the select long before that happens unless
+	// it is preempted in the few statements after launching the attempt, so
+	// the interleaving needs scheduling pressure to show up at all: it does
+	// not occur in a single-supervisor test. Without the drain that handles
+	// it, "tunnel established" goes missing from the log entirely for those
+	// attempts -- silently, and only on a loaded machine.
+	//
+	// The width is what makes this reliable rather than decorative: with the
+	// drain removed, 64x400 loses 30-39 of the 25600 establishments on every
+	// run (8 of 8 measured, -race), while a single supervisor loses none in
+	// hundreds. Lower the parallelism and this test stops failing when it
+	// should. It costs ~0.12s.
+	const (
+		workers = 64
+		cycles  = 400
+	)
+
+	// The stability timer is irrelevant here: every attempt fails at once.
+	never := make(chan time.Time)
+	after := func(time.Duration) <-chan time.Time { return never }
+
+	counts := make([]int, workers)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+
+			// Per worker, so 64 goroutines do not serialise on one logger
+			// mutex and lose the pressure this test exists to create.
+			counter := &countingWriter{phrase: "tunnel established"}
+			s := &Supervisor{
+				Attempt: func(_ context.Context, established func()) error {
+					established()
+					return errAttemptFailed
+				},
+				ExitOnFirst: true,
+				Log: &log.Logger{
+					Out:       counter,
+					Formatter: &log.TextFormatter{DisableColors: true, DisableTimestamp: true},
+					Level:     log.InfoLevel,
+				},
+				after: after,
+			}
+
+			for i := 0; i < cycles; i++ {
+				_ = s.Run(context.Background())
+			}
+			counts[w] = counter.n
+		}(w)
+	}
+	wg.Wait()
+
+	total := 0
+	for _, n := range counts {
+		total += n
+	}
+	if want := workers * cycles; total != want {
+		t.Errorf("%d of %d attempts came up and failed without their establishment being logged; the log is what users grep instead of running wrapper scripts", want-total, want)
 	}
 }
 
