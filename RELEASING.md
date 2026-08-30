@@ -122,6 +122,17 @@ git tag v2.1.0-rc1
 git push origin v2.1.0-rc1
 ```
 
+> **Put the rehearsal tag on its own commit, never the commit you intend
+> to tag as the real release.** Two tags on one commit is ambiguous, and
+> it cost v2.1.0 a release: goreleaser resolved to `v2.1.0-rc1` rather
+> than the tag that triggered the run, rebuilt the release candidate,
+> and failed uploading assets that were already on the rc1 release. The
+> workflow now pins `GORELEASER_CURRENT_TAG` to the triggering ref, so
+> this cannot recur silently — but the image job derives its tags from
+> the ref independently, and a rehearsal that shares a commit with the
+> real release is confusing to read in the Actions log regardless.
+> Rehearse, then land at least one more commit before tagging.
+
 Watch the run under **Actions**. Confirm all three of:
 
 - the `goreleaser` job uploaded archives, `.deb` and `.rpm` files, and
@@ -165,6 +176,9 @@ git tag -d v2.1.0-rc1
 ```
 
 ### 3. Tag the real release
+
+On a commit *after* the one you rehearsed against — see the warning in
+step 2.
 
 ```sh
 git tag v2.1.0
