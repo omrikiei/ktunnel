@@ -44,6 +44,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          # Without this, goreleaser resolves the version from the git history
+          # rather than the tag that triggered the run -- and when two tags sit
+          # on one commit it can pick the wrong one. v2.1.0 was tagged on the
+          # same commit as its v2.1.0-rc1 rehearsal, so goreleaser rebuilt
+          # rc1, tried to upload assets that were already on the rc1 release,
+          # and failed with 422 already_exists. The real release was never
+          # built. Pin it to the triggering ref.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
 
       # Prereleases must not reach krew-index: the bot opens a pull request
       # against kubernetes-sigs/krew-index, a third-party repository, and a
