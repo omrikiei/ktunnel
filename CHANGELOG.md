@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`--print-manifests`** on `expose`: writes the Deployment and Service
+  ktunnel would create, as YAML, and exits without contacting the
+  cluster. ([#94], [#120])
+
+  ```sh
+  ktunnel expose myapp 80:8000 --print-manifests | kubectl apply -f -
+  ```
+
+  Both issues arrived at hand-written manifests the same way — a private
+  registry, a security context their cluster admits — and then fought
+  `-r` to get ktunnel to adopt what they had written. `-r` adopts
+  properly as of v2.2.0, so this is no longer the way out of a bug; it
+  is the convenience of starting from what ktunnel would have created.
+  The output comes from the same code the command runs, so it cannot
+  drift from what is actually created. It goes to stdout on its own —
+  every log line, including which namespace was chosen, goes to stderr —
+  so the pipe above stays clean.
+
+### Fixed
+
+- **Resource requests and limits read the way Kubernetes writes them.**
+  ([#118]) `kubectl describe pod` showed `cpu: 500e-3` and `memory:
+  1e9`. Those values were correct and nothing else in a cluster writes
+  them that way, so they read as a bug and could not be compared by eye
+  against a LimitRange or the deployment next to them. They are now
+  `500m` and `1G`. The cause was a zero-valued `resource.Quantity`,
+  whose empty format serialises as DecimalExponent.
+
+  The other half of that issue — the four `--server-cpu-*` /
+  `--server-memory-*` flags — has existed since v2.0.
+
+### Changed
+
+- **A port argument that cannot be parsed is now an error.** It was
+  logged and skipped, so a typo in one of several ports produced a
+  tunnel that came up looking healthy and was quietly missing the port
+  you cared about.
+
 ## v2.2.0
 
 `inject` works against deployments ktunnel did not create, which is to

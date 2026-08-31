@@ -2,11 +2,9 @@ package k8s
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/omrikiei/ktunnel/pkg/common"
 	log "github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	v12 "k8s.io/api/core/v1"
@@ -44,62 +42,34 @@ func (k *KubeService) ExposeAsService(
 	// on the error paths too, so a caller that gives up can still remove a
 	// deployment that was created before the service failed.
 	tracker := NewResourceTracker(namespace, k.clients)
-	protocol, ok := supportedSchemes[scheme]
-	if !ok {
-		return tracker, errors.New("unsupported scheme")
-	}
-	// Appended rather than indexed: a port that fails to parse is skipped
-	// with a message, and indexing left a zero-valued entry in its place --
-	// a ServicePort for port 0, sent to the API server as if it were asked
-	// for.
-	ports := make([]v12.ServicePort, 0, len(rawPorts))
-	ctrPorts := make([]v12.ContainerPort, 0, len(rawPorts))
-	for _, p := range rawPorts {
-		parsed, err := common.ParsePorts(p)
-		if err != nil {
-			log.Errorf("Failed to parse %s, skipping", p)
-			continue
-		}
-		portname := fmt.Sprintf("%s-%d", scheme, parsed.Source)
-		if portName != "" {
-			portname = portName
-		}
-		ports = append(ports, v12.ServicePort{
-			Protocol: protocol,
-			Name:     portname,
-			Port:     parsed.Source,
-			TargetPort: intstr.IntOrString{
-				Type:   intstr.Int,
-				IntVal: parsed.Source,
-				StrVal: "",
-			},
-		})
-		ctrPorts = append(ctrPorts, v12.ContainerPort{
-			ContainerPort: parsed.Source,
-			Protocol:      protocol,
-			Name:          portname,
-		})
-	}
 
-	deploymentTemplate := newDeployment(
-		namespace,
-		name,
-		tunnelPort,
-		image,
-		ctrPorts,
-		nodeSelectorTags,
-		deploymentLabels,
-		deploymentAnnotations,
-		podTolerations,
-		cert,
-		key,
-		cpuReq,
-		cpuLimit,
-		memReq,
-		memLimit,
-	)
-
-	service := newService(namespace, name, ports, v12.ServiceType(serviceType))
+	// The objects are built by the same code that prints them under
+	// --print-manifests, so what the command creates and what it says it
+	// would create cannot drift apart.
+	deploymentTemplate, service, ports, err := ManifestOptions{
+		Namespace:             namespace,
+		Name:                  name,
+		TunnelPort:            tunnelPort,
+		Scheme:                scheme,
+		RawPorts:              rawPorts,
+		PortName:              portName,
+		Image:                 image,
+		DeploymentOnly:        DeploymentOnly,
+		NodeSelectorTags:      nodeSelectorTags,
+		DeploymentLabels:      deploymentLabels,
+		DeploymentAnnotations: deploymentAnnotations,
+		PodTolerations:        podTolerations,
+		Cert:                  cert,
+		Key:                   key,
+		ServiceType:           serviceType,
+		CPURequest:            cpuReq,
+		CPULimit:              cpuLimit,
+		MemRequest:            memReq,
+		MemLimit:              memLimit,
+	}.build()
+	if err != nil {
+		return tracker, err
+	}
 
 	// --reuse adopts. It does not write.
 	//

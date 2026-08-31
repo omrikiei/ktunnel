@@ -108,6 +108,20 @@ Replicas added while the tunnel is up are picked up the next time it is rebuilt,
 since the set of pods is resolved once per connection attempt.
 
 
+### Print the manifests instead of applying them
+`--print-manifests` writes the Deployment and Service ktunnel would create, as
+YAML, and exits without contacting the cluster — useful for checking them into
+a repo, adapting them for a private registry, or applying them yourself:
+
+```bash
+ktunnel expose myapp 80:8000 --print-manifests > ktunnel.yaml
+ktunnel expose myapp 80:8000 --print-manifests | kubectl apply -f -
+```
+
+The manifests come from the same code the command runs, so they cannot drift
+from what `ktunnel expose` actually creates. Everything else goes to stderr, so
+the pipe stays clean.
+
 ### Which namespace
 `--namespace` if you pass it; otherwise the namespace of your kubeconfig
 context (`--context` selects which context); otherwise `default`. It is

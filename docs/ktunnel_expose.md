@@ -54,6 +54,7 @@ ktunnel expose redis 6379
   -q, --node-selector-tags strings       tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)
       --pod-tolerations strings          comma separated list of tolerations seperated by the '=' character (i.e key=value:NoSchedule)
       --portname string                  specify container port name
+      --print-manifests                  print the deployment and service ktunnel would create, as YAML, and exit without contacting the cluster
   -r, --reuse                            delete k8s objects before expose
   -s, --scheme string                    Connection scheme (default "tcp")
       --server-cpu-limit int             Server container CPU Limit in milli-cpus (default 500)

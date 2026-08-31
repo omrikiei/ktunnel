@@ -420,3 +420,28 @@ func TestGetPodNames_ResolvesEveryReplica(t *testing.T) {
 		}
 	}
 }
+
+// TestGetPodNames_DoesNotMatchADeploymentWithTheSamePrefix is the regression
+// test for #123: `ktunnel expose react1` forwarded to pods of `react11`.
+//
+// Pods used to be found with a selector built by string concatenation from the
+// deployment name, and the lookup that consumed it matched on prefix, so every
+// deployment whose name extends another one's was a candidate. Resolving the
+// pods through the deployment's own spec.selector makes it an exact label
+// match, which is the only kind Kubernetes has.
+func TestGetPodNames_DoesNotMatchADeploymentWithTheSamePrefix(t *testing.T) {
+	svc := exposeFixture(t,
+		ktunnelDeployment("react1", 1),
+		ktunnelDeployment("react11", 1),
+		labelledPod("react1", "react1-abc", v1.PodRunning),
+		labelledPod("react11", "react11-xyz", v1.PodRunning),
+	)
+
+	pods := make([]string, 1)
+	if err := svc.getPodNames(context.Background(), ktunnelDeployment("react1", 1), pods); err != nil {
+		t.Fatalf("failed resolving the pods of react1: %v", err)
+	}
+	if pods[0] != "react1-abc" {
+		t.Errorf("forwarding to %q, want react1-abc: the tunnel went to another deployment's pod, and the user is debugging the wrong application", pods[0])
+	}
+}

@@ -153,11 +153,16 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
 	if key != "" {
 		args = append(args, fmt.Sprintf("--key %s", key))
 	}
-	cpuRequest, cpuLimit, memRequest, memLimit := resource.Quantity{}, resource.Quantity{}, resource.Quantity{}, resource.Quantity{}
-	cpuRequest.SetMilli(cReq)
-	cpuLimit.SetMilli(cLimit)
-	memRequest.SetScaled(mReq, resource.Mega)
-	memLimit.SetScaled(mLimit, resource.Mega)
+	// Constructed rather than zero-valued: a resource.Quantity built as
+	// resource.Quantity{} has the empty Format, which serialises as
+	// DecimalExponent -- `500e-3` for half a core and `100e6` for 100MB.
+	// Those are correct and nothing else in a cluster writes them that way,
+	// so they read as a bug, and they cannot be compared by eye against a
+	// LimitRange or the deployment next to them (#118).
+	cpuRequest := resource.NewMilliQuantity(cReq, resource.DecimalSI)
+	cpuLimit := resource.NewMilliQuantity(cLimit, resource.DecimalSI)
+	memRequest := resource.NewScaledQuantity(mReq, resource.Mega)
+	memLimit := resource.NewScaledQuantity(mLimit, resource.Mega)
 	containerUID := int64(1000)
 
 	return &apiv1.Container{
@@ -168,12 +173,12 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
 		Ports:   containerPorts,
 		Resources: apiv1.ResourceRequirements{
 			Requests: apiv1.ResourceList{
-				"cpu":    cpuRequest,
-				"memory": memRequest,
+				"cpu":    *cpuRequest,
+				"memory": *memRequest,
 			},
 			Limits: apiv1.ResourceList{
-				"cpu":    cpuLimit,
-				"memory": memLimit,
+				"cpu":    *cpuLimit,
+				"memory": *memLimit,
 			},
 		},
 		SecurityContext: &apiv1.SecurityContext{

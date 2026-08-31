@@ -13,6 +13,7 @@ import (
 	apiv1 "k8s.io/api/core/v1"
 )
 
+var PrintManifests bool
 var Reuse bool
 var Force bool
 var DeploymentOnly bool
@@ -54,14 +55,21 @@ ktunnel expose kewlapp 80:8000 -r
 ktunnel expose redis 6379
               `,
 	Run: func(cmd *cobra.Command, args []string) {
-		ctx, cancel := context.WithCancel(context.Background())
 		if verbose {
 			logger.SetLevel(log.DebugLevel)
 			k8s.SetLogLevel(log.DebugLevel)
 		}
 		// Resolved before anything else: it decides which namespace every
-		// object in the plan below belongs to.
-		Namespace = resolveNamespace()
+		// object below belongs to. --print-manifests keeps stdout for the
+		// YAML, so the line saying where the namespace came from goes to
+		// stderr with the rest of the logging.
+		namespace, namespaceSource := resolveNamespaceQuietly()
+		Namespace = namespace
+		if PrintManifests {
+			fmt.Fprintf(os.Stderr, "# %s\n", namespaceLine(namespace, namespaceSource))
+		} else {
+			logger.Info(namespaceLine(namespace, namespaceSource))
+		}
 
 		// Create service and deployment
 		svcName, ports := args[0], args[1:]
@@ -96,10 +104,6 @@ ktunnel expose redis 6379
 			deploymentAnnotations[parsed[0]] = parsed[1]
 		}
 
-		svc, err := k8s.NewKubeService(KubeContext, Namespace)
-		if err != nil {
-			log.Fatalf("Failed to create new kube service: %v", err)
-		}
 		podTolerations := make([]apiv1.Toleration, 0, len(PodTolerations))
 		for _, label := range PodTolerations {
 			parsed := strings.Split(label, "=")
@@ -119,6 +123,52 @@ ktunnel expose redis 6379
 				Value:    valueAndEffect[0],
 				Effect:   apiv1.TaintEffect(valueAndEffect[1]),
 			})
+		}
+
+		manifestOptions := k8s.ManifestOptions{
+			Namespace:             Namespace,
+			Name:                  svcName,
+			TunnelPort:            port,
+			Scheme:                Scheme,
+			RawPorts:              ports,
+			PortName:              PortName,
+			Image:                 ServerImage,
+			DeploymentOnly:        DeploymentOnly,
+			NodeSelectorTags:      nodeSelectorTags,
+			DeploymentLabels:      deploymentLabels,
+			DeploymentAnnotations: deploymentAnnotations,
+			PodTolerations:        podTolerations,
+			Cert:                  CertFile,
+			Key:                   KeyFile,
+			ServiceType:           ServiceType,
+			CPURequest:            ServerCPURequest,
+			CPULimit:              ServerCPULimit,
+			MemRequest:            ServerMemRequest,
+			MemLimit:              ServerMemLimit,
+		}
+
+		// --print-manifests reaches no cluster, so it comes before the client
+		// is built: it works with an unreachable API server, and in a CI job
+		// that only wants the YAML.
+		if PrintManifests {
+			rendered, err := k8s.RenderManifests(manifestOptions)
+			if err != nil {
+				// stderr, like the namespace line above it: on this path
+				// stdout is the data, and half a manifest followed by an
+				// error message is worse than an empty pipe.
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				os.Exit(1)
+			}
+			// The manifests go to stdout on their own, so the output can be
+			// piped straight into kubectl; where the namespace came from is a
+			// log line and belongs on stderr with the rest of them.
+			fmt.Print(rendered)
+			return
+		}
+
+		svc, err := k8s.NewKubeService(KubeContext, Namespace)
+		if err != nil {
+			log.Fatalf("Failed to create new kube service: %v", err)
 		}
 
 		if Force {
@@ -179,6 +229,11 @@ ktunnel expose redis 6379
 		// was wrong in both directions: --reuse against objects that did not
 		// exist created them and then left them in the cluster, and the
 		// message promised to remove objects that ktunnel had only adopted.
+		// Created here rather than at the top of the command: --print-manifests
+		// returns above without ever running a tunnel, and a cancel func that
+		// some paths never call is a context leak go vet is right about.
+		ctx, cancel := context.WithCancel(context.Background())
+
 		createdDeployments, createdServices := tracker.GetTrackedResources()
 		created := len(createdDeployments) + len(createdServices)
 		exitMsg := "Got exit signal, closing client tunnels and removing the objects ktunnel created"
@@ -253,6 +308,7 @@ func init() {
 	exposeCmd.Flags().BoolVarP(&Reuse, "reuse", "r", false, "delete k8s objects before expose")
 	exposeCmd.Flags().BoolVarP(&Force, "force", "f", false, "deployment & service will be removed before")
 	exposeCmd.Flags().BoolVarP(&DeploymentOnly, "deployment-only", "d", false, "create only deployment")
+	exposeCmd.Flags().BoolVar(&PrintManifests, "print-manifests", false, "print the deployment and service ktunnel would create, as YAML, and exit without contacting the cluster")
 	exposeCmd.Flags().StringSliceVarP(&NodeSelectorTags, "node-selector-tags", "q", []string{}, "tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)")
 	exposeCmd.Flags().StringSliceVarP(&DeploymentLabels, "deployment-labels", "l", []string{}, "comma separated list of labels and values seperated by the '=' character (i.e app=application,env=prod)")
 	exposeCmd.Flags().StringSliceVarP(&DeploymentAnnotations, "deployment-annotations", "", []string{}, "comma separated list of annotations and values seperated by the '=' character (i.e sidecar.istio.io/inject=false)")

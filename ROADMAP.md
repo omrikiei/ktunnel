@@ -47,7 +47,7 @@ rescheduled tunnel-server pod.
 
 ---
 
-## v2.2 — `inject` actually works · **done, unreleased**
+## v2.2 — `inject` actually works · **shipped**
 
 **Why first:** `inject` is one of ktunnel's two headline commands, and it
 could not forward to any Deployment that did not already carry the two
@@ -75,12 +75,12 @@ half the product had been broken for years.
 
 ---
 
-## v2.3 — Predictable resources
+## v2.3 — Predictable resources · **shipped**
 
-**Why second:** this is the single largest cluster of user complaints, and
-#134 is worth reading in full — one user listing everything confusing about
-the tool at once. Half of its list is already fixed in v2.0–v2.1. What
-remains is resource lifecycle and messaging.
+**Why it was second:** this is the single largest cluster of user complaints,
+and #134 is worth reading in full — one user listing everything confusing
+about the tool at once. Half of its list was already fixed in v2.0–v2.1; the
+rest of it was resource lifecycle and messaging, and is now done.
 
 - [x] `--reuse` genuinely reuses, instead of merge-patching ktunnel's own
       template over the Deployment it was pointed at — **M** · #120, #94
@@ -105,8 +105,8 @@ remains is resource lifecycle and messaging.
       where the class of failure has one, the way out: missing points at
       `--namespace`/`--context`, forbidden at the RBAC in
       `docs/security.md`, a bind failure at `--port`.
-- [ ] `--print-manifests` / `--dry-run`: emit the Deployment and Service to
-      apply yourself — **M** · #94, #120
+- [x] `--print-manifests`: emit the Deployment and Service to apply
+      yourself — **M** · #94, #120
       <br>Reprioritised down: both issues wanted this because they were
       fighting `-r` to adopt a hand-written Deployment, and `-r` adopts
       properly now. What remains is the convenience of not writing the
@@ -166,20 +166,22 @@ Not tied to a release; pick up whenever.
 
 ## Issues to verify and close
 
-Resolved as far as anyone can tell; worth confirming rather than carrying.
+All verified and closed against v2.2.0, except #118, whose second half ships
+in v2.3.
 
-- [ ] **#118** — custom requests/limits: the four `--server-cpu-*` /
-      `--server-memory-*` flags exist.
-- [ ] **#123** — pods picked by name prefix, so `react1` matched `react11`:
+- [x] **#118** — custom requests/limits: the four `--server-cpu-*` /
+      `--server-memory-*` flags exist. The second half of the report, values
+      rendered as `500e-3` and `1e9`, is fixed in v2.3.
+- [x] **#123** — pods picked by name prefix, so `react1` matched `react11`:
       pod lookup is an exact label match now, not a prefix.
-- [ ] **#70** — `--ca-file` ignored: it genuinely was. `--tls` is fixed for
+- [x] **#70** — `--ca-file` ignored: it genuinely was. `--tls` is fixed for
       standalone client/server in v2.1 and rejected up front for `expose`
       and `inject`, which is #166.
-- [ ] **#96** — answered by the multi-replica decision in v2.2.
-- [ ] **#80** — answered by [docs/security.md](docs/security.md); the token
+- [x] **#96** — answered by the multi-replica decision in v2.2.
+- [x] **#80** — answered by [docs/security.md](docs/security.md); the token
       itself is the v2.4 item above.
-- [ ] **#171**, **#115** — fixed in v2.2.
-- [ ] **#120**, **#94** — `--reuse` adopts instead of overwriting, and cleans
+- [x] **#171**, **#115** — fixed in v2.2.
+- [x] **#120**, **#94** — `--reuse` adopts instead of overwriting, and cleans
       up only what it created.
 
 ---
