@@ -45,7 +45,7 @@ ktunnel inject deployment mydeployment 3306 6379
   -n, --namespace string              Namespace (default: the kubeconfig context's namespace, or "default")
   -s, --scheme string                 Connection scheme (default "tcp")
   -o, --server-host-override string   Server name use to verify the hostname returned by the TLS handshake
-  -i, --server-image string           Ktunnel server image to use (default "docker.io/omrieival/ktunnel:v2.1.0")
+  -i, --server-image string           Ktunnel server image to use (default "docker.io/omrieival/ktunnel:v2.2.0")
 ```
 
 ### Options inherited from parent commands

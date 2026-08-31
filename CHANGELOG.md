@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.2.0
 
 `inject` works against deployments ktunnel did not create, which is to
 say: against deployments. `--reuse` reuses. Both commands say what they
