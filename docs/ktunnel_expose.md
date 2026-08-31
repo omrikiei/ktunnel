@@ -60,7 +60,7 @@ ktunnel expose redis 6379
       --server-cpu-limit int             Server container CPU Limit in milli-cpus (default 500)
       --server-cpu-request int           Server container CPU Request in milli-cpus (default 100)
   -o, --server-host-override string      Server name use to verify the hostname returned by the TLS handshake
-  -i, --server-image string              Ktunnel server image to use (default "docker.io/omrieival/ktunnel:v2.2.0")
+  -i, --server-image string              Ktunnel server image to use (default "docker.io/omrieival/ktunnel:v2.3.0")
       --server-memory-limit int          Server container memory limit in mega-bytes (default 1000)
       --server-memory-request int        Server container memory request in mega-bytes (default 100)
       --service-type string              exposed service type (ClusterIP, NodePort, LoadBalancer or ExternalName) (default "ClusterIP")
