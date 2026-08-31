@@ -30,13 +30,24 @@ var ServerMemLimit int64
 var exposeCmd = &cobra.Command{
 	Use:   "expose [flags] SERVICE_NAME [ports]",
 	Short: "Expose local machine as a service on the kubernetes cluster",
-	Long: `This command would inject a new service and deployment to the cluster, and open the tunnel to the server 
-                        forwarding tunnel ingress traffic to the the same port on localhost`,
+	Long: `Creates a Deployment and a Service running the tunnel server, and opens a tunnel
+to your machine, so that traffic sent to that Service is forwarded to the same
+port on localhost.
+
+Objects are only ever created or adopted, never rewritten. --reuse uses an
+existing Deployment and Service exactly as they stand -- your image, your
+security context, your resources -- and creates them only if they are not
+there. Whatever this run created is removed on exit; whatever it adopted is
+left alone. Use --force to delete and recreate instead.
+
+The tunnel is not authenticated: anything in the cluster that can reach the
+Service reaches whatever is behind it on your machine. See docs/security.md.`,
 	Args: cobra.MinimumNArgs(2),
 	Example: `
 # Expose a local application running on port 8000 via http
 ktunnel expose kewlapp 80:8000
 
+# Use a deployment and service you wrote yourself, as they are
 ktunnel expose kewlapp 80:8000 -r
                           
 # Expose a local redis server
@@ -113,7 +124,9 @@ ktunnel expose redis 6379
 			}
 		}
 
-		err = svc.ExposeAsService(
+		// The tracker comes back holding what this call created, and only
+		// that, so teardown below removes exactly what ktunnel put there.
+		tracker, err := svc.ExposeAsService(
 			Namespace,
 			svcName,
 			port,
@@ -131,29 +144,36 @@ ktunnel expose redis 6379
 			CertFile,
 			KeyFile,
 			ServiceType,
-			KubeContext,
 			ServerCPURequest,
 			ServerCPULimit,
 			ServerMemRequest,
 			ServerMemLimit,
 		)
 		if err != nil {
+			// Whatever was created before the failure goes with it. The
+			// deployment is created before the service, so a service that
+			// could not be created used to leave the deployment behind and
+			// exit -- and log.Fatalf runs no deferred function to catch it.
+			cleanupCreated(tracker)
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
 		}
-		// Teardown of the deployment and service this created runs exactly
-		// once, whether the command ends on Ctrl+C, on a failed rollout or
-		// because the supervisor gave up.
-		exitMsg := "Got exit signal, closing client tunnels and removing k8s objects"
-		if Reuse {
-			exitMsg = "Got exit signal, closing client tunnels"
+
+		// Teardown removes what this run created, and nothing else. It runs
+		// exactly once, whether the command ends on Ctrl+C, on a failed
+		// rollout or because the supervisor gave up.
+		//
+		// This used to key off --reuse rather than off what happened, which
+		// was wrong in both directions: --reuse against objects that did not
+		// exist created them and then left them in the cluster, and the
+		// message promised to remove objects that ktunnel had only adopted.
+		createdDeployments, createdServices := tracker.GetTrackedResources()
+		created := len(createdDeployments) + len(createdServices)
+		exitMsg := "Got exit signal, closing client tunnels and removing the objects ktunnel created"
+		if created == 0 {
+			exitMsg = "Got exit signal, closing client tunnels; the deployment and service were already there and are left as they are"
 		}
 		sess := newTunnelSession(ctx, cancel, exitMsg, func() {
-			if Reuse {
-				return
-			}
-			if err := svc.TeardownExposedService(svcName, DeploymentOnly); err != nil {
-				logger.Errorf("Failed deleting k8s objects: %s", err)
-			}
+			cleanupCreated(tracker)
 		})
 		defer sess.finish()
 
@@ -163,10 +183,10 @@ ktunnel expose redis 6379
 			return
 		}
 		if !ready {
-			// Not "cleaning up": under -r/--reuse the teardown deliberately
-			// leaves the deployment and service alone, and a line promising
-			// cleanup that never comes sends the user looking for the wrong
-			// thing.
+			// Not "cleaning up": teardown removes only what this run
+			// created, so against adopted objects it deliberately leaves
+			// them alone, and a line promising cleanup that never comes
+			// sends the user looking for the wrong thing.
 			log.Error("deployment failed to become ready")
 			// Exit non-zero, like every other way this command can fail. A
 			// plain return exited 0, so a systemd unit or a CI step saw
@@ -191,6 +211,20 @@ ktunnel expose redis 6379
 	},
 }
 
+// cleanupCreated removes the resources a run created, and is a no-op when it
+// created none -- the --reuse case, where every object was already there.
+func cleanupCreated(tracker *k8s.ResourceTracker) {
+	deployments, services := tracker.GetTrackedResources()
+	if len(deployments)+len(services) == 0 {
+		return
+	}
+	// Background rather than the session context, which is already cancelled
+	// by the time teardown runs. The tracker carries its own 30s timeout.
+	if err := tracker.Cleanup(context.Background()); err != nil {
+		logger.Errorf("Failed deleting k8s objects: %s", err)
+	}
+}
+
 func init() {
 	exposeCmd.PreRunE = rejectInClusterTLS("expose")
 	exposeCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
@@ -212,8 +246,8 @@ func init() {
 	exposeCmd.Flags().StringSliceVarP(&PodTolerations, "pod-tolerations", "", []string{}, "comma separated list of tolerations seperated by the '=' character (i.e key=value:NoSchedule)")
 	exposeCmd.Flags().Int64Var(&ServerCPURequest, "server-cpu-request", 100, "Server container CPU Request in milli-cpus")
 	exposeCmd.Flags().Int64Var(&ServerCPULimit, "server-cpu-limit", 500, "Server container CPU Limit in milli-cpus")
-	exposeCmd.Flags().Int64Var(&ServerMemRequest, "server-memory-request", 100, "Server container CPU Request in mega-bytes")
-	exposeCmd.Flags().Int64Var(&ServerMemLimit, "server-memory-limit", 1000, "Server container CPU Limit in mega-bytes")
+	exposeCmd.Flags().Int64Var(&ServerMemRequest, "server-memory-request", 100, "Server container memory request in mega-bytes")
+	exposeCmd.Flags().Int64Var(&ServerMemLimit, "server-memory-limit", 1000, "Server container memory limit in mega-bytes")
 	addReconnectFlags(exposeCmd)
 	rootCmd.AddCommand(exposeCmd)
 }

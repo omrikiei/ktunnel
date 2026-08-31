@@ -25,6 +25,7 @@
 - [Installation](#installation)
 - [About](#about)
 - [Usage](#usage)
+- [Security model](./docs/security.md)
 - [Documentation](./docs/index.md)
 - [Roadmap](./ROADMAP.md)
 - [Authors](https://github.com/omrikiei/ktunnel/contributors)
@@ -79,14 +80,33 @@ This will allow pods in the cluster to access your local web app (listening on p
 http (i.e kubernetes applications can send requests to myapp:80)
 ```bash
 ktunnel expose myapp 80:8000
-ktunnel expose myapp 80:8000 -r #deployment & service will be reused if exists or they will be created
+ktunnel expose myapp 80:8000 -r # use an existing deployment & service as they are, or create them
 ```
 
+`--reuse` adopts. If the Deployment and Service are already there — because you
+wrote them yourself for a private registry or a security context your cluster
+admits — ktunnel uses them exactly as they stand and does not modify them, and
+does not delete them on exit either. If they are not there, it creates them, and
+removes what it created when you stop it. `--force` deletes and recreates
+instead.
+
 ### Inject to an existing deployment
-This will currently only work for deployments with 1 replica - it will expose a listening port on the pod through a tunnel to your local machine
+This opens a listening port inside the deployment's own pods, tunnelled to your
+local machine, so the application reaches your laptop at `localhost:3306`.
 ```bash
 ktunnel inject deployment mydeployment 3306
 ```
+
+The sidecar's listeners are pod-local: only containers in an injected pod reach
+your machine through them. So every replica is injected and every replica is
+tunnelled — forwarding to one arbitrary pod of several would leave the rest with
+the port closed, and nothing to say which pod was the working one. A deployment
+with three replicas takes three local ports, counting up from `--port`, and
+opens three streams to your machine.
+
+Replicas added while the tunnel is up are picked up the next time it is rebuilt,
+since the set of pods is resolved once per connection attempt.
+
 
 ### Reconnecting
 `expose`, `inject` and `client` reconnect on their own when a tunnel drops -- a
@@ -125,6 +145,17 @@ ktunnel now automatically tracks and cleans up resources (deployments and servic
 ```bash
 ktunnel expose myapp 80:8000 -v
 ```
+
+### Security
+The tunnel is **not authenticated**. Anything in the cluster that can reach a
+tunnelled port reaches whatever is listening behind it on your machine, and
+`--tls` is not available for `expose` or `inject` yet. That is the trade for a
+tool that installs no operator and needs no cluster-wide permissions, and it
+makes ktunnel a development-cluster tool.
+
+[docs/security.md](./docs/security.md) has the whole picture: what is reachable
+from where, what is encrypted, what authenticates what, the Kubernetes
+permissions ktunnel uses, and how to narrow the exposure in the meantime.
 
 ### Star History
 

@@ -29,6 +29,64 @@ func labelledPod(deployment, name string, phase v1.PodPhase) *v1.Pod {
 	}
 }
 
+// ktunnelSelector is the selector on the Deployments `expose` creates: the two
+// labels ktunnel sets on them itself.
+func ktunnelSelector(name string) *metav1.LabelSelector {
+	return &metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			deploymentNameLabel:     name,
+			deploymentInstanceLabel: name,
+		},
+	}
+}
+
+// ktunnelDeployment is a tunnel server Deployment as `expose` creates it.
+func ktunnelDeployment(name string, replicas int32) *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: ktunnelSelector(name),
+		},
+	}
+}
+
+// appDeployment is an ordinary application Deployment, the kind `inject`
+// targets: it selects its pods by whatever labels its author chose, and knows
+// nothing of ktunnel's.
+func appDeployment(name string, replicas int32, selector map[string]string) *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{MatchLabels: selector},
+		},
+	}
+}
+
+// appPod is a pod of an appDeployment: it carries that deployment's own
+// selector labels, and none of ktunnel's.
+func appPod(name string, labels map[string]string, phase v1.PodPhase, age time.Duration) *v1.Pod {
+	return &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              name,
+			Namespace:         "default",
+			Labels:            labels,
+			CreationTimestamp: metav1.NewTime(time.Now().Add(-age)),
+		},
+		Status: v1.PodStatus{Phase: phase},
+	}
+}
+
+// terminating marks a pod as being deleted, the way the API server does once
+// something has asked for it to go away but its grace period has not expired.
+func terminating(p *v1.Pod) *v1.Pod {
+	deleted := metav1.NewTime(time.Now())
+	p.DeletionTimestamp = &deleted
+	p.Finalizers = []string{"ktunnel.test/hold"}
+	return p
+}
+
 // kubeServiceWithPods returns a KubeService backed by a fake API server
 // holding pods.
 func kubeServiceWithPods(pods ...*v1.Pod) *KubeService {
@@ -59,7 +117,7 @@ func TestGetPodNames_FewerRunningPodsThanReplicas(t *testing.T) {
 	}()
 
 	pods := make([]string, 1)
-	err := svc.getPodNames(context.Background(), "proxy", pods)
+	err := svc.getPodNames(context.Background(), ktunnelDeployment("proxy", 1), pods)
 	if err == nil {
 		t.Fatal("resolving pods reported success with no running pod to forward to; the attempt would build a forward to the empty pod name")
 	}
@@ -77,7 +135,7 @@ func TestGetPodNames_ResolvesRunningPods(t *testing.T) {
 	)
 
 	pods := make([]string, 1)
-	if err := svc.getPodNames(context.Background(), "proxy", pods); err != nil {
+	if err := svc.getPodNames(context.Background(), ktunnelDeployment("proxy", 1), pods); err != nil {
 		t.Fatalf("failed resolving a running pod: %v", err)
 	}
 	if pods[0] != "proxy-7d9f-x2m1" {
@@ -89,11 +147,7 @@ func TestGetPodNames_ResolvesRunningPods(t *testing.T) {
 // zero -- `expose -r` against a scaled-down deployment, or someone scaling it
 // down mid-session, which is a reconnect scenario by definition.
 func zeroReplicaDeployment(name string) *appsv1.Deployment {
-	replicas := int32(0)
-	return &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-		Spec:       appsv1.DeploymentSpec{Replicas: &replicas},
-	}
+	return ktunnelDeployment(name, 0)
 }
 
 // TestPortForward_NoPodsNeverReportsSuccessWithNoPorts pins what PortForward
@@ -143,11 +197,7 @@ func TestPortForward_NoPodsNeverReportsSuccessWithNoPorts(t *testing.T) {
 
 // oneReplicaDeployment is a tunnel server deployment that wants a single pod.
 func oneReplicaDeployment(name string) *appsv1.Deployment {
-	replicas := int32(1)
-	return &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-		Spec:       appsv1.DeploymentSpec{Replicas: &replicas},
-	}
+	return ktunnelDeployment(name, 1)
 }
 
 // TestPortForward_UnresponsiveAPIServerIsCancellable is the regression test for
@@ -225,5 +275,148 @@ func TestPortForward_UnresponsiveAPIServerIsCancellable(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("PortForward never returned after its context was cancelled; a forwarder stuck dialling an unresponsive API server parks the attempt " +
 			"before its release timeout is even registered, and the command hangs with only a second Ctrl+C to escape")
+	}
+}
+
+// TestGetPodNames_UsesTheDeploymentsOwnSelector is the regression test for
+// `inject` never having worked against a Deployment ktunnel did not create.
+//
+// Pods used to be resolved by the two labels `expose` puts on its own
+// Deployments. An application Deployment is labelled however its author chose,
+// so nothing matched: the sidecar injected, the pod reported 2/2 Running, and
+// the port-forward retried "found 0 running pod(s)" forever. Half the product,
+// broken for years (#171, #115).
+func TestGetPodNames_UsesTheDeploymentsOwnSelector(t *testing.T) {
+	selector := map[string]string{"app": "web", "tier": "frontend"}
+	svc := kubeServiceWithPods(appPod("web-5b65-dd54r", selector, v1.PodRunning, time.Minute))
+
+	pods := make([]string, 1)
+	if err := svc.getPodNames(context.Background(), appDeployment("web", 1, selector), pods); err != nil {
+		t.Fatalf("failed resolving the pods of a deployment ktunnel did not create: %v; "+
+			"this is `ktunnel inject` against any ordinary deployment, and it never forwards to anything", err)
+	}
+	if pods[0] != "web-5b65-dd54r" {
+		t.Errorf("resolved %q, want the deployment's own pod web-5b65-dd54r", pods[0])
+	}
+}
+
+// TestGetPodNames_RolloutWindowPrefersTheNewPod covers the window a rollout
+// opens: a Deployment's selector matches the pods of its old ReplicaSet and
+// its new one alike, so for a moment two running pods answer to it.
+//
+// Injecting the sidecar *is* a rollout, so this window is on the path of every
+// `inject` run rather than an edge case. Only the new pod carries the sidecar;
+// forwarding to the outgoing one reaches a pod with no tunnel server in it and
+// no port to forward to.
+func TestGetPodNames_RolloutWindowPrefersTheNewPod(t *testing.T) {
+	selector := map[string]string{"app": "web"}
+	svc := kubeServiceWithPods(
+		appPod("web-old-4k2b", selector, v1.PodRunning, 10*time.Minute),
+		appPod("web-new-x2m1", selector, v1.PodRunning, 5*time.Second),
+	)
+
+	pods := make([]string, 1)
+	if err := svc.getPodNames(context.Background(), appDeployment("web", 1, selector), pods); err != nil {
+		t.Fatalf("failed resolving pods mid-rollout: %v", err)
+	}
+	if pods[0] != "web-new-x2m1" {
+		t.Errorf("resolved %q mid-rollout, want the new pod web-new-x2m1: the old one has no sidecar to forward to", pods[0])
+	}
+}
+
+// TestGetPodNames_SkipsTerminatingPods keeps the other half of the rollout
+// window honest. A pod being deleted stays Phase Running for its whole grace
+// period, and it is the newest match for as long as its replacement has not
+// been created -- so newest-first alone would pick the one pod that is
+// guaranteed to be gone shortly, and the forward would die with it.
+func TestGetPodNames_SkipsTerminatingPods(t *testing.T) {
+	selector := map[string]string{"app": "web"}
+	svc := kubeServiceWithPods(
+		appPod("web-staying-4k2b", selector, v1.PodRunning, 10*time.Minute),
+		terminating(appPod("web-going-x2m1", selector, v1.PodRunning, 5*time.Second)),
+	)
+
+	pods := make([]string, 1)
+	if err := svc.getPodNames(context.Background(), appDeployment("web", 1, selector), pods); err != nil {
+		t.Fatalf("failed resolving pods while one was terminating: %v", err)
+	}
+	if pods[0] != "web-staying-4k2b" {
+		t.Errorf("resolved %q, want web-staying-4k2b: web-going-x2m1 is being deleted and its forward dies with it", pods[0])
+	}
+}
+
+// TestGetPodNames_RefusesASelectorThatMatchesEverything pins the one case
+// where reading the Deployment's selector could be worse than reading
+// ktunnel's labels. An absent or empty selector converts to "match every pod",
+// which would forward to an arbitrary unrelated pod in the namespace and
+// report success. Refusing names the object; matching anything does not.
+func TestGetPodNames_RefusesASelectorThatMatchesEverything(t *testing.T) {
+	unrelated := map[string]string{"app": "postgres"}
+	svc := kubeServiceWithPods(appPod("postgres-0", unrelated, v1.PodRunning, time.Hour))
+
+	replicas := int32(1)
+	for _, tc := range []struct {
+		name       string
+		deployment *appsv1.Deployment
+	}{
+		{
+			name: "no selector",
+			deployment: &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "default"},
+				Spec:       appsv1.DeploymentSpec{Replicas: &replicas},
+			},
+		},
+		{
+			name:       "empty selector",
+			deployment: appDeployment("web", 1, map[string]string{}),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pods := make([]string, 1)
+			err := svc.getPodNames(context.Background(), tc.deployment, pods)
+			if err == nil {
+				t.Fatalf("resolved %q for a deployment that selects nothing in particular; "+
+					"the tunnel would be built to an unrelated pod that happened to be in the namespace", pods[0])
+			}
+			if !strings.Contains(err.Error(), "web") {
+				t.Errorf("the error %q does not name the deployment, so the user cannot tell which object to fix", err)
+			}
+		})
+	}
+}
+
+// TestGetPodNames_ResolvesEveryReplica covers the fan-out `inject` relies on
+// for a deployment with more than one replica.
+//
+// The sidecar's listeners are pod-local, so a replica without a forward of its
+// own is a replica whose containers get connection refused on the tunnelled
+// port. Resolving fewer pods than there are replicas is that outcome.
+func TestGetPodNames_ResolvesEveryReplica(t *testing.T) {
+	selector := map[string]string{"app": "web"}
+	svc := kubeServiceWithPods(
+		appPod("web-a", selector, v1.PodRunning, 3*time.Minute),
+		appPod("web-b", selector, v1.PodRunning, 2*time.Minute),
+		appPod("web-c", selector, v1.PodRunning, time.Minute),
+	)
+
+	pods := make([]string, 3)
+	if err := svc.getPodNames(context.Background(), appDeployment("web", 3, selector), pods); err != nil {
+		t.Fatalf("failed resolving the pods of a three-replica deployment: %v", err)
+	}
+
+	resolved := map[string]bool{}
+	for _, p := range pods {
+		if p == "" {
+			t.Fatalf("resolved %v: a replica was left without a pod, so it would get no forward and no tunnel", pods)
+		}
+		if resolved[p] {
+			t.Fatalf("resolved %v: the same pod twice, so one replica is forwarded to twice and another not at all", pods)
+		}
+		resolved[p] = true
+	}
+	for _, want := range []string{"web-a", "web-b", "web-c"} {
+		if !resolved[want] {
+			t.Errorf("resolved %v, which leaves out %s: that replica's containers get connection refused on the tunnelled port", pods, want)
+		}
 	}
 }

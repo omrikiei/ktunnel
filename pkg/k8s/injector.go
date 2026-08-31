@@ -37,6 +37,30 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 	return true, nil
 }
 
+// InjectSidecar adds the tunnel server to a deployment's pod template as a
+// sidecar, and reports on readyChan once the resulting rollout has finished.
+//
+// Every replica is injected and every replica is tunnelled. This used to
+// refuse outright on a deployment with more than one replica, and the
+// alternative to refusing is not "forward to one of them".
+//
+// The sidecar's listeners are pod-local: the tunnel server binds the tunnel
+// ports inside the pod it was injected into, and only that pod's containers
+// reach your machine through them. Forwarding to one arbitrary pod of N would
+// therefore leave N-1 pods with the port closed and nothing to say which pod
+// is the working one -- a deployment where a third of the requests reach your
+// laptop and the rest get connection refused is a worse thing to debug than a
+// deployment where none of them do.
+//
+// So the choice is all of them or none of them, and ktunnel takes all of them:
+// one port-forward and one tunnel client per replica, every one of them
+// carrying traffic to the same local service. PortForward has always built a
+// forward per pod, so this is the refusal being removed rather than a fan-out
+// being added. It costs one local port per replica, taken consecutively from
+// --port, and one gRPC stream per replica.
+//
+// Replicas added after the tunnel is up are not picked up until the tunnel is
+// rebuilt, since the set of pods is resolved once per attempt.
 func (k *KubeService) InjectSidecar(namespace, objectName *string, port *int, image string, cert string, key string, readyChan chan<- bool, kubecontext *string) (bool, error) {
 	log.Infof("Injecting tunnel sidecar to %s/%s", *namespace, *objectName)
 	cpuReq := int64(100) // in milli-cpu
@@ -48,8 +72,11 @@ func (k *KubeService) InjectSidecar(namespace, objectName *string, port *int, im
 	if err != nil {
 		return false, err
 	}
-	if *obj.Spec.Replicas > int32(1) {
-		return false, errors.New("sidecar injection only support deployments with one replica")
+	if replicas := replicaCount(obj); replicas > 1 {
+		// Said before the rollout starts, because it is the one surprise
+		// here: N local ports get taken, not one.
+		log.Infof("%s/%s has %d replicas; each one gets its own tunnel, on local ports %d-%d",
+			*namespace, *objectName, replicas, *port, *port+int(replicas)-1)
 	}
 	_, err = injectToDeployment(obj, co, image, readyChan)
 	if err != nil {

@@ -26,7 +26,20 @@ var injectCmd = &cobra.Command{
 var injectDeploymentCmd = &cobra.Command{
 	Use:   "deployment [flags] DEPLOYMENT_NAME [ports]",
 	Short: "Inject server sidecar to a deployment and run the ktunnel client to establish a connection",
-	Args:  cobra.MinimumNArgs(2),
+	Long: `Adds the tunnel server to a deployment's pod template as a sidecar, waits for the
+rollout, and establishes a reverse tunnel from those pods to your machine.
+
+The sidecar's listeners are pod-local: containers in an injected pod reach your
+machine at localhost:PORT, and nothing outside the pod is routed through the
+tunnel. Every replica is injected, so every replica is tunnelled -- a deployment
+with three replicas takes three local ports, counting up from --port, and opens
+three streams to your machine. Replicas added while the tunnel is up are picked
+up the next time it is rebuilt.
+
+The tunnel is not authenticated. Anything in the cluster that can reach an
+injected pod on a tunnelled port reaches whatever is behind it on your machine.
+See docs/security.md.`,
+	Args: cobra.MinimumNArgs(2),
 	Example: `
 # Inject a back tunnel from a running deployment to local mysql and redis 
 ktunnel inject deployment mydeployment 3306 6379

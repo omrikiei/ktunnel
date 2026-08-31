@@ -269,8 +269,51 @@ func newService(namespace, name string, ports []apiv1.ServicePort, serviceType a
 	}
 }
 
-func (k *KubeService) getPodNames(ctx context.Context, deploymentName string, pods []string) error {
-	labelSelector := deploymentNameLabel + "=" + deploymentName + "," + deploymentInstanceLabel + "=" + deploymentName
+// replicaCount is the number of pods a deployment wants.
+//
+// spec.replicas is a pointer that the API server defaults to 1 when it is
+// unset, so nil means one pod rather than none. It was dereferenced in two
+// places without a check, which is a panic on an object built by anything that
+// does not apply that default.
+func replicaCount(deployment *appsv1.Deployment) int32 {
+	if deployment.Spec.Replicas == nil {
+		return 1
+	}
+	return *deployment.Spec.Replicas
+}
+
+// podLabelSelector returns the selector that resolves a deployment's own pods.
+//
+// This is the deployment's spec.selector -- the labels it selects its pods by,
+// whatever they are -- and not the two labels ktunnel puts on the deployments
+// `expose` creates. Those exist only on ktunnel's own deployments, so
+// selecting on them worked for `expose` and could not work for `inject` at
+// all: the sidecar went in, the pod reported 2/2 Running, and the port-forward
+// retried "found 0 running pod(s)" against an application deployment labelled
+// any other way, which is every application deployment (#171, #115).
+func podLabelSelector(deployment *appsv1.Deployment) (string, error) {
+	// An absent or empty spec.selector converts to "match everything", so
+	// these two are refusals rather than a wildcard: forwarding to whichever
+	// unrelated pod happened to sort first, and reporting it as success, is
+	// worse than saying which object cannot be resolved.
+	if deployment.Spec.Selector == nil {
+		return "", fmt.Errorf("deployment %s has no spec.selector, so its pods cannot be identified", deployment.Name)
+	}
+	selector, err := metav1.LabelSelectorAsSelector(deployment.Spec.Selector)
+	if err != nil {
+		return "", fmt.Errorf("deployment %s has a spec.selector that cannot be resolved: %w", deployment.Name, err)
+	}
+	if selector.Empty() {
+		return "", fmt.Errorf("deployment %s has an empty spec.selector, which matches every pod in the namespace", deployment.Name)
+	}
+	return selector.String(), nil
+}
+
+func (k *KubeService) getPodNames(ctx context.Context, deployment *appsv1.Deployment, pods []string) error {
+	labelSelector, err := podLabelSelector(deployment)
+	if err != nil {
+		return err
+	}
 	filteredPods, err := k.getPodsFilteredByLabel(ctx, labelSelector)
 	if err != nil {
 		return err
@@ -279,9 +322,18 @@ func (k *KubeService) getPodNames(ctx context.Context, deploymentName string, po
 	// below. The counter that used to guard this loop was never incremented,
 	// so its early exit and the "All pods located" line it logged could only
 	// fire when there were no pods to locate at all.
+	//
+	// Newest first matters because a deployment's selector matches the pods of
+	// its old ReplicaSet and its new one at once, and injecting the sidecar is
+	// itself a rollout: for a moment two running pods answer to the selector
+	// and only the newer one has a tunnel server in it.
+	//
+	// A pod that is being deleted stays Phase Running for the whole of its
+	// grace period, and is the newest match until its replacement exists, so
+	// it is skipped outright -- a forward built to it dies with it.
 	matchingPods := ByCreationTime{}
 	for _, p := range filteredPods.Items {
-		if p.Status.Phase == apiv1.PodRunning {
+		if p.Status.Phase == apiv1.PodRunning && p.DeletionTimestamp == nil {
 			matchingPods = append(matchingPods, p)
 		}
 	}
@@ -293,7 +345,7 @@ func (k *KubeService) getPodNames(ctx context.Context, deploymentName string, po
 		// exactly the case reconnecting exists to survive. Reported as an
 		// error, it is one failed attempt that the supervisor backs off and
 		// retries until the new pod is up.
-		return fmt.Errorf("found %d running pod(s) for deployment %s, want %d", len(matchingPods), deploymentName, len(pods))
+		return fmt.Errorf("found %d running pod(s) for deployment %s, want %d", len(matchingPods), deployment.Name, len(pods))
 	}
 	for i := 0; i < len(pods); i++ {
 		pods[i] = matchingPods[i].Name
@@ -330,13 +382,13 @@ func (k *KubeService) PortForward(ctx context.Context, namespace, deploymentName
 		return nil, nil, err
 	}
 
-	podNames := make([]string, *deployment.Spec.Replicas)
-	err = k.getPodNames(ctx, deploymentName, podNames)
+	podNames := make([]string, replicaCount(deployment))
+	err = k.getPodNames(ctx, deployment, podNames)
 	if err != nil {
 		return nil, nil, err
 	}
 	log.Debugf("Injecting to this pods: %v", podNames)
-	sourcePorts := make([]string, *deployment.Spec.Replicas)
+	sourcePorts := make([]string, len(podNames))
 	numPort, err := strconv.ParseInt(targetPort, 10, 32)
 	if err != nil {
 		return nil, nil, err

@@ -16,6 +16,7 @@ Built to ease development on kubernetes clusters and allow connectivity between 
 
 ### SEE ALSO
 
+* [Security model](security.md)	 - What the tunnel exposes, to whom, and what is not encrypted
 * [ktunnel client](ktunnel_client.md)	 - Run the ktunnel client(from source listener - usually localhost)
 * [ktunnel expose](ktunnel_expose.md)	 - Expose local machine as a service on the kubernetes cluster
 * [ktunnel inject](ktunnel_inject.md)	 - Inject server sidecar to the cluster and run the ktunnel client to establish a connection

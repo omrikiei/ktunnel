@@ -52,6 +52,20 @@ func createDeployment(c v1.DeploymentInterface, name string, replicas int32, con
 	return nil
 }
 
+// useFakeClients points the package-level clients at a fake API server.
+//
+// Under the mutex, because watchForReady polls deploymentsClient from a
+// goroutine that outlives the test that started it -- a fake deployment never
+// reaches ready, so it polls for the rest of the run. Assigning over it
+// unsynchronized is a data race between two tests in this package, which is
+// how it was found.
+func useFakeClients(fake *testclient.Clientset, namespace string) {
+	clientMutex.Lock()
+	defer clientMutex.Unlock()
+	deploymentsClient = fake.AppsV1().Deployments(namespace)
+	podsClient = fake.CoreV1().Pods(namespace)
+}
+
 func TestGetPortForwardUrl(t *testing.T) {
 	tables := []struct {
 		Config    rest.Config
@@ -176,8 +190,7 @@ func Test_InjectSidecar(t *testing.T) {
 
 	// Initialize mock client
 	fakeClient := testclient.NewSimpleClientset()
-	deploymentsClient = fakeClient.AppsV1().Deployments(namespace)
-	podsClient = fakeClient.CoreV1().Pods(namespace)
+	useFakeClients(fakeClient, namespace)
 
 	err := createDeployment(deploymentsClient, objectName, 1, &containers)
 	if err != nil {
@@ -217,20 +230,6 @@ func Test_InjectSidecar(t *testing.T) {
 	}
 	if !found {
 		t.Error("Sidecar container was not injected properly")
-	}
-
-	// Test injection when deployment has more than one replica
-	deployment.Spec.Replicas = new(int32)
-	*deployment.Spec.Replicas = 2
-	_, err = deploymentsClient.Update(context.Background(), deployment, metav1.UpdateOptions{})
-	if err != nil {
-		t.Fatalf("Failed to update deployment: %v", err)
-	}
-
-	// Try to inject again - should fail due to multiple replicas
-	deployment, err = deploymentsClient.Get(context.Background(), objectName, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("Failed to get deployment: %v", err)
 	}
 
 	// Test duplicate injection (should return true with no error)
@@ -300,5 +299,71 @@ func Test_removeFromSpec(t *testing.T) {
 				t.Error("Expected success but got failure")
 			}
 		})
+	}
+}
+
+// Test_InjectSidecar_MultipleReplicas is the regression test for `inject`
+// refusing every deployment that runs more than one pod.
+//
+// It used to return "sidecar injection only support deployments with one
+// replica" and stop there, which rules out most of what a cluster runs. The
+// sidecar goes into the pod template, so a rollout puts one in every replica,
+// and PortForward already builds a forward and a tunnel client per pod --
+// there was nothing behind the refusal to build.
+func Test_InjectSidecar_MultipleReplicas(t *testing.T) {
+	namespace := "default"
+	objectName := "multi-replica"
+	port := 28688
+	image := "test-image:latest"
+
+	fakeClient := testclient.NewSimpleClientset()
+	useFakeClients(fakeClient, namespace)
+	svc := &KubeService{clients: &Clients{
+		Deployments: fakeClient.AppsV1().Deployments(namespace),
+		Pods:        fakeClient.CoreV1().Pods(namespace),
+	}}
+
+	containers := []v14.Container{{Name: "app", Image: "app:latest"}}
+	if err := createDeployment(deploymentsClient, objectName, 3, &containers); err != nil {
+		t.Fatalf("Failed to create test deployment: %v", err)
+	}
+
+	// Buffered, so watchForReady's goroutine is not left blocked on a channel
+	// this test never reads.
+	readyChan := make(chan bool, 1)
+	ok, err := svc.InjectSidecar(&namespace, &objectName, &port, image, "", "", readyChan, nil)
+	if err != nil {
+		t.Fatalf("failed injecting into a three-replica deployment: %v; "+
+			"most deployments worth tunnelling into run more than one pod, and refusing them rules out the command", err)
+	}
+	if !ok {
+		t.Fatal("InjectSidecar reported failure without an error for a three-replica deployment")
+	}
+
+	deployment, err := deploymentsClient.Get(context.Background(), objectName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Failed to get deployment: %v", err)
+	}
+	// The sidecar goes into the template, which is what makes every replica
+	// carry one: injecting into a subset of the pods is not a thing the API
+	// offers, and it is not what this supports.
+	if !hasSidecar(deployment.Spec.Template.Spec, image) {
+		t.Error("the sidecar is not in the pod template, so no replica would come back carrying it")
+	}
+	if replicaCount(deployment) != 3 {
+		t.Errorf("the deployment now wants %d replicas; injecting must not scale the user's deployment to make its own life easier", replicaCount(deployment))
+	}
+}
+
+// Test_ReplicaCount pins the default behind spec.replicas being a pointer: the
+// API server defaults an unset one to 1, so nil is one pod, not none. It was
+// dereferenced unchecked in the injector and in PortForward.
+func Test_ReplicaCount(t *testing.T) {
+	if got := replicaCount(&v12.Deployment{}); got != 1 {
+		t.Errorf("replicaCount of a deployment with no spec.replicas is %d, want 1", got)
+	}
+	three := int32(3)
+	if got := replicaCount(&v12.Deployment{Spec: v12.DeploymentSpec{Replicas: &three}}); got != 3 {
+		t.Errorf("replicaCount is %d, want 3", got)
 	}
 }

@@ -1,5 +1,117 @@
 # Changelog
 
+## Unreleased
+
+`inject` works against deployments ktunnel did not create, which is to
+say: against deployments. `--reuse` reuses.
+
+### Breaking changes
+
+- **`k8s.KubeService.ExposeAsService`** returns `(*ResourceTracker,
+  error)` rather than `error`, and no longer takes a `kubecontext`
+  argument. The tracker holds what the call created, and only that, so
+  teardown can remove exactly that; the context argument re-derived
+  clients the receiver already had. Internal to ktunnel's own commands.
+
+### Fixed
+
+- **`inject` never forwarded to anything.** ([#171], [#115]) Pods were
+  resolved by the two labels `expose` puts on the deployments it creates
+  itself. An application deployment is labelled however its author chose,
+  so nothing matched: the sidecar went in, the pod reported `2/2
+  Running`, and the port-forward retried `found 0 running pod(s)`
+  forever. Pods are now resolved from the deployment's own
+  `spec.selector`, the way every other tool that has to find a
+  deployment's pods does it. This was not a regression — half the product
+  had been broken for years.
+
+  A deployment whose `spec.selector` is absent or empty is refused by
+  name rather than matched, since an empty selector matches every pod in
+  the namespace and forwarding to an unrelated one would be reported as
+  success.
+
+- **A pod being deleted is no longer forwarded to.** It stays `Phase:
+  Running` for the whole of its grace period and is the newest match
+  until its replacement exists, so it was preferred over the pod that
+  was staying — and the forward died with it.
+
+- **`--reuse` reuses, instead of overwriting what it was pointed at.**
+  ([#120], [#94]) It merge-patched ktunnel's own template over the
+  existing deployment — ktunnel's image, ktunnel's resources, ktunnel's
+  security context — keeping only the labels and selector that a patch
+  cannot change anyway.
+
+  Both reports are the same story: you hand-write a tunnel-server
+  deployment because you need an image from your own registry and a
+  security context your cluster admits, pass `-r` so ktunnel adopts it,
+  and ktunnel overwrites the image with `docker.io/omrieival/ktunnel`,
+  rolls a second revision, and leaves a pod stuck pulling an image the
+  cluster cannot reach.
+
+  Nothing is written now. An existing Deployment or Service is used
+  exactly as it stands, and ktunnel logs what it adopted — replicas and
+  image — so it is clear which object the tunnel is running in.
+
+- **`--reuse` cleans up what it created.** Teardown keyed off the flag
+  rather than off what had happened, so `-r` against a namespace where
+  the objects did not exist created them and then left them behind on
+  every run. It now removes exactly what the run created, and leaves
+  exactly what the run adopted — and the exit message says which.
+
+- **Errors on the `expose` path name the object and the way out.**
+  `deployment with same name already exists` became `deployment
+  default/myapp already exists; pass --reuse to tunnel through it as it
+  is, or --force to replace it`. A `Get` that failed for any reason
+  other than "not found" — forbidden, API server unreachable — used to
+  fall through to that same "already exists" message, sending you to
+  look at an object when the problem was your permissions.
+
+- **A port that fails to parse no longer becomes port 0.** The service
+  and container port lists were indexed rather than appended, so a port
+  argument that was skipped with a message left a zero-valued entry
+  behind, and it was sent to the API server as if it had been asked for.
+
+### Changed
+
+- **`inject deployment` supports more than one replica.** ([#96]) It used
+  to refuse with `sidecar injection only support deployments with one
+  replica`, which rules out most of what a cluster runs.
+
+  The alternative to refusing is not "forward to one of them". The
+  sidecar's listeners are pod-local — only containers in an injected pod
+  reach your machine through them — so forwarding to one arbitrary pod of
+  N leaves N-1 pods with the port closed and nothing to say which pod is
+  the working one. A deployment where a third of the requests reach your
+  laptop and the rest get connection refused is worse to debug than one
+  where none of them do.
+
+  So it is all of them: one port-forward and one tunnel client per
+  replica, all carrying traffic to the same local service. A deployment
+  with three replicas takes three local ports counting up from `--port`,
+  and opens three streams to your machine; ktunnel says so before the
+  rollout starts. Replicas added while the tunnel is up are picked up the
+  next time it is rebuilt, since the pods are resolved once per attempt.
+
+### Added
+
+- **An adopted Service that does not route to the tunnel is called out.**
+  Under `--reuse`, if the Service has no port targeting the port the
+  tunnel server binds, ktunnel says so and names the fix. A warning
+  rather than an error: `--reuse` means the objects are yours, and
+  overruling you on ktunnel's reading of your Service is how `--reuse`
+  got into trouble in the first place.
+
+- **A written security model**, at [docs/security.md](docs/security.md).
+  ([#80]) The tunnel is unauthenticated: anything in the cluster that can
+  reach a tunnelled port reaches whatever is behind it on your machine.
+  That has always been true and was never written down, so it is now —
+  what is reachable from where, what is encrypted and what is not, what
+  authenticates what, the namespaced Kubernetes permissions ktunnel uses,
+  and how to narrow the exposure until the credentials work lands.
+
+  It answers [#80] as asked, too: there is no `--token` flag; put the
+  token in a kubeconfig context and select it with `--context`.
+
 ## v2.1.0
 
 A tunnel that loses its connection now comes back on its own.
@@ -376,10 +488,14 @@ planned for v2.1.
 
 [#25]: https://github.com/omrikiei/ktunnel/issues/25
 [#66]: https://github.com/omrikiei/ktunnel/issues/66
+[#80]: https://github.com/omrikiei/ktunnel/issues/80
 [#88]: https://github.com/omrikiei/ktunnel/issues/88
 [#90]: https://github.com/omrikiei/ktunnel/issues/90
 [#91]: https://github.com/omrikiei/ktunnel/issues/91
+[#94]: https://github.com/omrikiei/ktunnel/issues/94
+[#96]: https://github.com/omrikiei/ktunnel/issues/96
 [#114]: https://github.com/omrikiei/ktunnel/issues/114
+[#115]: https://github.com/omrikiei/ktunnel/issues/115
 [#118]: https://github.com/omrikiei/ktunnel/issues/118
 [#120]: https://github.com/omrikiei/ktunnel/issues/120
 [#121]: https://github.com/omrikiei/ktunnel/issues/121
@@ -387,6 +503,7 @@ planned for v2.1.
 [#134]: https://github.com/omrikiei/ktunnel/issues/134
 [#143]: https://github.com/omrikiei/ktunnel/issues/143
 [#147]: https://github.com/omrikiei/ktunnel/pull/147
+[#171]: https://github.com/omrikiei/ktunnel/issues/171
 [dp]: https://github.com/doctorpangloss
 [id]: https://github.com/idsulik
 
