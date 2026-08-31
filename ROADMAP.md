@@ -166,12 +166,12 @@ Not tied to a release; pick up whenever.
 
 ## Issues to verify and close
 
-All verified and closed against v2.2.0, except #118, whose second half ships
-in v2.3.
+All verified and closed: #96, #80, #171, #115, #120, #94, #123 and #70 against
+v2.2.0, and #118 against v2.3.0.
 
 - [x] **#118** — custom requests/limits: the four `--server-cpu-*` /
       `--server-memory-*` flags exist. The second half of the report, values
-      rendered as `500e-3` and `1e9`, is fixed in v2.3.
+      rendered as `500e-3` and `1e9`, is fixed in v2.3.0.
 - [x] **#123** — pods picked by name prefix, so `react1` matched `react11`:
       pod lookup is an exact label match now, not a prefix.
 - [x] **#70** — `--ca-file` ignored: it genuinely was. `--tls` is fixed for
