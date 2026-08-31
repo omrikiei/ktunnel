@@ -114,7 +114,7 @@ rest of it was resource lifecycle and messaging, and is now done.
 
 ---
 
-## v2.4 — Secure by default · **implemented, unreleased**
+## v2.4 — Secure by default · **shipped**
 
 **Why third, not first.** The in-cluster tunnel server was unauthenticated:
 anything in the cluster that could reach its Service could open a tunnel to

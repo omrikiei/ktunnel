@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.4.0
 
 ### Added
 
@@ -47,6 +47,23 @@
   rejected `--tls` outright through v2.3. The test covering this
   asserted the broken form, which is why it survived so long.
 
+### Compatibility
+
+Every v2.3 command line keeps working, and no existing flag changes
+meaning. The two directions that matter:
+
+- **A v2.4 client against an older server image** degrades to an
+  unencrypted, unauthenticated tunnel and logs why. It does not fail.
+- **A v2.3 client against the v2.4 server image** is unaffected: the image
+  only enforces a token when one is passed to it, and only serves TLS when
+  started with `--tls`. An old client passes neither.
+
+The **Go API is not compatible**, if you import ktunnel as a library
+rather than running it: `k8s.ExposeAsService` and `k8s.InjectSidecar` have
+new signatures, `k8s.ExposeAsService` returns an extra value, and
+`k8s.ManifestOptions` replaces `Cert`/`Key` with `Creds`/`Bundle`. The CLI
+is the supported interface and is unaffected.
+
 ### Changed
 
 - **`--tls` on `expose` and `inject` is accepted and does nothing**, and
@@ -65,6 +82,12 @@
   the token, passes it in the pod spec, gives up encryption, and says so
   before it starts. A token there is revocable and lasts one run; a
   private key there would be the whole channel.
+
+- **`--reuse` tunnels through an adopted deployment unsecured**, and says
+  so before it starts. ktunnel cannot mount credentials into a deployment
+  it did not create, so that run is unencrypted and unauthenticated, as it
+  was in v2.3. `--reuse` with nothing there still creates the deployment
+  from ktunnel's own template, and that run is secured like any other.
 
 - **`inject` is authenticated but not encrypted.** The sidecar gets a
   token and no certificate. Mounting one means patching a volume and a

@@ -19,6 +19,10 @@ Two cases run with less than the full protection, and both say so before they
 start rather than after:
 
 - **`inject`** authenticates but does not encrypt. See below for why.
+- **`--reuse` tunnelling through a deployment that already exists** does
+  neither. ktunnel cannot mount credentials into a deployment it did not
+  create, so that run is exactly as exposed as it was in v2.3. (`--reuse`
+  with nothing there creates the deployment itself, and secures it.)
 - **A namespace that forbids `secrets: create`** authenticates but does not
   encrypt, because the fallback carries a token in the pod spec and a private
   key there would be the whole channel rather than one run's revocable secret.
