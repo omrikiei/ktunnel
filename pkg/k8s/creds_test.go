@@ -231,3 +231,43 @@ func TestPodCredentialsFor(t *testing.T) {
 		t.Errorf("--insecure produced %+v, want no credentials", insecure)
 	}
 }
+
+// Test_volumes_SecretIsReadableByANonRootUID is the regression test for the
+// bug that made v2.4.0's own headline feature unusable.
+//
+// Kubernetes owns secret volume files as root:root unless the pod sets an
+// fsGroup. v2.4.0 mounted them at 0400 -- owner-read-only, and the owner is
+// root -- while the container ran as UID 1000. The server could not read its
+// own certificate, called log.Fatalf, and the pod crash-looped on every
+// default `ktunnel expose`.
+//
+// The assertion is on the "other" read bit rather than on the literal 0444,
+// because the requirement is "a UID that is neither root nor in the file's
+// group can read this", and that is what has to survive somebody tidying the
+// number up. fsGroup is not the way out: OpenShift assigns fsGroup from a
+// per-namespace range and rejects a pod that demands its own, exactly as it
+// does for runAsUser (#87).
+//
+// 0444 is also stricter than the Kubernetes default for secret volumes, which
+// is 0644.
+func Test_volumes_SecretIsReadableByANonRootUID(t *testing.T) {
+	vols := PodCredentials{SecretName: "myapp"}.volumes()
+	if len(vols) != 1 {
+		t.Fatalf("expected one volume, got %d", len(vols))
+	}
+	mode := vols[0].VolumeSource.Secret.DefaultMode
+	if mode == nil {
+		t.Fatal("no DefaultMode set")
+	}
+
+	const otherRead = 0004
+	if *mode&otherRead == 0 {
+		t.Errorf("secret volume mode is %#o, which root alone can read; "+
+			"the tunnel server runs as a non-root UID and will fail to load its certificate", *mode)
+	}
+	// And it must stay read-only: nothing writes these.
+	const anyWrite = 0222
+	if *mode&anyWrite != 0 {
+		t.Errorf("secret volume mode %#o is writable", *mode)
+	}
+}

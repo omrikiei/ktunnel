@@ -91,8 +91,20 @@ func (c PodCredentials) volumes() []apiv1.Volume {
 	if !c.mountsSecret() {
 		return nil
 	}
-	// 0400: the container runs as UID 1000 and only reads these.
-	mode := int32(0400)
+	// 0444, not 0400. Kubernetes owns secret volume files as root:root
+	// unless the pod sets an fsGroup, so owner-read-only means root-only --
+	// and the tunnel server does not run as root. v2.4.0 shipped 0400 and
+	// its pods crash-looped: the server could not read its own certificate.
+	//
+	// fsGroup is not the way out. OpenShift assigns it from a per-namespace
+	// range and rejects a pod that demands its own, the same way it rejects
+	// a hardcoded runAsUser (#87), so relying on it would trade this bug for
+	// that one.
+	//
+	// "World"-readable here means readable by the processes in this pod,
+	// which is the tunnel server itself. It is stricter than the Kubernetes
+	// default for secret volumes, which is 0644.
+	mode := int32(0444)
 	return []apiv1.Volume{{
 		Name: credsVolumeName,
 		VolumeSource: apiv1.VolumeSource{
