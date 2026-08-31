@@ -108,6 +108,30 @@ Replicas added while the tunnel is up are picked up the next time it is rebuilt,
 since the set of pods is resolved once per connection attempt.
 
 
+### Which namespace
+`--namespace` if you pass it; otherwise the namespace of your kubeconfig
+context (`--context` selects which context); otherwise `default`. It is
+resolved once, at startup, and printed with its source, so there is no guessing
+which namespace the objects went to:
+
+```
+Using namespace team-a (kubeconfig context "dev")
+```
+
+### What it will do, before it does it
+Both commands print their plan before the first write, and say what happens
+when you stop them:
+
+```
+In namespace team-a, ktunnel will:
+  use the existing deployment team-a/myapp as it is (2 replica(s), image nexus.corp.example/ktunnel:v2.1.0); it will be neither modified nor deleted
+  create service team-a/myapp (ClusterIP, port(s) 80->8080)
+On exit it will remove service myapp, and leave deployment myapp as it was.
+```
+
+`inject` says the same about the container it adds, how many pods that
+restarts, and which local ports the replicas take.
+
 ### Reconnecting
 `expose`, `inject` and `client` reconnect on their own when a tunnel drops -- a
 dropped VPN, a suspended laptop, a rescheduled pod. Each attempt rebuilds the

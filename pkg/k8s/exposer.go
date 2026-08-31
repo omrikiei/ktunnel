@@ -116,15 +116,31 @@ func (k *KubeService) ExposeAsService(
 	// did not create is modified, and nothing ktunnel did not create is
 	// deleted -- the tracker is what teardown works from, and only a create
 	// adds to it.
-	deployment, err := k.adoptOrCreateDeployment(namespace, name, deploymentTemplate, Reuse, tracker)
+	//
+	// The whole plan is decided, and said, before the first write: see plan.go.
+	plan, err := k.planExpose(namespace, name, deploymentTemplate, service, Reuse, DeploymentOnly)
 	if err != nil {
 		return tracker, err
 	}
+	for _, line := range plan.describe() {
+		log.Info(line)
+	}
 
-	if !DeploymentOnly {
-		newSvc, err := k.adoptOrCreateService(namespace, name, service, Reuse, tracker)
+	deployment := plan.existingDeployment
+	if deployment == nil {
+		deployment, err = k.createDeployment(namespace, name, deploymentTemplate, tracker)
 		if err != nil {
 			return tracker, err
+		}
+	}
+
+	if !DeploymentOnly {
+		newSvc := plan.existingService
+		if newSvc == nil {
+			newSvc, err = k.createService(namespace, name, service, tracker)
+			if err != nil {
+				return tracker, err
+			}
 		}
 		if newSvc.Spec.ClusterIP != "" {
 			log.Infof("Exposed service's cluster ip is: %s", newSvc.Spec.ClusterIP)
@@ -136,55 +152,27 @@ func (k *KubeService) ExposeAsService(
 	return tracker, nil
 }
 
-// adoptOrCreateDeployment returns the deployment the tunnel will run in,
-// creating it only if it is not already there.
-func (k *KubeService) adoptOrCreateDeployment(namespace, name string, template *appsv1.Deployment, reuse bool, tracker *ResourceTracker) (*appsv1.Deployment, error) {
-	existing, err := k.clients.Deployments.Get(context.Background(), name, v1.GetOptions{})
-	switch {
-	case err == nil:
-		if !reuse {
-			return nil, fmt.Errorf("deployment %s/%s already exists; pass --reuse to tunnel through it as it is, or --force to replace it", namespace, name)
-		}
-		log.Infof("Reusing deployment %s/%s as it is (%s); ktunnel will neither modify nor delete it",
-			namespace, name, describePodTemplate(existing))
-		return existing, nil
-	case apierrors.IsNotFound(err):
-		created, err := k.clients.Deployments.Create(context.Background(), template, v1.CreateOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("failed creating deployment %s/%s: %w", namespace, name, err)
-		}
-		tracker.AddDeployment(name)
-		log.Infof("Created deployment %s/%s", namespace, name)
-		return created, nil
-	default:
-		// Anything else -- forbidden, API server unreachable -- used to fall
-		// through to "deployment with same name already exists", which sends
-		// the user to look at an object rather than at their permissions.
-		return nil, fmt.Errorf("failed reading deployment %s/%s: %w", namespace, name, err)
+// createDeployment creates the deployment the plan said was missing, and
+// records it as this run's to remove.
+func (k *KubeService) createDeployment(namespace, name string, template *appsv1.Deployment, tracker *ResourceTracker) (*appsv1.Deployment, error) {
+	created, err := k.clients.Deployments.Create(context.Background(), template, v1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed creating deployment %s/%s: %w", namespace, name, err)
 	}
+	tracker.AddDeployment(name)
+	log.Infof("Created deployment %s/%s", namespace, name)
+	return created, nil
 }
 
-// adoptOrCreateService is adoptOrCreateDeployment for the Service.
-func (k *KubeService) adoptOrCreateService(namespace, name string, template *v12.Service, reuse bool, tracker *ResourceTracker) (*v12.Service, error) {
-	existing, err := k.clients.Services.Get(context.Background(), name, v1.GetOptions{})
-	switch {
-	case err == nil:
-		if !reuse {
-			return nil, fmt.Errorf("service %s/%s already exists; pass --reuse to tunnel through it as it is, or --force to replace it", namespace, name)
-		}
-		log.Infof("Reusing service %s/%s as it is; ktunnel will neither modify nor delete it", namespace, name)
-		return existing, nil
-	case apierrors.IsNotFound(err):
-		created, err := k.clients.Services.Create(context.Background(), template, v1.CreateOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("failed creating service %s/%s: %w", namespace, name, err)
-		}
-		tracker.AddService(name)
-		log.Infof("Created service %s/%s", namespace, name)
-		return created, nil
-	default:
-		return nil, fmt.Errorf("failed reading service %s/%s: %w", namespace, name, err)
+// createService is createDeployment for the Service.
+func (k *KubeService) createService(namespace, name string, template *v12.Service, tracker *ResourceTracker) (*v12.Service, error) {
+	created, err := k.clients.Services.Create(context.Background(), template, v1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed creating service %s/%s: %w", namespace, name, err)
 	}
+	tracker.AddService(name)
+	log.Infof("Created service %s/%s", namespace, name)
+	return created, nil
 }
 
 // describePodTemplate is the one-line summary of an adopted deployment, so

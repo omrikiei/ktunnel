@@ -15,7 +15,7 @@ This command accepts a pod/deployment and injects the tunnel sidecar to that art
       --context string                Kubernetes Context
   -h, --help                          help for inject
       --key string                    TLS key file
-  -n, --namespace string              Namespace (default "default")
+  -n, --namespace string              Namespace (default: the kubeconfig context's namespace, or "default")
   -s, --scheme string                 Connection scheme (default "tcp")
   -o, --server-host-override string   Server name use to verify the hostname returned by the TLS handshake
 ```

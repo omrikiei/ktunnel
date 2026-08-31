@@ -61,6 +61,10 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 //
 // Replicas added after the tunnel is up are not picked up until the tunnel is
 // rebuilt, since the set of pods is resolved once per attempt.
+//
+// What this is about to do to the deployment, including how many pods it
+// restarts and how many local ports it takes, is stated by PlanInject before
+// the rollout starts.
 func (k *KubeService) InjectSidecar(namespace, objectName *string, port *int, image string, cert string, key string, readyChan chan<- bool, kubecontext *string) (bool, error) {
 	log.Infof("Injecting tunnel sidecar to %s/%s", *namespace, *objectName)
 	cpuReq := int64(100) // in milli-cpu
@@ -71,12 +75,6 @@ func (k *KubeService) InjectSidecar(namespace, objectName *string, port *int, im
 	obj, err := k.clients.Deployments.Get(context.Background(), *objectName, metav1.GetOptions{})
 	if err != nil {
 		return false, err
-	}
-	if replicas := replicaCount(obj); replicas > 1 {
-		// Said before the rollout starts, because it is the one surprise
-		// here: N local ports get taken, not one.
-		log.Infof("%s/%s has %d replicas; each one gets its own tunnel, on local ports %d-%d",
-			*namespace, *objectName, replicas, *port, *port+int(replicas)-1)
 	}
 	_, err = injectToDeployment(obj, co, image, readyChan)
 	if err != nil {

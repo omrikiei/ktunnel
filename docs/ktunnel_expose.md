@@ -50,7 +50,7 @@ ktunnel expose redis 6379
   -h, --help                             help for expose
       --key string                       TLS key file
       --max-reconnect-attempts int       Give up after this many consecutive failed connection attempts; 0 keeps retrying forever
-  -n, --namespace string                 Namespace (default "default")
+  -n, --namespace string                 Namespace (default: the kubeconfig context's namespace, or "default")
   -q, --node-selector-tags strings       tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)
       --pod-tolerations strings          comma separated list of tolerations seperated by the '=' character (i.e key=value:NoSchedule)
       --portname string                  specify container port name

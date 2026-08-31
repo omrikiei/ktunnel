@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,10 +25,8 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp" // https://github.com/kubernetes/client-go/issues/242
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
-	"k8s.io/client-go/util/homedir"
 )
 
 const (
@@ -116,20 +113,7 @@ func GetKubeConfig(kubeCtx string) *rest.Config {
 		return kubeconfig
 	}
 
-	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-
-	kConfig := os.Getenv(kubeConfigEnvVar)
-	if home := homedir.HomeDir(); kConfig == "" && home != "" {
-		kConfig = filepath.Join(home, ".kube", "config")
-		loadingRules.ExplicitPath = kConfig
-	}
-
-	var configOverrides *clientcmd.ConfigOverrides
-	if (kubeCtx) != "" {
-		configOverrides = &clientcmd.ConfigOverrides{CurrentContext: kubeCtx}
-	}
-
-	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides).ClientConfig()
+	config, err := kubeClientConfig(kubeCtx).ClientConfig()
 	if err != nil {
 		log.Errorf("Failed getting kubernetes config: %v", err)
 	}

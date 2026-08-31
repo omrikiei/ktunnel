@@ -88,13 +88,17 @@ remains is resource lifecycle and messaging.
       teardown keyed off the flag rather than off what happened — **S** · #120
 - [x] Errors on the `expose` path name the object and the way out, including
       a `Get` failure that is not "not found" — **S** · #134
-- [ ] Say what will be created, adopted and deleted **before** doing it —
+- [x] Say what will be created, adopted and deleted **before** doing it —
       **S** · #134
-      <br>Each object is now reported as it is created or adopted, and the
-      exit message says which will be removed. The pre-flight summary is
-      what is left.
-- [ ] Namespace precedence: flag vs. kubeconfig context, resolved once and
+      <br>Both commands decide the whole plan before the first write and
+      print it, ending with what stays and what goes on exit. `expose` no
+      longer creates the Deployment before discovering it must refuse over
+      the Service.
+- [x] Namespace precedence: flag vs. kubeconfig context, resolved once and
       reported — **S** · #134
+      <br>`--namespace` defaulted to the literal `default`, so the flag was
+      always set and the context's namespace was never read. Behaviour
+      change: a context with a namespace now wins over nothing at all.
 - [ ] Errors naming the object and the fix on the `inject` and forwarding
       paths — **M** · #134
 - [ ] `--print-manifests` / `--dry-run`: emit the Deployment and Service to

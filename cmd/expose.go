@@ -59,6 +59,10 @@ ktunnel expose redis 6379
 			logger.SetLevel(log.DebugLevel)
 			k8s.SetLogLevel(log.DebugLevel)
 		}
+		// Resolved before anything else: it decides which namespace every
+		// object in the plan below belongs to.
+		Namespace = resolveNamespace()
+
 		// Create service and deployment
 		svcName, ports := args[0], args[1:]
 		readyChan := make(chan bool, 1)
@@ -118,6 +122,15 @@ ktunnel expose redis 6379
 		}
 
 		if Force {
+			// Said before the delete, for the same reason the plan below is
+			// said before the creates: this one removes objects, and it runs
+			// against whatever is there, including a deployment the user
+			// wrote themselves.
+			if DeploymentOnly {
+				logger.Infof("--force: deleting deployment %s/%s, if it exists, and creating it anew", Namespace, svcName)
+			} else {
+				logger.Infof("--force: deleting deployment and service %s/%s, if they exist, and creating them anew", Namespace, svcName)
+			}
 			err := svc.TeardownExposedService(svcName, DeploymentOnly)
 			if err != nil {
 				log.Infof("Force delete: Failed deleting k8s objects: %s", err)
@@ -230,7 +243,7 @@ func init() {
 	exposeCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
 	exposeCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	exposeCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
-	exposeCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
+	exposeCmd.Flags().StringVarP(&Namespace, "namespace", "n", "", namespaceFlagUsage)
 	exposeCmd.Flags().StringVar(&KubeContext, "context", "", "Kubernetes Context")
 	exposeCmd.Flags().StringVarP(&ServerImage, "server-image", "i", fmt.Sprintf("%s:v%s", k8s.Image, version), "Ktunnel server image to use")
 	exposeCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")

@@ -3,7 +3,8 @@
 ## Unreleased
 
 `inject` works against deployments ktunnel did not create, which is to
-say: against deployments. `--reuse` reuses.
+say: against deployments. `--reuse` reuses. Both commands say what they
+are about to do to which namespace, before they do it.
 
 ### Breaking changes
 
@@ -66,6 +67,30 @@ say: against deployments. `--reuse` reuses.
   fall through to that same "already exists" message, sending you to
   look at an object when the problem was your permissions.
 
+- **The namespace of your kubeconfig context is used.** ([#134])
+  `--namespace` defaulted to the literal string `default`, so the flag
+  was always set and always won: the namespace your context selects was
+  never read. If your context points at your team's namespace, and you
+  ran ktunnel the way you run every other kubectl command, your
+  Deployment and Service went to `default` — and nothing said so.
+
+  The precedence is now the usual one: `--namespace` if given, otherwise
+  the namespace of the kubeconfig context in play (`--context` selects
+  which), otherwise `default`. It is resolved once, at startup, and
+  reported with its source: `Using namespace team-a (kubeconfig context
+  "dev")`.
+
+  If you were relying on the old behaviour — running from a context with
+  a namespace and expecting `default` anyway — pass `-n default`
+  explicitly.
+
+- **`expose` no longer creates a Deployment before refusing.** The
+  Deployment was created first and the Service second, so a namespace
+  that already held a Service of that name, without `--reuse`, got a
+  Deployment created, then the run failed on the Service and left the
+  Deployment behind. Both objects are checked before either is written,
+  so the run either does all of it or touches nothing.
+
 - **A port that fails to parse no longer becomes port 0.** The service
   and container port lists were indexed rather than appended, so a port
   argument that was skipped with a message left a zero-valued entry
@@ -100,6 +125,24 @@ say: against deployments. `--reuse` reuses.
   rather than an error: `--reuse` means the objects are yours, and
   overruling you on ktunnel's reading of your Service is how `--reuse`
   got into trouble in the first place.
+
+- **A pre-flight summary.** ([#134]) `expose` and `inject deployment`
+  now say what they are about to do before they do it, rather than
+  narrating each object after the fact:
+
+  ```
+  In namespace team-a, ktunnel will:
+    use the existing deployment team-a/myapp as it is (2 replica(s), image nexus.corp.example/ktunnel:v2.1.0); it will be neither modified nor deleted
+    create service team-a/myapp (ClusterIP, port(s) 80->8080)
+  On exit it will remove service myapp, and leave deployment myapp as it was.
+  ```
+
+  The last line is the one that was missing: with `--reuse` in play, which
+  of these objects is yours and which disappears on Ctrl+C is not
+  something you should have to infer from the flags you passed. `inject`
+  states the same thing about the container it adds, how many pods that
+  restarts, and which local ports the replicas take. `--force` says which
+  objects it is about to delete before deleting them.
 
 - **A written security model**, at [docs/security.md](docs/security.md).
   ([#80]) The tunnel is unauthenticated: anything in the cluster that can

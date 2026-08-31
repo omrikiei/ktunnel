@@ -50,6 +50,8 @@ ktunnel inject deployment mydeployment 3306 6379
 			logger.SetLevel(log.DebugLevel)
 			k8s.SetLogLevel(log.DebugLevel)
 		}
+		Namespace = resolveNamespace()
+
 		// Inject
 		deployment := args[0]
 		readyChan := make(chan bool, 1)
@@ -58,6 +60,16 @@ ktunnel inject deployment mydeployment 3306 6379
 		if err != nil {
 			log.Fatalf("failed creating kube service: %v", err)
 		}
+		// Said before the rollout starts: injecting modifies a deployment
+		// the user owns and restarts every one of its pods.
+		plan, err := svc.PlanInject(Namespace, deployment, ServerImage, port)
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+		for _, line := range plan.Describe(eject) {
+			logger.Info(line)
+		}
+
 		_, err = svc.InjectSidecar(&Namespace, &deployment, &port, ServerImage, CertFile, KeyFile, readyChan, &KubeContext)
 		if err != nil {
 			log.Fatalf("failed injecting sidecar: %v", err)
@@ -106,7 +118,7 @@ func init() {
 	injectCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
 	injectCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	injectCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
-	injectCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
+	injectCmd.Flags().StringVarP(&Namespace, "namespace", "n", "", namespaceFlagUsage)
 	injectCmd.Flags().StringVar(&KubeContext, "context", "", "Kubernetes Context")
 	injectCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
 	injectCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
@@ -114,7 +126,7 @@ func init() {
 	injectDeploymentCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "tls cert auth file")
 	injectDeploymentCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	injectDeploymentCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
-	injectDeploymentCmd.Flags().StringVarP(&Namespace, "namespace", "n", "default", "Namespace")
+	injectDeploymentCmd.Flags().StringVarP(&Namespace, "namespace", "n", "", namespaceFlagUsage)
 	injectDeploymentCmd.Flags().StringVar(&KubeContext, "context", "", "Kubernetes Context")
 	injectDeploymentCmd.Flags().StringVarP(&ServerImage, "server-image", "i", fmt.Sprintf("%s:v%s", k8s.Image, version), "Ktunnel server image to use")
 	injectDeploymentCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")

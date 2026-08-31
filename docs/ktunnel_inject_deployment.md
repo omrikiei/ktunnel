@@ -42,7 +42,7 @@ ktunnel inject deployment mydeployment 3306 6379
   -h, --help                          help for deployment
       --key string                    TLS key file
       --max-reconnect-attempts int    Give up after this many consecutive failed connection attempts; 0 keeps retrying forever
-  -n, --namespace string              Namespace (default "default")
+  -n, --namespace string              Namespace (default: the kubeconfig context's namespace, or "default")
   -s, --scheme string                 Connection scheme (default "tcp")
   -o, --server-host-override string   Server name use to verify the hostname returned by the TLS handshake
   -i, --server-image string           Ktunnel server image to use (default "docker.io/omrieival/ktunnel:v2.1.0")
