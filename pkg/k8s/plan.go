@@ -106,7 +106,7 @@ func (k *KubeService) planExpose(
 		// Anything else -- forbidden, API server unreachable -- used to fall
 		// through to "deployment with same name already exists", which sends
 		// the user to look at an object rather than at their permissions.
-		return nil, fmt.Errorf("failed reading deployment %s/%s: %w", namespace, name, err)
+		return nil, apiError("read", "deployment", namespace, name, err)
 	}
 
 	if deploymentOnly {
@@ -128,7 +128,7 @@ func (k *KubeService) planExpose(
 			kind: "service", name: name, detail: describeService(serviceTemplate),
 		})
 	default:
-		return nil, fmt.Errorf("failed reading service %s/%s: %w", namespace, name, err)
+		return nil, apiError("read", "service", namespace, name, err)
 	}
 
 	return plan, nil
@@ -169,7 +169,7 @@ type InjectPlan struct {
 func (k *KubeService) PlanInject(namespace, name, image string, port int) (*InjectPlan, error) {
 	deployment, err := k.clients.Deployments.Get(context.Background(), name, v1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed reading deployment %s/%s: %w", namespace, name, err)
+		return nil, apiError("read", "deployment", namespace, name, err)
 	}
 	return &InjectPlan{
 		Namespace:       namespace,

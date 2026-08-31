@@ -31,7 +31,7 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 		FieldManager: "",
 	})
 	if updateErr != nil {
-		return false, updateErr
+		return false, apiError("add the ktunnel container to", "deployment", o.Namespace, o.Name, updateErr)
 	}
 	watchForReady(u, readyChan)
 	return true, nil
@@ -74,7 +74,7 @@ func (k *KubeService) InjectSidecar(namespace, objectName *string, port *int, im
 	co := newContainer(*port, image, []apiv1.ContainerPort{}, cert, key, cpuReq, cpuLimit, memReq, memLimit)
 	obj, err := k.clients.Deployments.Get(context.Background(), *objectName, metav1.GetOptions{})
 	if err != nil {
-		return false, err
+		return false, apiError("read", "deployment", *namespace, *objectName, err)
 	}
 	_, err = injectToDeployment(obj, co, image, readyChan)
 	if err != nil {
@@ -108,7 +108,24 @@ func (k *KubeService) RemoveSidecar(namespace, objectName *string, image string,
 	log.Infof("Removing tunnel sidecar from %s/%s", *namespace, *objectName)
 	obj, err := k.clients.Deployments.Get(context.Background(), *objectName, metav1.GetOptions{})
 	if err != nil {
-		return false, err
+		return false, apiError("read", "deployment", *namespace, *objectName, err)
+	}
+	// Nothing to eject is not a failure: the deployment is already in the
+	// state that was asked for. It used to come back as `IMAGE is not present
+	// on spec`, logged as `Failed removing tunnel sidecar` -- an error, naming
+	// an image rather than the deployment -- for a run whose rollout never
+	// finished, or a container someone had already taken out by hand.
+	if !hasSidecar(obj.Spec.Template.Spec, image) {
+		log.Infof("Nothing to eject from %s/%s: no container in it runs %s", *namespace, *objectName, image)
+		// Non-blocking, because there is no rollout to wait for and the
+		// caller is about to read this before it exits. Every caller passes a
+		// buffered channel; a caller that does not is not left hanging on a
+		// send instead.
+		select {
+		case readyChan <- true:
+		default:
+		}
+		return true, nil
 	}
 	_, err = removeFromSpec(&obj.Spec.Template.Spec, image)
 	if err != nil {
@@ -120,7 +137,7 @@ func (k *KubeService) RemoveSidecar(namespace, objectName *string, image string,
 		FieldManager: "",
 	})
 	if updateErr != nil {
-		return false, updateErr
+		return false, apiError("remove the ktunnel container from", "deployment", *namespace, *objectName, updateErr)
 	}
 	watchForReady(u, readyChan)
 	return true, nil

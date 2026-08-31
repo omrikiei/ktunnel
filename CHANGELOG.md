@@ -91,6 +91,31 @@ are about to do to which namespace, before they do it.
   Deployment behind. Both objects are checked before either is written,
   so the run either does all of it or touches nothing.
 
+- **Errors on the `inject` and forwarding paths name the object and the
+  fix.** ([#134]) `deployments.apps "api" not found` says neither which
+  namespace was looked in nor which context was used, and between those
+  two lies the answer most of the time. Every API failure on these paths
+  now names the object as `deployment team-a/api` and, for the classes
+  that have one, says what to do: a missing object points at
+  `--namespace` and `--context`, a forbidden one at the permissions in
+  [docs/security.md](docs/security.md), a rejected one at the
+  credentials in the kubeconfig context, a conflict at whatever else is
+  writing to the object.
+
+  The forwarding path names both ends. "Found 1 running pod(s) for
+  deployment web, want 3" now names the namespace and prints the
+  `kubectl get pods -l ...` that shows you what ktunnel was looking at,
+  and a forward that cannot bind its local port says so as a local
+  problem with a local fix — `--port` — rather than as a port-forward
+  failure that reads like a cluster one.
+
+- **Ejecting a sidecar that is not there is no longer an error.** It
+  came back as `IMAGE is not present on spec`, logged as `Failed
+  removing tunnel sidecar` — an error, naming an image rather than the
+  deployment, for a cluster that is already in the state you asked for.
+  That happens after a rollout that never finished, and after someone
+  has taken the container out by hand.
+
 - **A port that fails to parse no longer becomes port 0.** The service
   and container port lists were indexed rather than appended, so a port
   argument that was skipped with a message left a zero-valued entry

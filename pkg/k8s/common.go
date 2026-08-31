@@ -300,7 +300,7 @@ func (k *KubeService) getPodNames(ctx context.Context, deployment *appsv1.Deploy
 	}
 	filteredPods, err := k.getPodsFilteredByLabel(ctx, labelSelector)
 	if err != nil {
-		return err
+		return apiError("list the pods of", "deployment", deployment.Namespace, deployment.Name, err)
 	}
 	// Every running pod is collected and the newest len(pods) of them taken
 	// below. The counter that used to guard this loop was never incremented,
@@ -329,7 +329,9 @@ func (k *KubeService) getPodNames(ctx context.Context, deployment *appsv1.Deploy
 		// exactly the case reconnecting exists to survive. Reported as an
 		// error, it is one failed attempt that the supervisor backs off and
 		// retries until the new pod is up.
-		return fmt.Errorf("found %d running pod(s) for deployment %s, want %d", len(matchingPods), deployment.Name, len(pods))
+		return fmt.Errorf("found %d running pod(s) for deployment %s/%s, want %d; "+
+			"the rollout may still be coming up, or may have failed -- kubectl get pods -n %s -l %s",
+			len(matchingPods), deployment.Namespace, deployment.Name, len(pods), deployment.Namespace, labelSelector)
 	}
 	for i := 0; i < len(pods); i++ {
 		pods[i] = matchingPods[i].Name
@@ -363,7 +365,7 @@ func (k *KubeService) PortForward(ctx context.Context, namespace, deploymentName
 	deployment, err := deploymentsClient.Get(ctx, deploymentName, metav1.GetOptions{})
 	clientMutex.RUnlock()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, apiError("read", "deployment", namespace, deploymentName, err)
 	}
 
 	podNames := make([]string, replicaCount(deployment))
@@ -375,7 +377,7 @@ func (k *KubeService) PortForward(ctx context.Context, namespace, deploymentName
 	sourcePorts := make([]string, len(podNames))
 	numPort, err := strconv.ParseInt(targetPort, 10, 32)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("the tunnel port %q is not a number; --port takes a port number: %w", targetPort, err)
 	}
 	for i := 0; i < len(sourcePorts); i++ {
 		sourcePorts[i] = strconv.FormatInt(numPort+int64(i), 10)
@@ -408,7 +410,7 @@ func (k *KubeService) PortForward(ctx context.Context, namespace, deploymentName
 			for j := i; j < len(podNames); j++ {
 				forwarders.Done()
 			}
-			return nil, forwarderErrChan, err
+			return nil, forwarderErrChan, fmt.Errorf("failed building a port forward to pod %s/%s: %w", namespace, podName, err)
 		}
 		log.Infof("port forwarding to %s", serverURL)
 		dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, serverURL)
@@ -424,7 +426,8 @@ func (k *KubeService) PortForward(ctx context.Context, namespace, deploymentName
 			for j := i; j < len(podNames); j++ {
 				forwarders.Done()
 			}
-			return nil, forwarderErrChan, err
+			return nil, forwarderErrChan, fmt.Errorf("failed setting up the port forward from local port %s to pod %s/%s: %w",
+				sourcePorts[i], namespace, podName, err)
 		}
 
 		go func() {
@@ -455,12 +458,13 @@ func (k *KubeService) PortForward(ctx context.Context, namespace, deploymentName
 				log.Info(out.String())
 			}
 		}()
+		localPort := sourcePorts[i]
 		go func() {
 			defer forwarders.Done()
 			// err is declared here rather than assigned to the function's
 			// own, which every forwarder would otherwise have written to.
 			if err := forwarder.ForwardPorts(); err != nil { // Locks until stopChan is closed.
-				forwarderErrChan <- fmt.Errorf("port forward to pod %s failed: %w", podName, err)
+				forwarderErrChan <- forwardError(namespace, podName, localPort, err)
 			}
 		}()
 	}

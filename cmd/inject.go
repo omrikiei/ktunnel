@@ -86,7 +86,9 @@ ktunnel inject deployment mydeployment 3306 6379
 			ejectReady := make(chan bool, 1)
 			ok, err := svc.RemoveSidecar(&Namespace, &deployment, ServerImage, ejectReady, &KubeContext)
 			if !ok {
-				logger.Errorf("Failed removing tunnel sidecar; %v", err)
+				logger.Errorf("Failed removing the ktunnel container from %s/%s: %v", Namespace, deployment, err)
+				logger.Errorf("The container is still in the deployment; remove it with `kubectl edit deployment %s -n %s`, or re-run `ktunnel inject deployment %s` and stop it again",
+					deployment, Namespace, deployment)
 				return
 			}
 			<-ejectReady

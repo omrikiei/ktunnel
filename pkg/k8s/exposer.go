@@ -157,7 +157,7 @@ func (k *KubeService) ExposeAsService(
 func (k *KubeService) createDeployment(namespace, name string, template *appsv1.Deployment, tracker *ResourceTracker) (*appsv1.Deployment, error) {
 	created, err := k.clients.Deployments.Create(context.Background(), template, v1.CreateOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed creating deployment %s/%s: %w", namespace, name, err)
+		return nil, apiError("create", "deployment", namespace, name, err)
 	}
 	tracker.AddDeployment(name)
 	log.Infof("Created deployment %s/%s", namespace, name)
@@ -168,7 +168,7 @@ func (k *KubeService) createDeployment(namespace, name string, template *appsv1.
 func (k *KubeService) createService(namespace, name string, template *v12.Service, tracker *ResourceTracker) (*v12.Service, error) {
 	created, err := k.clients.Services.Create(context.Background(), template, v1.CreateOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed creating service %s/%s: %w", namespace, name, err)
+		return nil, apiError("create", "service", namespace, name, err)
 	}
 	tracker.AddService(name)
 	log.Infof("Created service %s/%s", namespace, name)

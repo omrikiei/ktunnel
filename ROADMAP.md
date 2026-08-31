@@ -99,8 +99,12 @@ remains is resource lifecycle and messaging.
       <br>`--namespace` defaulted to the literal `default`, so the flag was
       always set and the context's namespace was never read. Behaviour
       change: a context with a namespace now wins over nothing at all.
-- [ ] Errors naming the object and the fix on the `inject` and forwarding
+- [x] Errors naming the object and the fix on the `inject` and forwarding
       paths — **M** · #134
+      <br>Every API failure names the object as `deployment ns/name` and,
+      where the class of failure has one, the way out: missing points at
+      `--namespace`/`--context`, forbidden at the RBAC in
+      `docs/security.md`, a bind failure at `--port`.
 - [ ] `--print-manifests` / `--dry-run`: emit the Deployment and Service to
       apply yourself — **M** · #94, #120
       <br>Reprioritised down: both issues wanted this because they were
