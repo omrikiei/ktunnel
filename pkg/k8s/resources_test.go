@@ -27,7 +27,7 @@ import (
 // its Format is the empty string, which serialises as DecimalExponent. The
 // quantities are now constructed with the format Kubernetes itself uses.
 func TestNewContainer_ResourcesReadAsKubernetesWritesThem(t *testing.T) {
-	c := newContainer(28688, "img", []apiv1.ContainerPort{}, "", "", 250, 1000, 128, 512)
+	c := newContainer(28688, "img", []apiv1.ContainerPort{}, PodCredentials{}, 250, 1000, 128, 512)
 
 	tests := []struct {
 		what string
@@ -51,7 +51,7 @@ func TestNewContainer_ResourcesReadAsKubernetesWritesThem(t *testing.T) {
 // only formatting: the numbers a user passes on the flags are the numbers the
 // cluster is asked for.
 func TestNewContainer_ResourcesKeepTheirValues(t *testing.T) {
-	c := newContainer(28688, "img", []apiv1.ContainerPort{}, "", "", 250, 1000, 128, 512)
+	c := newContainer(28688, "img", []apiv1.ContainerPort{}, PodCredentials{}, 250, 1000, 128, 512)
 
 	if got := c.Resources.Requests.Cpu().MilliValue(); got != 250 {
 		t.Errorf("cpu request is %dm, want 250m", got)

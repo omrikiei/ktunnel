@@ -19,4 +19,5 @@ type Clients struct {
 	Deployments v1.DeploymentInterface
 	Pods        v12.PodInterface
 	Services    v12.ServiceInterface
+	Secrets     v12.SecretInterface
 }

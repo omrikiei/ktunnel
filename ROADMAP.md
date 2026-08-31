@@ -114,28 +114,67 @@ rest of it was resource lifecycle and messaging, and is now done.
 
 ---
 
-## v2.4 — Secure by default
+## v2.4 — Secure by default · **implemented, unreleased**
 
-**Why third, not first.** The in-cluster tunnel server is unauthenticated:
-anything in the cluster that can reach its Service can open a tunnel to your
-machine. That is the most serious design gap ktunnel has, and it is ordered
-below broken commands and confusing resources for two reasons — ktunnel is
-used against development clusters by the person who owns both ends, and the
-fix is the largest piece of work on this page. Ordered third, not ignored:
-v2.2 shipped the honest warning while this is built.
+**Why third, not first.** The in-cluster tunnel server was unauthenticated:
+anything in the cluster that could reach its Service could open a tunnel to
+your machine. That was the most serious design gap ktunnel had, and it was
+ordered below broken commands and confusing resources for two reasons —
+ktunnel is used against development clusters by the person who owns both ends,
+and the fix was the largest piece of work on this page. Ordered third, not
+ignored: v2.2 shipped the honest warning while this was built.
 
-- [ ] Per-session credentials: generate a CA and server certificate, ship
+The design is in
+[docs/plans/2026-08-31-v2.4-secure-by-default-design.md](docs/plans/2026-08-31-v2.4-secure-by-default-design.md).
+
+- [x] Per-session credentials: generate a CA and server certificate, ship
       them as a Secret, mount into the server pod — **L** · #166
-- [ ] Make `--tls` real for `expose` and `inject` — today both reject it,
+      <br>`pkg/creds` mints a CA, a leaf for `localhost`/`127.0.0.1`/the
+      service DNS name, and a token, all in memory — a `SIGKILL` leaves no
+      credential material anywhere. The Secret is tracked and deleted after
+      the Deployment, so credentials never disappear from under a running
+      pod.
+- [x] Make `--tls` real for `expose` and `inject` — today both reject it,
       because nothing mounts a certificate — **L** · #166, #70
-- [ ] Bearer token shared between client and server, on by default —
+      <br>Turned around: `expose` encrypts by **default** and `--tls` is now
+      an accepted no-op, since refusing it would break the command lines
+      written against the v2.3 error and honouring it would imply the
+      default is weaker. `--insecure` is the way back. `inject` stays
+      token-only — see below.
+- [x] Bearer token shared between client and server, on by default —
       **M** · #80
-- [ ] `--cert`/`--key` reach the server as one unparsed argument —
+      <br>gRPC metadata and a stream interceptor, so no proto change and no
+      wire-format break. The check runs *before* `InitTunnel`, so a rejected
+      caller cannot even make the server bind a tunnelled port.
+- [x] `--cert`/`--key` reach the server as one unparsed argument —
       **S** · #166
-- [ ] Least-privilege RBAC and a documented ServiceAccount — **S**
-      <br>Cheapest item in this release, and half-written already: the verb
-      table is in [docs/security.md](docs/security.md).
-- [ ] Ingress annotation for TLS backends — **S** · #69
+      <br>`fmt.Sprintf("--cert %s", cert)` was one argv entry with a space in
+      it. The test covering it asserted the buggy form, which is why it
+      survived.
+- [x] Least-privilege RBAC and a documented ServiceAccount — **S**
+      <br>[docs/rbac.yaml](docs/rbac.yaml), plus `secrets` for the per-run
+      credentials. Dropping that one rule is supported: the run degrades to
+      authenticated-but-unencrypted and says so first.
+- [x] Ingress annotation for TLS backends — **S** · #69
+      <br>Generalised to `--service-annotations`. The issue asked for
+      Traefik's `service.serversscheme=https` keyed off `--tls`, but `--tls`
+      is a no-op now and the annotation describes the *local* service's
+      protocol, not ktunnel's channel. Every controller spells it
+      differently, so the flag carries whichever key yours reads.
+
+Decided along the way:
+
+- **`inject` is token-only, no TLS.** A volume and a volumeMount patched into
+  a Deployment ktunnel does not own make eject something other than a clean
+  reverse of inject, and a partial eject leaves debris in someone else's
+  object. The sidecar's listeners are pod-local regardless.
+- **An older `--image` degrades rather than fails.** A pinned pre-v2.4 image
+  serves plaintext; ktunnel logs the cause and the flag once and continues
+  unencrypted. A pinned image is a legitimate thing to have, and this is a
+  development tool.
+- **A namespace without `secrets: create` keeps the token and drops TLS.** A
+  token in a pod spec is revocable and lasts one run; a private key there
+  would be the whole channel.
 
 ---
 

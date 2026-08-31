@@ -50,16 +50,17 @@ func TestReconnectFlagsAreRegistered(t *testing.T) {
 	}
 }
 
-// TestExposeAndInject_RejectTLSBeforeTouchingTheCluster pins --tls being
-// refused by the two commands that run the tunnel server inside the cluster.
+// TestExposeAndInject_AcceptTLSAsADeprecatedNoOp pins the v2.4 contract for
+// the flag these commands used to refuse.
 //
-// --tls used to be inert everywhere: the client option that turns it on never
-// set its flag, so a tunnel asked to be encrypted was not. Now that the client
-// honours it, expose and inject would speak TLS to an in-cluster server that
-// has no certificate to serve -- and would find that out only after creating a
-// Deployment and a Service, reporting it as an unreadable server preface. The
-// refusal has to come from PreRunE, before any of that exists.
-func TestExposeAndInject_RejectTLSBeforeTouchingTheCluster(t *testing.T) {
+// Through v2.3 --tls was rejected here, because nothing mounted a certificate
+// into the tunnel server container and the client would have failed its
+// handshake against a plaintext server with a Deployment and a Service
+// already created. v2.4 provisions credentials per run and encrypts by
+// default, so the flag now asks for what already happens: refusing it would
+// break every command line written against that error, and honouring it
+// would imply the default is something weaker.
+func TestExposeAndInject_AcceptTLSAsADeprecatedNoOp(t *testing.T) {
 	commands := map[string]*cobra.Command{
 		"expose":            exposeCmd,
 		"inject deployment": injectDeploymentCmd,
@@ -68,28 +69,15 @@ func TestExposeAndInject_RejectTLSBeforeTouchingTheCluster(t *testing.T) {
 	for name, cmd := range commands {
 		t.Run(name, func(t *testing.T) {
 			if cmd.PreRunE == nil {
-				t.Fatalf("ktunnel %s validates nothing before it runs, so --tls is only discovered after the cluster resources exist", name)
+				t.Fatalf("ktunnel %s has no PreRunE", name)
 			}
 			prev := tls
 			t.Cleanup(func() { tls = prev })
 
-			tls = false
-			if err := cmd.PreRunE(cmd, []string{"kewlapp", "8000"}); err != nil {
-				t.Fatalf("ktunnel %s refused to run without --tls: %v", name, err)
-			}
-
-			tls = true
-			err := cmd.PreRunE(cmd, []string{"kewlapp", "8000"})
-			if err == nil {
-				t.Fatalf("ktunnel %s --tls was accepted; the client now speaks TLS to an in-cluster server that serves plaintext, "+
-					"so it fails its handshake with a Deployment and a Service already created", name)
-			}
-			// The message has to say what is missing and what does work, or
-			// the user reads it as a mistake in their command line and goes
-			// looking for the certificate flag that would fix it.
-			for _, want := range []string{"--tls is not supported", "ktunnel server --tls", "ktunnel client --tls"} {
-				if !strings.Contains(err.Error(), want) {
-					t.Errorf("the refusal does not mention %q: %v", want, err)
+			for _, withTLS := range []bool{false, true} {
+				tls = withTLS
+				if err := cmd.PreRunE(cmd, []string{"kewlapp", "8000"}); err != nil {
+					t.Fatalf("ktunnel %s --tls=%v was refused: %v", name, withTLS, err)
 				}
 			}
 		})

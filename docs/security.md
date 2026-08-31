@@ -1,20 +1,29 @@
 # Security model
 
 ktunnel builds a path from inside a Kubernetes cluster to a service running on
-your machine. **Nothing on that path is authenticated, and nothing on it is
-encrypted.** Anything in the cluster that can reach a tunnelled port reaches
-whatever is listening behind it on your laptop, with your laptop's access to it.
+your machine. Since **v2.4** that path is authenticated, and on `expose` it is
+encrypted, with no flags to remember: every run mints a throwaway CA, a server
+certificate and a bearer token, ships them to the tunnel server as a Secret,
+and keeps its own half in memory.
 
-That is a deliberate trade for a development tool — it is why ktunnel installs
-no operator, defines no CRDs and needs no cluster-wide permissions — but it is
-worth knowing before you point it at a cluster. Use it against development
-clusters you control. It is not built for shared, multi-tenant or production
-clusters.
+What that buys: something in the cluster that finds the gRPC port can no
+longer attach as a client and be handed the traffic meant for your machine.
+It is turned away before the server binds anything.
 
-The fixes are on the [roadmap](../ROADMAP.md) for v2.4 and tracked in
-[#166](https://github.com/omrikiei/ktunnel/issues/166) and
-[#80](https://github.com/omrikiei/ktunnel/issues/80). This page describes what
-is true today.
+What it does not buy: **anyone who can reach a tunnelled port still reaches
+whatever is listening behind it on your laptop.** The token guards the tunnel,
+not the ports the tunnel opens. Use ktunnel against development clusters you
+control; it is not built for shared, multi-tenant or production clusters.
+
+Two cases run with less than the full protection, and both say so before they
+start rather than after:
+
+- **`inject`** authenticates but does not encrypt. See below for why.
+- **A namespace that forbids `secrets: create`** authenticates but does not
+  encrypt, because the fallback carries a token in the pod spec and a private
+  key there would be the whole channel rather than one run's revocable secret.
+
+`--insecure` turns both off and restores pre-v2.4 behaviour.
 
 ## What is reachable, and by whom
 
@@ -54,16 +63,32 @@ was meant for your machine.
 
 ## What is encrypted
 
-- `--tls` is **rejected** by `expose` and `inject deployment`. Nothing mounts a
-  certificate into the tunnel server pod, so the flag cannot do anything there;
-  the commands refuse it up front rather than run in plaintext while claiming
-  otherwise ([#166](https://github.com/omrikiei/ktunnel/issues/166)).
-- Standalone `ktunnel server` and `ktunnel client` do support `--tls`, with
-  `--cert`, `--key` and `--ca-file`.
+- **`expose`** encrypts by default. The generated certificate names
+  `localhost`, `127.0.0.1` and `<name>.<namespace>.svc`, so the client
+  verifies it over the port-forward without `--server-host-override`. It is
+  valid for 24 hours and never touches your filesystem.
+- **`inject`** does **not** encrypt. It gets a token and no certificate,
+  deliberately: injecting a volume and a volumeMount into a Deployment ktunnel
+  does not own means an eject that can leave debris behind in someone else's
+  object, and the sidecar's listeners are pod-local to begin with.
+- `--tls` on `expose` and `inject` is **accepted and does nothing**. It is
+  deprecated: it asks for what already happens. Through v2.3 it was rejected
+  outright ([#166](https://github.com/omrikiei/ktunnel/issues/166)).
+- `--cert`/`--key`/`--ca-file` still work, and mean *use these instead of
+  generating any*. They reach the server as separate arguments now; before
+  v2.4 they were passed as one unparsed string, which is the other reason
+  in-cluster TLS could not work.
+- Standalone `ktunnel server` and `ktunnel client` support `--tls` as before.
 - The leg between your machine and the API server is the API server's own TLS,
-  since it is an ordinary port-forward. The tunnel stream inside it is plaintext
-  gRPC, and the cluster-side hop from the calling pod to the tunnel server is
-  plaintext.
+  since it is an ordinary port-forward.
+
+### An older server image
+
+If `--image` pins a tunnel server older than v2.4, it serves plaintext and
+ignores the token. ktunnel does not abort — a pinned image is a legitimate
+thing to have — but it logs the cause and the flag, once, and continues
+unencrypted and unauthenticated. If you see that line, the tunnel has no
+protection at all.
 
 ## What authenticates what
 
@@ -72,8 +97,16 @@ was meant for your machine.
   ([#80](https://github.com/omrikiei/ktunnel/issues/80)); to use a token, put it
   in a kubeconfig context with `kubectl config set-credentials` and select that
   context.
-- **The cluster to your machine:** nothing. There is no shared secret, no client
-  certificate and no allow-list. Reachability is authorization.
+- **The cluster to your machine:** a bearer token, generated per run and
+  checked before the tunnel server opens any port. A caller without it is
+  refused with `Unauthenticated` and cannot cause a port to bind.
+  - With a Secret, the token is a `secretKeyRef` and is not visible in the pod
+    spec.
+  - In the fallback, it is a literal env value, readable by anyone with `get
+    pods` in that namespace. Still far narrower than "anything that can reach
+    the Service", which is what v2.3 offered.
+  - It authorizes attaching to the tunnel. It does not authorize reaching the
+    ports the tunnel opens — that is still reachability.
 
 ## Kubernetes permissions used
 
@@ -86,9 +119,14 @@ All namespaced — ktunnel asks for nothing cluster-scoped:
 | `services` | get, create, patch, delete | `expose` |
 | `pods` | list | both, to resolve pods to forward to |
 | `pods/portforward` | create | both |
+| `secrets` | get, create, update, delete | `expose`, for the per-run credentials |
 
-A ServiceAccount limited to these is on the roadmap for v2.4; today ktunnel uses
-whatever your kubeconfig user has.
+A ready-to-apply ServiceAccount, Role and RoleBinding with exactly these verbs
+is in [rbac.yaml](rbac.yaml). Without it ktunnel uses whatever your kubeconfig
+user has.
+
+Dropping the `secrets` rule is supported: `expose` falls back to an
+authenticated but unencrypted tunnel and says so before it starts.
 
 ## Reducing the exposure
 
@@ -98,9 +136,9 @@ whatever your kubeconfig user has.
 - Do not tunnel to something on your machine you would not hand to the cluster
   outright: a database holding your own data, an SSH agent, a Docker socket, a
   package registry you are authenticated to.
-- A NetworkPolicy restricting ingress to the tunnel server pod is the only
-  in-cluster control that helps today. It is worth writing if the cluster
-  enforces them.
+- A NetworkPolicy restricting ingress to the tunnel server pod still helps,
+  and is the only control over the *tunnelled* ports, which the token does not
+  guard.
 - Take the tunnel down when you stop using it. Ctrl+C removes what `expose`
   created and ejects the `inject` sidecar; a `SIGKILL` leaves both in place, and
   the way in stays with them. `kubectl get deploy,svc -n <namespace>` is the

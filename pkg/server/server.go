@@ -15,6 +15,7 @@ import (
 
 	pb "github.com/omrikiei/ktunnel/api"
 	"github.com/omrikiei/ktunnel/pkg/common"
+	"github.com/omrikiei/ktunnel/pkg/creds"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -311,6 +312,11 @@ func RunServer(ctx context.Context, opts ...Option) error {
 		// listener when its stream is cancelled, which is what ends its
 		// accept loop.
 		grpc.WaitForHandlers(true),
+		// Ahead of the handler on purpose: the handler is InitTunnel, and
+		// InitTunnel binds a listener on a tunnelled port. Rejecting inside
+		// it would let an unauthenticated caller open a port before being
+		// turned away.
+		grpc.StreamInterceptor(creds.StreamAuthInterceptor(conf.token)),
 	}
 	if conf.TLS {
 		creds, err := credentials.NewServerTLSFromFile(conf.certFile, conf.keyFile)
@@ -423,6 +429,16 @@ func WithTLS(cert, key string) Option {
 	}
 }
 
+// WithToken requires callers to present this bearer token before they can
+// open a tunnel. An empty token leaves the server unauthenticated, which is
+// what standalone `ktunnel server` and `--insecure` rely on.
+func WithToken(t string) Option {
+	return func(opt *Config) error {
+		opt.token = t
+		return nil
+	}
+}
+
 // WithLogger sets the logger to be used by the server.
 // if not set, output will be discarded
 func WithLogger(l log.FieldLogger) Option {
@@ -444,6 +460,7 @@ type Config struct {
 	keyFile  string
 	log      log.FieldLogger
 	certFile string
+	token    string
 	sessions *common.SessionStore
 }
 

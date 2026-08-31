@@ -67,6 +67,7 @@ func GetClients(cfg *rest.Config, namespace string) *Clients {
 		Deployments: deploymentsClient,
 		Pods:        podsClient,
 		Services:    svcClient,
+		Secrets:     clientSet.CoreV1().Secrets(namespace),
 	}
 }
 
@@ -142,17 +143,12 @@ func hasSidecar(podSpec apiv1.PodSpec, image string) bool {
 	return false
 }
 
-func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, cert, key string, cReq, cLimit, mReq, mLimit int64) *apiv1.Container {
+func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, podCreds PodCredentials, cReq, cLimit, mReq, mLimit int64) *apiv1.Container {
 	args := []string{"server", "-p", strconv.FormatInt(int64(port), 10)}
 	if IsVerbose() {
 		args = append(args, "-v")
 	}
-	if cert != "" {
-		args = append(args, fmt.Sprintf("--cert %s", cert))
-	}
-	if key != "" {
-		args = append(args, fmt.Sprintf("--key %s", key))
-	}
+	args = append(args, podCreds.args()...)
 	// Constructed rather than zero-valued: a resource.Quantity built as
 	// resource.Quantity{} has the empty Format, which serialises as
 	// DecimalExponent -- `500e-3` for half a core and `100e6` for 100MB.
@@ -166,11 +162,13 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
 	containerUID := int64(1000)
 
 	return &apiv1.Container{
-		Name:    "ktunnel",
-		Image:   image,
-		Command: []string{"/ktunnel/ktunnel"},
-		Args:    args,
-		Ports:   containerPorts,
+		Name:         "ktunnel",
+		Image:        image,
+		Command:      []string{"/ktunnel/ktunnel"},
+		Args:         args,
+		Ports:        containerPorts,
+		Env:          podCreds.env(),
+		VolumeMounts: podCreds.volumeMounts(),
 		Resources: apiv1.ResourceRequirements{
 			Requests: apiv1.ResourceList{
 				"cpu":    *cpuRequest,
@@ -196,13 +194,13 @@ func newDeployment(
 	deploymentLabels map[string]string,
 	deploymentAnnotations map[string]string,
 	podTolerations []apiv1.Toleration,
-	cert, key string,
+	podCreds PodCredentials,
 	cpuReq, cpuLimit, memReq, memLimit int64,
 ) *appsv1.Deployment {
 	replicas := int32(1)
 	deploymentLabels[deploymentNameLabel] = name
 	deploymentLabels[deploymentInstanceLabel] = name
-	co := newContainer(port, image, ports, cert, key, cpuReq, cpuLimit, memReq, memLimit)
+	co := newContainer(port, image, ports, podCreds, cpuReq, cpuLimit, memReq, memLimit)
 
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{},
@@ -228,13 +226,14 @@ func newDeployment(
 						*co,
 					},
 					Tolerations: podTolerations,
+					Volumes:     podCreds.volumes(),
 				},
 			},
 		},
 	}
 }
 
-func newService(namespace, name string, ports []apiv1.ServicePort, serviceType apiv1.ServiceType) *apiv1.Service {
+func newService(namespace, name string, ports []apiv1.ServicePort, serviceType apiv1.ServiceType, annotations map[string]string) *apiv1.Service {
 	return &apiv1.Service{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "Service",
@@ -246,6 +245,7 @@ func newService(namespace, name string, ports []apiv1.ServicePort, serviceType a
 				"app.kubernetes.io/name":     name,
 				"app.kubernetes.io/instance": name,
 			},
+			Annotations: annotations,
 		},
 		Spec: apiv1.ServiceSpec{
 			Ports: ports,

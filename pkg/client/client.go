@@ -2,6 +2,8 @@
 package client
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"net"
@@ -12,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	pb "github.com/omrikiei/ktunnel/api"
 	"github.com/omrikiei/ktunnel/pkg/common"
+	ktunnelcreds "github.com/omrikiei/ktunnel/pkg/creds"
 	"github.com/omrikiei/ktunnel/pkg/supervisor"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -331,7 +334,7 @@ func RunClient(ctx context.Context, opts ...Option) error {
 		}),
 	}
 	if conf.TLS {
-		creds, err := credentials.NewClientTLSFromFile(conf.certFile, conf.tlsHostOverride)
+		creds, err := conf.transportCredentials()
 		if err != nil {
 			// Reachable only since --tls started working: an unreadable or
 			// malformed --ca-file. The file is not going to appear because
@@ -341,6 +344,10 @@ func RunClient(ctx context.Context, opts ...Option) error {
 		grpcOpts = append(grpcOpts, grpc.WithTransportCredentials(creds))
 	} else {
 		grpcOpts = append(grpcOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
+
+	if conf.token != "" {
+		grpcOpts = append(grpcOpts, grpc.WithPerRPCCredentials(ktunnelcreds.TokenCredentials(conf.token)))
 	}
 
 	conn, err := grpc.Dial(fmt.Sprintf("%s:%d", conf.host, conf.port), grpcOpts...)
@@ -535,6 +542,32 @@ func WithTLS(cert, tlsHostOverride string) Option {
 	}
 }
 
+// WithTLSFromPEM is WithTLS for credentials that were generated rather than
+// read from disk: `expose` and `inject` mint a CA per run and keep it in
+// memory, so there is no --ca-file to point at, and nothing is left behind
+// if the process is killed.
+//
+// An empty tlsHostOverride verifies against the address dialled, which is
+// what the generated certificate is issued for.
+func WithTLSFromPEM(caPEM []byte, tlsHostOverride string) Option {
+	return func(opt *Config) error {
+		opt.TLS = true
+		opt.caPEM = caPEM
+		opt.tlsHostOverride = tlsHostOverride
+		return nil
+	}
+}
+
+// WithToken presents this bearer token to the tunnel server on every call.
+// An empty token sends nothing, which is how a client talks to a server that
+// predates authentication.
+func WithToken(t string) Option {
+	return func(opt *Config) error {
+		opt.token = t
+		return nil
+	}
+}
+
 // WithLogger sets the logger to be used by the server.
 // if not set, output will be discarded
 func WithLogger(l log.FieldLogger) Option {
@@ -566,7 +599,9 @@ type Config struct {
 	port            int
 	TLS             bool
 	certFile        string
+	caPEM           []byte
 	tlsHostOverride string
+	token           string
 	scheme          string
 	// tunnelScheme is scheme resolved to its protobuf value, by processArgs.
 	tunnelScheme pb.TunnelScheme
@@ -601,4 +636,34 @@ func WithSessionStore(store *common.SessionStore) Option {
 		opt.sessions = store
 		return nil
 	}
+}
+
+// TLSConfigFromPEM builds a client TLS config trusting exactly the given CA.
+//
+// Exported because it is the check `expose` makes before it starts anything:
+// a CA that will not parse should be an error about the CA, not a handshake
+// failure several seconds later against a pod that is already running.
+func TLSConfigFromPEM(caPEM []byte, serverNameOverride string) (*tls.Config, error) {
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return nil, errors.New("the CA certificate could not be parsed")
+	}
+	return &tls.Config{
+		RootCAs:    pool,
+		ServerName: serverNameOverride,
+		MinVersion: tls.VersionTLS12,
+	}, nil
+}
+
+// transportCredentials resolves whichever of the two TLS sources this run
+// used: a --ca-file the user pointed at, or a CA generated for this run.
+func (conf *Config) transportCredentials() (credentials.TransportCredentials, error) {
+	if len(conf.caPEM) > 0 {
+		cfg, err := TLSConfigFromPEM(conf.caPEM, conf.tlsHostOverride)
+		if err != nil {
+			return nil, err
+		}
+		return credentials.NewTLS(cfg), nil
+	}
+	return credentials.NewClientTLSFromFile(conf.certFile, conf.tlsHostOverride)
 }

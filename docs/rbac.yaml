@@ -1,0 +1,75 @@
+# Least-privilege RBAC for ktunnel.
+#
+# Everything here is namespaced. ktunnel asks for nothing cluster-scoped, no
+# CRDs and no operator -- that is the point of the tool, and this file is the
+# proof of it.
+#
+# Apply into the namespace you tunnel into, then point a kubeconfig user at
+# the ServiceAccount:
+#
+#   kubectl apply -n dev -f docs/rbac.yaml
+#
+# Every verb below is one ktunnel actually issues. If you cut something, the
+# command that needed it fails by name, and the error says which flag or
+# permission was missing.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ktunnel
+  namespace: dev
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ktunnel
+  namespace: dev
+rules:
+  # `expose` creates and removes its own Deployment; `--reuse` patches one it
+  # adopts; `inject` updates a Deployment you own to add and remove the
+  # sidecar.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "create", "update", "patch", "delete"]
+
+  # `expose` creates and removes the Service that is the way in.
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "create", "update", "patch", "delete"]
+
+  # The credentials Secret, one per run, holding the server certificate, its
+  # key and the tunnel token.
+  #
+  # Drop this rule and ktunnel still runs: it falls back to passing the token
+  # in the pod spec and gives up encryption, saying so before it starts. That
+  # is a real downgrade -- anyone with `get pods` in the namespace can then
+  # read the token -- so grant it if you can.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "delete"]
+
+  # Resolving the pods to forward to. `list` only: ktunnel reads pods, it
+  # never writes them.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+
+  # The port-forward itself, which is how your machine reaches the tunnel
+  # server without anything being exposed outside the cluster.
+  - apiGroups: [""]
+    resources: ["pods/portforward"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ktunnel
+  namespace: dev
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ktunnel
+subjects:
+  - kind: ServiceAccount
+    name: ktunnel
+    namespace: dev

@@ -65,13 +65,13 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 // What this is about to do to the deployment, including how many pods it
 // restarts and how many local ports it takes, is stated by PlanInject before
 // the rollout starts.
-func (k *KubeService) InjectSidecar(namespace, objectName *string, port *int, image string, cert string, key string, readyChan chan<- bool, kubecontext *string) (bool, error) {
+func (k *KubeService) InjectSidecar(namespace, objectName *string, port *int, image string, podCreds PodCredentials, readyChan chan<- bool, kubecontext *string) (bool, error) {
 	log.Infof("Injecting tunnel sidecar to %s/%s", *namespace, *objectName)
 	cpuReq := int64(100) // in milli-cpu
 	cpuLimit := int64(500)
 	memReq := int64(100) // in mega-bytes
 	memLimit := int64(1000)
-	co := newContainer(*port, image, []apiv1.ContainerPort{}, cert, key, cpuReq, cpuLimit, memReq, memLimit)
+	co := newContainer(*port, image, []apiv1.ContainerPort{}, podCreds, cpuReq, cpuLimit, memReq, memLimit)
 	obj, err := k.clients.Deployments.Get(context.Background(), *objectName, metav1.GetOptions{})
 	if err != nil {
 		return false, apiError("read", "deployment", *namespace, *objectName, err)

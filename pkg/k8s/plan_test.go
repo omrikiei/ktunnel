@@ -55,8 +55,8 @@ func planned(t *testing.T, svc *KubeService, name string, reuse, deploymentOnly 
 func planFor(t *testing.T, svc *KubeService, name string, reuse, deploymentOnly bool) (*exposePlan, error) {
 	t.Helper()
 	deployment := newDeployment("default", name, 28688, Image, nil,
-		map[string]string{}, map[string]string{}, map[string]string{}, nil, "", "", 100, 500, 100, 1000)
-	service := newService("default", name, nil, "ClusterIP")
+		map[string]string{}, map[string]string{}, map[string]string{}, nil, PodCredentials{}, 100, 500, 100, 1000)
+	service := newService("default", name, nil, "ClusterIP", nil)
 	return svc.planExpose("default", name, deployment, service, reuse, deploymentOnly)
 }
 

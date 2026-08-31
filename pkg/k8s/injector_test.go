@@ -198,7 +198,7 @@ func Test_InjectSidecar(t *testing.T) {
 	}
 
 	// Create a mock container for injection
-	co := newContainer(port, image, []v14.ContainerPort{}, "", "", 100, 500, 100, 1000)
+	co := newContainer(port, image, []v14.ContainerPort{}, PodCredentials{}, 100, 500, 100, 1000)
 
 	// Get the deployment and inject the sidecar directly
 	deployment, err := deploymentsClient.Get(context.Background(), objectName, metav1.GetOptions{})
@@ -331,7 +331,7 @@ func Test_InjectSidecar_MultipleReplicas(t *testing.T) {
 	// Buffered, so watchForReady's goroutine is not left blocked on a channel
 	// this test never reads.
 	readyChan := make(chan bool, 1)
-	ok, err := svc.InjectSidecar(&namespace, &objectName, &port, image, "", "", readyChan, nil)
+	ok, err := svc.InjectSidecar(&namespace, &objectName, &port, image, PodCredentials{}, readyChan, nil)
 	if err != nil {
 		t.Fatalf("failed injecting into a three-replica deployment: %v; "+
 			"most deployments worth tunnelling into run more than one pod, and refusing them rules out the command", err)

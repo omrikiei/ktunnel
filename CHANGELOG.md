@@ -1,5 +1,83 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **The tunnel is authenticated by default, and `expose` encrypts it.**
+  ([#166], [#80], [#70]) Every run mints a throwaway CA, a server
+  certificate and a bearer token, ships them to the tunnel server as a
+  Secret, and keeps its own half in memory — no files, so a `SIGKILL`
+  leaves no credential material behind. No flags to remember.
+
+  This closes the most serious gap ktunnel had: anything in the cluster
+  that found the gRPC port could attach as a client and be handed the
+  traffic meant for your machine. It is now refused before the server
+  binds a tunnelled port, so an unauthenticated caller cannot even cause
+  a port to open.
+
+  The token guards the tunnel, not the ports the tunnel opens. Anyone who
+  can reach a tunnelled port still reaches what is behind it on your
+  laptop. [docs/security.md](docs/security.md) says so plainly.
+
+- **`--insecure`** turns off both encryption and authentication, and is
+  the way back to pre-v2.4 behaviour.
+
+- **`--service-annotations`** puts annotations on the Service `expose`
+  creates. ([#69]) An ingress controller will not speak HTTPS to a
+  backend unless the Service tells it to, and the reporter lost three
+  hours to that. Every controller spells it differently, so the flag
+  carries whichever key yours reads:
+
+  ```sh
+  ktunnel expose myapp 443 \
+    --service-annotations traefik.ingress.kubernetes.io/service.serversscheme=https
+  ```
+
+- **[docs/rbac.yaml](docs/rbac.yaml)**: a ServiceAccount, Role and
+  RoleBinding with exactly the verbs ktunnel issues. Everything is
+  namespaced — ktunnel still asks for nothing cluster-scoped.
+
+### Fixed
+
+- **`--cert` and `--key` reach the in-cluster server as separate
+  arguments.** ([#166]) They were appended as `--cert /path`, one argv
+  entry with a space in it, which no flag parser splits — so the server
+  never received a certificate. This is why `expose` and `inject`
+  rejected `--tls` outright through v2.3. The test covering this
+  asserted the broken form, which is why it survived so long.
+
+### Changed
+
+- **`--tls` on `expose` and `inject` is accepted and does nothing**, and
+  is deprecated. It asks for what already happens. Through v2.3 it was
+  rejected with an error; refusing it now would break every command line
+  written against that error, and honouring it would imply the default
+  is something weaker.
+
+- **`--cert`/`--key`/`--ca-file` now mean "use these instead of
+  generating any"** on `expose` and `inject`, rather than being
+  rejected.
+
+- **`expose` creates a Secret**, and deletes it on exit — after the
+  Deployment, so credentials never vanish from under a running pod.
+  Where `secrets: create` is forbidden, the run does not stop: it keeps
+  the token, passes it in the pod spec, gives up encryption, and says so
+  before it starts. A token there is revocable and lasts one run; a
+  private key there would be the whole channel.
+
+- **`inject` is authenticated but not encrypted.** The sidecar gets a
+  token and no certificate. Mounting one means patching a volume and a
+  volumeMount into a Deployment ktunnel does not own, where a partial
+  eject leaves debris behind — and the sidecar's listeners are pod-local
+  regardless.
+
+- **An older `--image` degrades instead of failing.** A pinned pre-v2.4
+  server serves plaintext and ignores the token, so the handshake fails.
+  ktunnel logs the cause and the flag, once, and continues unencrypted
+  rather than aborting — a pinned image is a legitimate thing to have.
+  If you see that line, the tunnel has no protection at all.
+
 ## v2.3.0
 
 ### Added
@@ -598,6 +676,8 @@ planned for v2.1.
 
 [#25]: https://github.com/omrikiei/ktunnel/issues/25
 [#66]: https://github.com/omrikiei/ktunnel/issues/66
+[#69]: https://github.com/omrikiei/ktunnel/issues/69
+[#70]: https://github.com/omrikiei/ktunnel/issues/70
 [#80]: https://github.com/omrikiei/ktunnel/issues/80
 [#88]: https://github.com/omrikiei/ktunnel/issues/88
 [#90]: https://github.com/omrikiei/ktunnel/issues/90
@@ -613,6 +693,7 @@ planned for v2.1.
 [#134]: https://github.com/omrikiei/ktunnel/issues/134
 [#143]: https://github.com/omrikiei/ktunnel/issues/143
 [#147]: https://github.com/omrikiei/ktunnel/pull/147
+[#166]: https://github.com/omrikiei/ktunnel/issues/166
 [#171]: https://github.com/omrikiei/ktunnel/issues/171
 [dp]: https://github.com/doctorpangloss
 [id]: https://github.com/idsulik

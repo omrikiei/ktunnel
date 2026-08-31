@@ -70,7 +70,24 @@ ktunnel inject deployment mydeployment 3306 6379
 			logger.Info(line)
 		}
 
-		_, err = svc.InjectSidecar(&Namespace, &deployment, &port, ServerImage, CertFile, KeyFile, readyChan, &KubeContext)
+		// Token-only, and deliberately no volume. inject patches a
+		// Deployment ktunnel does not own, and eject has to be a clean
+		// reverse of it: one container in, one container out. Adding a
+		// volume and a volumeMount spreads the patch across two more parts
+		// of the spec, where a partial eject leaves debris in someone
+		// else's Deployment -- a worse outcome than the encryption it would
+		// buy, given the sidecar's listeners are pod-local to begin with.
+		bundle, err := generateCredentials(deployment, Namespace)
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+		podCreds := k8s.PodCredentials{}
+		if bundle != nil {
+			podCreds.Token = bundle.Token
+		}
+		tunnelCreds = sessionCredentials{bundle: bundle, encrypted: false}
+
+		_, err = svc.InjectSidecar(&Namespace, &deployment, &port, ServerImage, podCreds, readyChan, &KubeContext)
 		if err != nil {
 			log.Fatalf("failed injecting sidecar: %v", err)
 		}
@@ -112,7 +129,7 @@ ktunnel inject deployment mydeployment 3306 6379
 			os.Exit(1)
 		}
 
-		supervise(sess, forwardAndTunnelAttempt(svc, Namespace, deployment, port, args[1:]))
+		supervise(sess, withTLSDowngrade(forwardAndTunnelAttempt(svc, Namespace, deployment, port, args[1:])))
 	},
 }
 
@@ -124,7 +141,7 @@ func init() {
 	injectCmd.Flags().StringVar(&KubeContext, "context", "", "Kubernetes Context")
 	injectCmd.Flags().StringVar(&CertFile, "cert", "", "TLS certificate file")
 	injectCmd.Flags().StringVar(&KeyFile, "key", "", "TLS key file")
-	injectDeploymentCmd.PreRunE = rejectInClusterTLS("inject deployment")
+	injectDeploymentCmd.PreRunE = noteDeprecatedTLS
 	injectDeploymentCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "tls cert auth file")
 	injectDeploymentCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	injectDeploymentCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")

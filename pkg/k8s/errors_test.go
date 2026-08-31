@@ -95,7 +95,7 @@ func Test_InjectSidecar_MissingDeploymentNamesTheFix(t *testing.T) {
 
 	port := 28688
 	readyChan := make(chan bool, 1)
-	_, err := svc.InjectSidecar(&namespace, &name, &port, "test-image:latest", "", "", readyChan, nil)
+	_, err := svc.InjectSidecar(&namespace, &name, &port, "test-image:latest", PodCredentials{}, readyChan, nil)
 	if err == nil {
 		t.Fatal("injecting into a deployment that does not exist reported success")
 	}

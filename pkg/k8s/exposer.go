@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/omrikiei/ktunnel/pkg/creds"
 	log "github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	v12 "k8s.io/api/core/v1"
@@ -34,7 +35,7 @@ func (k *KubeService) ExposeAsService(
 	deploymentLabels map[string]string,
 	deploymentAnnotations map[string]string,
 	podTolerations []v12.Toleration,
-	cert, key string,
+	bundle *creds.Bundle,
 	serviceType string,
 	cpuReq, cpuLimit, memReq, memLimit int64,
 ) (*ResourceTracker, error) {
@@ -43,10 +44,18 @@ func (k *KubeService) ExposeAsService(
 	// deployment that was created before the service failed.
 	tracker := NewResourceTracker(namespace, k.clients)
 
+	// Credentials are decided before the manifests are built, because they
+	// change what the pod spec says: a mounted Secret means --tls and a
+	// secretKeyRef, and no Secret means an inline token and no TLS.
+	podCreds, err := k.provisionCredentials(namespace, name, bundle, tracker)
+	if err != nil {
+		return tracker, err
+	}
+
 	// The objects are built by the same code that prints them under
 	// --print-manifests, so what the command creates and what it says it
 	// would create cannot drift apart.
-	deploymentTemplate, service, ports, err := ManifestOptions{
+	deploymentTemplate, service, ports, buildErr := ManifestOptions{
 		Namespace:             namespace,
 		Name:                  name,
 		TunnelPort:            tunnelPort,
@@ -59,16 +68,16 @@ func (k *KubeService) ExposeAsService(
 		DeploymentLabels:      deploymentLabels,
 		DeploymentAnnotations: deploymentAnnotations,
 		PodTolerations:        podTolerations,
-		Cert:                  cert,
-		Key:                   key,
+		Creds:                 podCreds,
+		Bundle:                bundle,
 		ServiceType:           serviceType,
 		CPURequest:            cpuReq,
 		CPULimit:              cpuLimit,
 		MemRequest:            memReq,
 		MemLimit:              memLimit,
 	}.build()
-	if err != nil {
-		return tracker, err
+	if buildErr != nil {
+		return tracker, buildErr
 	}
 
 	// --reuse adopts. It does not write.
@@ -239,4 +248,50 @@ func (k *KubeService) TeardownExposedService(name string, DeploymentOnly bool) e
 		return err
 	}
 	return nil
+}
+
+// provisionCredentials puts this run's credentials where the tunnel server
+// container can read them, and reports how it managed to.
+//
+// The Secret is the way it should go: the private key and the token live in
+// an object with its own RBAC, and the pod spec only references them. When
+// the namespace forbids creating one, the run does not stop -- ktunnel's
+// whole pitch is that it needs no special permissions -- but it does not
+// pretend either. It keeps the token, which is what stops something in the
+// cluster attaching as a client, and gives up encryption, because a private
+// key inlined in a pod spec is readable by anyone with `get pods` and would
+// be the entire channel rather than one revocable run's secret.
+func (k *KubeService) provisionCredentials(namespace, name string, bundle *creds.Bundle, tracker *ResourceTracker) (PodCredentials, error) {
+	if bundle == nil {
+		// --insecure, and the standalone paths: exactly v2.3 behaviour.
+		return PodCredentials{}, nil
+	}
+	if k.clients.Secrets == nil {
+		return PodCredentials{Token: bundle.Token}, nil
+	}
+
+	_, err := k.clients.Secrets.Create(context.Background(), newSecret(namespace, name, bundle), v1.CreateOptions{})
+	switch {
+	case err == nil:
+		tracker.AddSecret(name)
+		return PodCredentials{SecretName: name}, nil
+	case apierrors.IsAlreadyExists(err):
+		// Left by a previous run that was killed rather than stopped. Its
+		// contents are another run's credentials, so they are of no use to
+		// this one: replace them, and own the result.
+		if _, err := k.clients.Secrets.Update(context.Background(), newSecret(namespace, name, bundle), v1.UpdateOptions{}); err != nil {
+			return PodCredentials{}, fmt.Errorf("secret %s/%s already exists and could not be updated: %w\n"+
+				"delete it with `kubectl delete secret -n %s %s`, or pass --insecure to run without credentials",
+				namespace, name, err, namespace, name)
+		}
+		tracker.AddSecret(name)
+		return PodCredentials{SecretName: name}, nil
+	case apierrors.IsForbidden(err):
+		log.Warnf("cannot create secret %s/%s: %v", namespace, name, err)
+		log.Warnf("falling back to an authenticated but UNENCRYPTED tunnel; "+
+			"grant `secrets: create` in %s for encryption, or pass --insecure to disable both", namespace)
+		return PodCredentials{Token: bundle.Token}, nil
+	default:
+		return PodCredentials{}, fmt.Errorf("failed creating secret %s/%s: %w", namespace, name, err)
+	}
 }

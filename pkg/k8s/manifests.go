@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/omrikiei/ktunnel/pkg/common"
+	"github.com/omrikiei/ktunnel/pkg/creds"
 	appsv1 "k8s.io/api/apps/v1"
 	v12 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -37,10 +38,21 @@ type ManifestOptions struct {
 	DeploymentLabels      map[string]string
 	DeploymentAnnotations map[string]string
 	PodTolerations        []v12.Toleration
-	Cert, Key             string
-	ServiceType           string
-	CPURequest, CPULimit  int64
-	MemRequest, MemLimit  int64
+	// Creds is how this run's credentials reach the tunnel server pod.
+	Creds PodCredentials
+	// Bundle is the credential material itself, present only when this run
+	// generated some. It is what RenderManifests turns into a Secret, so
+	// that printed manifests describe the same secured tunnel the command
+	// would have created rather than an insecure one.
+	Bundle      *creds.Bundle
+	ServiceType string
+	// ServiceAnnotations go on the Service, for the ingress controllers
+	// that need to be told the backend speaks HTTPS (#69). Controller
+	// specific by nature, so ktunnel carries whatever it is given rather
+	// than one vendor's key.
+	ServiceAnnotations   map[string]string
+	CPURequest, CPULimit int64
+	MemRequest, MemLimit int64
 }
 
 // build turns the options into the objects, and returns the service ports
@@ -100,13 +112,13 @@ func (o ManifestOptions) build() (*appsv1.Deployment, *v12.Service, []v12.Servic
 		copyLabels(o.NodeSelectorTags),
 		copyLabels(o.DeploymentLabels),
 		copyLabels(o.DeploymentAnnotations),
-		o.PodTolerations, o.Cert, o.Key,
+		o.PodTolerations, o.Creds,
 		o.CPURequest, o.CPULimit, o.MemRequest, o.MemLimit,
 	)
 	if o.DeploymentOnly {
 		return deployment, nil, ports, nil
 	}
-	return deployment, newService(o.Namespace, o.Name, ports, v12.ServiceType(o.ServiceType)), ports, nil
+	return deployment, newService(o.Namespace, o.Name, ports, v12.ServiceType(o.ServiceType), o.ServiceAnnotations), ports, nil
 }
 
 // RenderManifests returns the Deployment and Service `expose` would create, as
@@ -134,7 +146,17 @@ func RenderManifests(options ManifestOptions) (string, error) {
 	deployment.TypeMeta.APIVersion = "apps/v1"
 	deployment.TypeMeta.Kind = "Deployment"
 
-	documents := []interface{}{deployment}
+	documents := []interface{}{}
+	// Ahead of the Deployment, because that is the order they have to be
+	// applied in: a Deployment mounting a Secret that does not exist yet
+	// sits in ContainerCreating until it does.
+	if options.Bundle != nil && options.Creds.mountsSecret() {
+		secret := newSecret(options.Namespace, options.Creds.SecretName, options.Bundle)
+		secret.TypeMeta.APIVersion = "v1"
+		secret.TypeMeta.Kind = "Secret"
+		documents = append(documents, secret)
+	}
+	documents = append(documents, deployment)
 	if service != nil {
 		service.TypeMeta.APIVersion = "v1"
 		service.TypeMeta.Kind = "Service"

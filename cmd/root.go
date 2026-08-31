@@ -17,6 +17,10 @@ var version = "2.3.0"
 
 var port int
 var tls bool
+
+// Insecure turns off both halves of v2.4: no generated credentials, no
+// encryption and no authentication between the cluster and this machine.
+var Insecure bool
 var verbose bool
 
 var rootCmd = &cobra.Command{
@@ -54,6 +58,8 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().IntVarP(&port, "port", "p", 28688, "The port to use to establish the tunnel")
 	rootCmd.PersistentFlags().BoolVarP(&tls, "tls", "t", false, "Connection uses tls if true, else plain TCP")
+	rootCmd.PersistentFlags().BoolVar(&Insecure, "insecure", false,
+		"Run the tunnel with no encryption and no authentication (pre-v2.4 behaviour)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose mode")
 	_ = rootCmd.MarkFlagRequired("port")
 }

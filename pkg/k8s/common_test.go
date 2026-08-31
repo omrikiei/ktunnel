@@ -16,8 +16,7 @@ func Test_newContainer(t *testing.T) {
 		port           int
 		image          string
 		containerPorts []v1.ContainerPort
-		cert           string
-		key            string
+		podCreds       PodCredentials
 		cReq           int64
 		cLimit         int64
 		mReq           int64
@@ -30,8 +29,7 @@ func Test_newContainer(t *testing.T) {
 			port:           8080,
 			image:          "test-image:latest",
 			containerPorts: []v1.ContainerPort{},
-			cert:           "",
-			key:            "",
+			podCreds:       PodCredentials{},
 			cReq:           100,
 			cLimit:         500,
 			mReq:           100,
@@ -44,22 +42,25 @@ func Test_newContainer(t *testing.T) {
 			port:           8443,
 			image:          "test-image:latest",
 			containerPorts: []v1.ContainerPort{},
-			cert:           "/certs/tls.crt",
-			key:            "/certs/tls.key",
+			podCreds:       PodCredentials{SecretName: "myapp-ktunnel"},
 			cReq:           100,
 			cLimit:         500,
 			mReq:           100,
 			mLimit:         1000,
 			verbose:        false,
-			expectedArgs:   []string{"server", "-p", "8443", "--cert /certs/tls.crt", "--key /certs/tls.key"},
+			// This case used to expect `--cert /certs/tls.crt` as a single
+			// argv entry, which is what the code emitted and what made
+			// in-cluster TLS impossible. The test agreed with the bug, so it
+			// never caught it.
+			expectedArgs: []string{"server", "-p", "8443", "--tls",
+				"--cert", certMountPath + "/tls.crt", "--key", certMountPath + "/tls.key"},
 		},
 		{
 			name:           "verbose container",
 			port:           8080,
 			image:          "test-image:latest",
 			containerPorts: []v1.ContainerPort{},
-			cert:           "",
-			key:            "",
+			podCreds:       PodCredentials{},
 			cReq:           100,
 			cLimit:         500,
 			mReq:           100,
@@ -79,7 +80,7 @@ func Test_newContainer(t *testing.T) {
 			SetVerbose(tc.verbose)
 			t.Cleanup(func() { SetVerbose(false) })
 
-			container := newContainer(tc.port, tc.image, tc.containerPorts, tc.cert, tc.key, tc.cReq, tc.cLimit, tc.mReq, tc.mLimit)
+			container := newContainer(tc.port, tc.image, tc.containerPorts, tc.podCreds, tc.cReq, tc.cLimit, tc.mReq, tc.mLimit)
 
 			if container.Name != "ktunnel" {
 				t.Errorf("Expected container name to be 'ktunnel', got %s", container.Name)
@@ -111,8 +112,7 @@ func Test_newDeployment(t *testing.T) {
 		labels         map[string]string
 		annotations    map[string]string
 		tolerations    []v1.Toleration
-		cert           string
-		key            string
+		podCreds       PodCredentials
 		cpuReq         int64
 		cpuLimit       int64
 		memReq         int64
@@ -129,8 +129,7 @@ func Test_newDeployment(t *testing.T) {
 			labels:         map[string]string{"app": "test"},
 			annotations:    map[string]string{"note": "test"},
 			tolerations:    []v1.Toleration{},
-			cert:           "",
-			key:            "",
+			podCreds:       PodCredentials{},
 			cpuReq:         100,
 			cpuLimit:       500,
 			memReq:         100,
@@ -150,8 +149,7 @@ func Test_newDeployment(t *testing.T) {
 				tc.labels,
 				tc.annotations,
 				tc.tolerations,
-				tc.cert,
-				tc.key,
+				tc.podCreds,
 				tc.cpuReq,
 				tc.cpuLimit,
 				tc.memReq,
@@ -199,7 +197,7 @@ func Test_newService(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			service := newService(tc.namespace, tc.svcName, tc.ports, tc.svcType)
+			service := newService(tc.namespace, tc.svcName, tc.ports, tc.svcType, nil)
 
 			if service.Name != tc.svcName {
 				t.Errorf("Expected service name %s, got %s", tc.svcName, service.Name)

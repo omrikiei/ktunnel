@@ -22,6 +22,7 @@ var ServiceType string
 var NodeSelectorTags []string
 var DeploymentLabels []string
 var DeploymentAnnotations []string
+var ServiceAnnotations []string
 var PodTolerations []string
 var ServerCPURequest int64
 var ServerCPULimit int64
@@ -104,6 +105,22 @@ ktunnel expose redis 6379
 			deploymentAnnotations[parsed[0]] = parsed[1]
 		}
 
+		// #69: an ingress controller will not speak HTTPS to a backend
+		// unless the Service says it should, and every controller spells
+		// that differently -- Traefik wants
+		// traefik.ingress.kubernetes.io/service.serversscheme=https. The
+		// flag carries whichever one the user's controller reads rather
+		// than baking one vendor's key into ktunnel.
+		serviceAnnotations := make(map[string]string, len(ServiceAnnotations))
+		for _, annotation := range ServiceAnnotations {
+			parsed := strings.SplitN(annotation, "=", 2)
+			if len(parsed) != 2 {
+				log.Errorf("failed to parse service annotation: %v", annotation)
+				continue
+			}
+			serviceAnnotations[parsed[0]] = parsed[1]
+		}
+
 		podTolerations := make([]apiv1.Toleration, 0, len(PodTolerations))
 		for _, label := range PodTolerations {
 			parsed := strings.Split(label, "=")
@@ -125,6 +142,20 @@ ktunnel expose redis 6379
 			})
 		}
 
+		// Generated before anything is built or created, because the whole
+		// pod spec depends on whether this run has credentials: a mounted
+		// Secret means --tls and a secretKeyRef, and none means an inline
+		// token. Failing here costs nothing; failing after the Deployment
+		// exists costs a cleanup.
+		bundle, err := generateCredentials(svcName, Namespace)
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+		// expose mounts a certificate, so its tunnel is encrypted as well
+		// as authenticated -- unless the Secret could not be created, which
+		// ExposeAsService reports below by falling back.
+		tunnelCreds = sessionCredentials{bundle: bundle, encrypted: bundle != nil}
+
 		manifestOptions := k8s.ManifestOptions{
 			Namespace:             Namespace,
 			Name:                  svcName,
@@ -138,9 +169,10 @@ ktunnel expose redis 6379
 			DeploymentLabels:      deploymentLabels,
 			DeploymentAnnotations: deploymentAnnotations,
 			PodTolerations:        podTolerations,
-			Cert:                  CertFile,
-			Key:                   KeyFile,
+			Creds:                 k8s.PodCredentialsFor(svcName, bundle),
+			Bundle:                bundle,
 			ServiceType:           ServiceType,
+			ServiceAnnotations:    serviceAnnotations,
 			CPURequest:            ServerCPURequest,
 			CPULimit:              ServerCPULimit,
 			MemRequest:            ServerMemRequest,
@@ -204,8 +236,7 @@ ktunnel expose redis 6379
 			deploymentLabels,
 			deploymentAnnotations,
 			podTolerations,
-			CertFile,
-			KeyFile,
+			bundle,
 			ServiceType,
 			ServerCPURequest,
 			ServerCPULimit,
@@ -275,7 +306,7 @@ ktunnel expose redis 6379
 			return
 		}
 
-		supervise(sess, forwardAndTunnelAttempt(kubeService, Namespace, svcName, port, ports))
+		supervise(sess, withTLSDowngrade(forwardAndTunnelAttempt(kubeService, Namespace, svcName, port, ports)))
 	},
 }
 
@@ -294,7 +325,7 @@ func cleanupCreated(tracker *k8s.ResourceTracker) {
 }
 
 func init() {
-	exposeCmd.PreRunE = rejectInClusterTLS("expose")
+	exposeCmd.PreRunE = noteDeprecatedTLS
 	exposeCmd.Flags().StringVarP(&CaFile, "ca-file", "c", "", "TLS cert auth file")
 	exposeCmd.Flags().StringVarP(&Scheme, "scheme", "s", "tcp", "Connection scheme")
 	exposeCmd.Flags().StringVarP(&ServerHostOverride, "server-host-override", "o", "", "Server name use to verify the hostname returned by the TLS handshake")
@@ -312,6 +343,7 @@ func init() {
 	exposeCmd.Flags().StringSliceVarP(&NodeSelectorTags, "node-selector-tags", "q", []string{}, "tag and value seperated by the '=' character (i.e kubernetes.io/os=linux)")
 	exposeCmd.Flags().StringSliceVarP(&DeploymentLabels, "deployment-labels", "l", []string{}, "comma separated list of labels and values seperated by the '=' character (i.e app=application,env=prod)")
 	exposeCmd.Flags().StringSliceVarP(&DeploymentAnnotations, "deployment-annotations", "", []string{}, "comma separated list of annotations and values seperated by the '=' character (i.e sidecar.istio.io/inject=false)")
+	exposeCmd.Flags().StringSliceVar(&ServiceAnnotations, "service-annotations", []string{}, "comma separated list of annotations to put on the service (i.e traefik.ingress.kubernetes.io/service.serversscheme=https, so a Traefik ingress speaks HTTPS to your local service)")
 	exposeCmd.Flags().StringSliceVarP(&PodTolerations, "pod-tolerations", "", []string{}, "comma separated list of tolerations seperated by the '=' character (i.e key=value:NoSchedule)")
 	exposeCmd.Flags().Int64Var(&ServerCPURequest, "server-cpu-request", 100, "Server container CPU Request in milli-cpus")
 	exposeCmd.Flags().Int64Var(&ServerCPULimit, "server-cpu-limit", 500, "Server container CPU Limit in milli-cpus")

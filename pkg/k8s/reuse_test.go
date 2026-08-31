@@ -105,7 +105,7 @@ func expose(t *testing.T, svc *KubeService, name string, reuse bool) (*ResourceT
 		"default", name, 28688, "tcp", []string{"8080"}, "",
 		Image, reuse, false, readyChan,
 		map[string]string{}, map[string]string{}, map[string]string{}, nil,
-		"", "", "ClusterIP",
+		nil, "ClusterIP",
 		100, 500, 100, 1000,
 	)
 }

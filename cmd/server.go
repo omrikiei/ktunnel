@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 
+	"github.com/omrikiei/ktunnel/pkg/creds"
 	"github.com/omrikiei/ktunnel/pkg/server"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -40,6 +41,14 @@ ktunnel server -p 8181
 		defer sess.finish()
 
 		config := []server.Option{server.WithPort(port), server.WithLogger(&logger)}
+		// The token arrives in the environment, put there by the pod spec
+		// that `expose` or `inject` wrote -- from a Secret when there is
+		// one, inline when secrets are forbidden in the namespace. Absent,
+		// the server is unauthenticated, which is standalone use and
+		// `--insecure`.
+		if token := creds.TokenFromEnv(); token != "" {
+			config = append(config, server.WithToken(token))
+		}
 		if tls {
 			config = append(config, server.WithTLS(CertFile, KeyFile))
 		}

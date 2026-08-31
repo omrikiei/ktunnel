@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/omrikiei/ktunnel/pkg/client"
+	"github.com/omrikiei/ktunnel/pkg/creds"
 	"github.com/omrikiei/ktunnel/pkg/supervisor"
 	"github.com/spf13/cobra"
 )
@@ -127,6 +128,38 @@ func superviseAndReport(sess *tunnelSession, attempt supervisor.Attempt) int {
 	return 0
 }
 
+// sessionCredentials is what this run generated, and how much of it the
+// in-cluster server can actually use.
+//
+// A package-level value, like the flags around it: it is set once, before the
+// supervisor starts, and read on every reconnect attempt -- a reconnect has
+// to present the same credentials as the first connection, because the pod on
+// the other end is still running with them.
+type sessionCredentials struct {
+	bundle *creds.Bundle
+	// encrypted is false for `inject`, whose sidecar gets a token but no
+	// certificate: the client must authenticate over plaintext there, and
+	// turning TLS on would fail the handshake instead.
+	encrypted bool
+}
+
+var tunnelCreds sessionCredentials
+
+// clientOptions returns the client half of these credentials.
+func (s sessionCredentials) clientOptions() []client.Option {
+	if s.bundle == nil {
+		return nil
+	}
+	opts := []client.Option{client.WithToken(s.bundle.Token)}
+	if s.encrypted {
+		// The CA never touches disk: it was generated moments ago and lives
+		// only in this process, which is why a SIGKILL leaves nothing
+		// behind to clean up.
+		opts = append(opts, client.WithTLSFromPEM(s.bundle.CACert, ""))
+	}
+	return opts
+}
+
 // tunnelClientOptions builds the client configuration shared by every command.
 func tunnelClientOptions(host string, grpcPort int, tunnels []string, established func()) []client.Option {
 	opts := []client.Option{
@@ -138,10 +171,13 @@ func tunnelClientOptions(host string, grpcPort int, tunnels []string, establishe
 		// keyed by IDs the new server has never issued.
 		client.WithEstablishedCallback(established),
 	}
-	if tls {
+	if tls && CaFile != "" {
+		// Bring-your-own CA, on the standalone client and on the
+		// expose/inject runs that passed --ca-file instead of letting
+		// ktunnel generate credentials.
 		opts = append(opts, client.WithTLS(CaFile, ServerHostOverride))
 	}
-	return opts
+	return append(opts, tunnelCreds.clientOptions()...)
 }
 
 // tunnelClientAttempt returns an Attempt that runs a tunnel client against an
@@ -361,31 +397,45 @@ func watchForward(stopChan chan struct{}, fwdErrChan <-chan error, releaseTimeou
 	}
 }
 
-// rejectInClusterTLS refuses --tls on the commands that run the tunnel server
-// inside the cluster, before they create anything there.
+// noteDeprecatedTLS accepts --tls on the in-cluster commands and does
+// nothing with it.
 //
-// --tls never worked at all: the client option that turns it on never set its
-// flag, so every ktunnel run with --tls connected in plaintext. Fixing that
-// leaves expose and inject in a worse place than it found them, because the
-// in-cluster server is still plaintext -- it is never started with --tls, and
-// there would be nothing for it to serve if it were: no volume mounts a
-// certificate into its container, and --cert/--key reach it as a single
-// unparsed argument that cobra never splits. So the fixed client would fail
-// its handshake against the server it just created, reporting an error about a
-// server preface, with a Deployment and a Service already in the cluster.
-//
-// Failing here instead costs the user nothing and tells them the truth. This
-// is a gap in ktunnel, not a mistake in their command line, so the message
-// says what is missing and what does work today.
-func rejectInClusterTLS(command string) func(*cobra.Command, []string) error {
-	return func(*cobra.Command, []string) error {
-		if !tls {
-			return nil
-		}
-		return fmt.Errorf("--tls is not supported for `ktunnel %s`: the in-cluster tunnel server has no "+
-			"certificate provisioning -- nothing mounts a certificate into its container, and --cert/--key "+
-			"reach it as a single unparsed argument -- so it serves plaintext and the tunnel would fail to "+
-			"connect.\nFor an encrypted tunnel today, run `ktunnel server --tls --cert CERT --key KEY` "+
-			"yourself and connect to it with `ktunnel client --tls --ca-file CERT`", command)
+// Through v2.3 these commands rejected the flag outright, because there was
+// nothing behind it: no volume mounted a certificate into the tunnel server
+// container, and --cert/--key reached it as a single unparsed argument cobra
+// never split. v2.4 provisions credentials per run and turns TLS on with no
+// flag at all, so the flag now asks for what is already happening. Refusing
+// it would break every command line written against that error message, and
+// honouring it would imply the default is something less.
+func noteDeprecatedTLS(*cobra.Command, []string) error {
+	if tls {
+		logger.Warn("--tls is deprecated and does nothing: expose and inject encrypt the tunnel by default. " +
+			"Use --insecure to turn encryption and authentication off.")
 	}
+	return nil
+}
+
+// generateCredentials mints the credentials for one run, or returns nil when
+// the user asked for none.
+//
+// --cert/--key mean the user brought their own server credentials, and
+// --ca-file means they will verify against their own CA; in that case nothing
+// is generated and the files are used as given.
+func generateCredentials(name, namespace string) (*creds.Bundle, error) {
+	if Insecure {
+		logger.Warn("--insecure: the tunnel is unencrypted and unauthenticated. " +
+			"Anything in the cluster that can reach it can reach this machine.")
+		return nil, nil
+	}
+	if CertFile != "" || KeyFile != "" || CaFile != "" {
+		// Bring-your-own. Generating a bundle as well would put two
+		// certificates in play and mount the wrong one.
+		return nil, nil
+	}
+	bundle, err := creds.Generate(name, namespace)
+	if err != nil {
+		return nil, fmt.Errorf("failed generating tunnel credentials: %w\n"+
+			"pass --insecure to run without them", err)
+	}
+	return bundle, nil
 }

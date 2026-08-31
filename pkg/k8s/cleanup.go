@@ -16,6 +16,7 @@ type ResourceTracker struct {
 	namespace   string
 	deployments []string
 	services    []string
+	secrets     []string
 	mu          sync.Mutex
 	timeout     time.Duration
 }
@@ -27,6 +28,7 @@ func NewResourceTracker(namespace string, clients *Clients) *ResourceTracker {
 		namespace:   namespace,
 		deployments: make([]string, 0),
 		services:    make([]string, 0),
+		secrets:     make([]string, 0),
 		timeout:     30 * time.Second, // Default timeout for cleanup operations
 	}
 }
@@ -50,6 +52,27 @@ func (rt *ResourceTracker) AddService(name string) {
 	defer rt.mu.Unlock()
 	rt.services = append(rt.services, name)
 	log.Debugf("Added service %s to cleanup tracker", name)
+}
+
+// AddSecret adds a credentials secret to be tracked for cleanup
+func (rt *ResourceTracker) AddSecret(name string) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	rt.secrets = append(rt.secrets, name)
+	log.Debugf("Added secret %s to cleanup tracker", name)
+}
+
+// RemoveSecret removes a secret from tracking
+func (rt *ResourceTracker) RemoveSecret(name string) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	for i, s := range rt.secrets {
+		if s == name {
+			rt.secrets = append(rt.secrets[:i], rt.secrets[i+1:]...)
+			log.Debugf("Removed secret %s from cleanup tracker", name)
+			return
+		}
+	}
 }
 
 // RemoveDeployment removes a deployment from tracking
@@ -91,8 +114,10 @@ func (rt *ResourceTracker) Cleanup(ctx context.Context) error {
 	rt.mu.Lock()
 	deployments := make([]string, len(rt.deployments))
 	services := make([]string, len(rt.services))
+	secrets := make([]string, len(rt.secrets))
 	copy(deployments, rt.deployments)
 	copy(services, rt.services)
+	copy(secrets, rt.secrets)
 	rt.mu.Unlock()
 
 	// Clean up deployments
@@ -142,6 +167,25 @@ func (rt *ResourceTracker) Cleanup(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-doneChan:
+		// Secrets go last, and only once the deployment that mounts them is
+		// gone. Deleting credentials out from under a running pod turns a
+		// clean Ctrl+C into a pod crash-looping on a missing volume for as
+		// long as it takes the deployment delete to land.
+		for _, secret := range secrets {
+			if rt.clients.Secrets == nil {
+				break
+			}
+			if err := rt.clients.Secrets.Delete(ctx, secret, metav1.DeleteOptions{}); err != nil {
+				log.Warnf("Failed to delete secret %s: %v", secret, err)
+				select {
+				case errChan <- err:
+				default:
+				}
+			} else {
+				log.Infof("Deleted secret %s", secret)
+			}
+		}
+
 		// Check if there were any errors
 		close(errChan)
 		var errs []error
