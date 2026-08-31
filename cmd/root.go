@@ -13,7 +13,7 @@ import (
 // goreleaser via -ldflags "-X github.com/omrikiei/ktunnel/cmd.version=...",
 // so that the binary, the git tag and the default --server-image tag
 // always agree. The literal here is only used for local builds.
-var version = "2.4.0"
+var version = "2.4.1"
 
 var port int
 var tls bool

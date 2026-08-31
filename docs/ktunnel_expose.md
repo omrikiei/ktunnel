@@ -60,7 +60,7 @@ ktunnel expose redis 6379
       --server-cpu-limit int             Server container CPU Limit in milli-cpus (default 500)
       --server-cpu-request int           Server container CPU Request in milli-cpus (default 100)
   -o, --server-host-override string      Server name use to verify the hostname returned by the TLS handshake
-  -i, --server-image string              Ktunnel server image to use (default "docker.io/omrieival/ktunnel:v2.4.0")
+  -i, --server-image string              Ktunnel server image to use (default "docker.io/omrieival/ktunnel:v2.4.1")
       --server-memory-limit int          Server container memory limit in mega-bytes (default 1000)
       --server-memory-request int        Server container memory request in mega-bytes (default 100)
       --service-annotations strings      comma separated list of annotations to put on the service (i.e traefik.ingress.kubernetes.io/service.serversscheme=https, so a Traefik ingress speaks HTTPS to your local service)

@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.4.1
+
+### Fixed
+
+- **`ktunnel expose` crash-looped on every real cluster in v2.4.0.** The
+  tunnel server could not read the certificate v2.4.0 had just generated
+  for it:
+
+  ```
+  FATA Failed to generate credentials open /ktunnel/creds/tls.crt: permission denied
+  ```
+
+  Kubernetes owns secret volume files as root:root unless the pod sets an
+  `fsGroup`. The credentials were mounted `0400` — owner-read-only, and
+  the owner is root — while the server runs as UID 1000. They are now
+  mounted `0444`, which is stricter than the Kubernetes default of `0644`
+  and needs no `fsGroup`; requiring one would break OpenShift, which
+  assigns `fsGroup` from a per-namespace range ([#87]).
+
+  **Upgrade if you are on v2.4.0.** Nothing else changed, and no command
+  line or manifest of yours needs to.
+
 ## v2.4.0
 
 ### Added
@@ -702,6 +724,7 @@ planned for v2.1.
 [#69]: https://github.com/omrikiei/ktunnel/issues/69
 [#70]: https://github.com/omrikiei/ktunnel/issues/70
 [#80]: https://github.com/omrikiei/ktunnel/issues/80
+[#87]: https://github.com/omrikiei/ktunnel/issues/87
 [#88]: https://github.com/omrikiei/ktunnel/issues/88
 [#90]: https://github.com/omrikiei/ktunnel/issues/90
 [#91]: https://github.com/omrikiei/ktunnel/issues/91
