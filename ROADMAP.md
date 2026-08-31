@@ -205,20 +205,30 @@ Not tied to a release; pick up whenever.
 
 ## Issues to verify and close
 
-All verified and closed: #96, #80, #171, #115, #120, #94, #123 and #70 against
-v2.2.0, and #118 against v2.3.0.
+All verified and closed: #96, #171, #115, #120, #94 and #123 against v2.2.0,
+#118 against v2.3.0, and #166, #80, #70 and #69 against v2.4.0.
 
 - [x] **#118** — custom requests/limits: the four `--server-cpu-*` /
       `--server-memory-*` flags exist. The second half of the report, values
       rendered as `500e-3` and `1e9`, is fixed in v2.3.0.
 - [x] **#123** — pods picked by name prefix, so `react1` matched `react11`:
       pod lookup is an exact label match now, not a prefix.
-- [x] **#70** — `--ca-file` ignored: it genuinely was. `--tls` is fixed for
-      standalone client/server in v2.1 and rejected up front for `expose`
-      and `inject`, which is #166.
+- [x] **#166** — no certificate provisioning for the in-cluster server:
+      every run generates a CA, a server certificate and a token and ships
+      them as a Secret. Fixed in v2.4.0.
+- [x] **#70** — `--ca-file` ignored: it genuinely was. Fixed for standalone
+      client/server in v2.1, and for `expose` and `inject` in v2.4.0, where
+      the flags now mean "use these instead of generating any". Through
+      v2.3 they were rejected outright.
+- [x] **#69** — Traefik needs the Service annotated before it will speak
+      HTTPS to a backend. Generalised to `--service-annotations` in v2.4.0:
+      the issue asked for Traefik's key gated on `--tls`, but `--tls` is a
+      no-op now and the annotation describes the local service's protocol,
+      not ktunnel's channel.
 - [x] **#96** — answered by the multi-replica decision in v2.2.
-- [x] **#80** — answered by [docs/security.md](docs/security.md); the token
-      itself is the v2.4 item above.
+- [x] **#80** — answered first by [docs/security.md](docs/security.md) in
+      v2.2, and then properly: the bearer token is on by default as of
+      v2.4.0.
 - [x] **#171**, **#115** — fixed in v2.2.
 - [x] **#120**, **#94** — `--reuse` adopts instead of overwriting, and cleans
       up only what it created.
