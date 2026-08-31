@@ -16,7 +16,7 @@ import (
 
 // exposeWithBundle is `ktunnel expose NAME 8080` for a run that generated
 // credentials, which after v2.4 is every run that did not pass --insecure.
-func exposeWithBundle(t *testing.T, svc *KubeService, name string, bundle *creds.Bundle) (*ResourceTracker, error) {
+func exposeWithBundle(t *testing.T, svc *KubeService, name string, bundle *creds.Bundle) (*ResourceTracker, PodCredentials, error) {
 	t.Helper()
 	readyChan := make(chan bool, 1)
 	return svc.ExposeAsService(
@@ -36,7 +36,7 @@ func TestExposeAsService_CreatesAndTracksTheCredentialsSecret(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 
-	tracker, err := exposeWithBundle(t, svc, "myapp", bundle)
+	tracker, _, err := exposeWithBundle(t, svc, "myapp", bundle)
 	if err != nil {
 		t.Fatalf("ExposeAsService: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestExposeAsService_FallsBackToAnInlineTokenWhenSecretsAreForbidden(t *test
 		t.Fatalf("Generate: %v", err)
 	}
 
-	tracker, err := exposeWithBundle(t, svc, "myapp", bundle)
+	tracker, _, err := exposeWithBundle(t, svc, "myapp", bundle)
 	if err != nil {
 		t.Fatalf("a forbidden secret ended the run: %v; ktunnel is meant to work without special permissions", err)
 	}
@@ -119,7 +119,7 @@ func TestExposeAsService_InsecureCreatesNoSecret(t *testing.T) {
 	fake := testclient.NewSimpleClientset()
 	svc := fakeKubeServiceWithSecrets(fake)
 
-	tracker, err := exposeWithBundle(t, svc, "myapp", nil)
+	tracker, _, err := exposeWithBundle(t, svc, "myapp", nil)
 	if err != nil {
 		t.Fatalf("ExposeAsService: %v", err)
 	}

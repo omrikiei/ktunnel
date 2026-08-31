@@ -38,46 +38,50 @@ func (k *KubeService) ExposeAsService(
 	bundle *creds.Bundle,
 	serviceType string,
 	cpuReq, cpuLimit, memReq, memLimit int64,
-) (*ResourceTracker, error) {
+) (*ResourceTracker, PodCredentials, error) {
 	// The tracker holds what this call creates, and only that. It is returned
 	// on the error paths too, so a caller that gives up can still remove a
 	// deployment that was created before the service failed.
 	tracker := NewResourceTracker(namespace, k.clients)
 
-	// Credentials are decided before the manifests are built, because they
-	// change what the pod spec says: a mounted Secret means --tls and a
-	// secretKeyRef, and no Secret means an inline token and no TLS.
-	podCreds, err := k.provisionCredentials(namespace, name, bundle, tracker)
-	if err != nil {
-		return tracker, err
-	}
+	// Built optimistically, as though this run will create the deployment
+	// and can therefore secure it. Whether that holds is not known until
+	// the plan below has looked at the cluster, and the pod spec depends on
+	// the answer -- a mounted Secret means --tls and a secretKeyRef, and no
+	// Secret means an inline token and no TLS -- so the build is a closure,
+	// callable a second time if the answer turns out to be different.
+	podCreds := PodCredentialsFor(name, bundle)
 
 	// The objects are built by the same code that prints them under
 	// --print-manifests, so what the command creates and what it says it
 	// would create cannot drift apart.
-	deploymentTemplate, service, ports, buildErr := ManifestOptions{
-		Namespace:             namespace,
-		Name:                  name,
-		TunnelPort:            tunnelPort,
-		Scheme:                scheme,
-		RawPorts:              rawPorts,
-		PortName:              portName,
-		Image:                 image,
-		DeploymentOnly:        DeploymentOnly,
-		NodeSelectorTags:      nodeSelectorTags,
-		DeploymentLabels:      deploymentLabels,
-		DeploymentAnnotations: deploymentAnnotations,
-		PodTolerations:        podTolerations,
-		Creds:                 podCreds,
-		Bundle:                bundle,
-		ServiceType:           serviceType,
-		CPURequest:            cpuReq,
-		CPULimit:              cpuLimit,
-		MemRequest:            memReq,
-		MemLimit:              memLimit,
-	}.build()
-	if buildErr != nil {
-		return tracker, buildErr
+	build := func(podCreds PodCredentials) (*appsv1.Deployment, *v12.Service, []v12.ServicePort, error) {
+		return ManifestOptions{
+			Namespace:             namespace,
+			Name:                  name,
+			TunnelPort:            tunnelPort,
+			Scheme:                scheme,
+			RawPorts:              rawPorts,
+			PortName:              portName,
+			Image:                 image,
+			DeploymentOnly:        DeploymentOnly,
+			NodeSelectorTags:      nodeSelectorTags,
+			DeploymentLabels:      deploymentLabels,
+			DeploymentAnnotations: deploymentAnnotations,
+			PodTolerations:        podTolerations,
+			Creds:                 podCreds,
+			Bundle:                bundle,
+			ServiceType:           serviceType,
+			CPURequest:            cpuReq,
+			CPULimit:              cpuLimit,
+			MemRequest:            memReq,
+			MemLimit:              memLimit,
+		}.build()
+	}
+
+	deploymentTemplate, service, ports, err := build(podCreds)
+	if err != nil {
+		return tracker, PodCredentials{}, err
 	}
 
 	// --reuse adopts. It does not write.
@@ -99,7 +103,41 @@ func (k *KubeService) ExposeAsService(
 	// The whole plan is decided, and said, before the first write: see plan.go.
 	plan, err := k.planExpose(namespace, name, deploymentTemplate, service, Reuse, DeploymentOnly)
 	if err != nil {
-		return tracker, err
+		return tracker, PodCredentials{}, err
+	}
+
+	// An adopted deployment runs exactly as its author wrote it: it does not
+	// mount ktunnel's Secret and its server never reads ktunnel's token.
+	// Provisioning credentials for it would create a Secret nothing consumes
+	// -- demanding a permission the people who hand-write these deployments
+	// may well not have -- and would leave the client expecting a handshake
+	// the adopted server cannot complete. So it gets none, and the caller is
+	// told, rather than finding out through a failed connection.
+	//
+	// --reuse with nothing there is a different case: ktunnel creates the
+	// deployment from its own template, and that run is secured like any
+	// other.
+	switch {
+	case plan.existingDeployment != nil:
+		if bundle != nil {
+			log.Warnf("--reuse is tunnelling through deployment %s/%s as it stands, so this run is "+
+				"UNENCRYPTED and UNAUTHENTICATED: ktunnel cannot mount credentials into a deployment it did not create", namespace, name)
+		}
+		podCreds = PodCredentials{}
+	case bundle != nil:
+		podCreds, err = k.provisionCredentials(namespace, name, bundle, tracker)
+		if err != nil {
+			return tracker, PodCredentials{}, err
+		}
+		// The Secret could not be created, so the pod spec that was built
+		// on the assumption that it could is now wrong: rebuild it with an
+		// inline token and no TLS.
+		if !podCreds.mountsSecret() {
+			deploymentTemplate, service, ports, err = build(podCreds)
+			if err != nil {
+				return tracker, PodCredentials{}, err
+			}
+		}
 	}
 	for _, line := range plan.describe() {
 		log.Info(line)
@@ -109,7 +147,7 @@ func (k *KubeService) ExposeAsService(
 	if deployment == nil {
 		deployment, err = k.createDeployment(namespace, name, deploymentTemplate, tracker)
 		if err != nil {
-			return tracker, err
+			return tracker, podCreds, err
 		}
 	}
 
@@ -118,7 +156,7 @@ func (k *KubeService) ExposeAsService(
 		if newSvc == nil {
 			newSvc, err = k.createService(namespace, name, service, tracker)
 			if err != nil {
-				return tracker, err
+				return tracker, podCreds, err
 			}
 		}
 		if newSvc.Spec.ClusterIP != "" {
@@ -128,7 +166,7 @@ func (k *KubeService) ExposeAsService(
 	}
 
 	watchForReady(deployment, readyChan)
-	return tracker, nil
+	return tracker, podCreds, nil
 }
 
 // createDeployment creates the deployment the plan said was missing, and

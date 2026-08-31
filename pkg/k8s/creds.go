@@ -33,6 +33,15 @@ type PodCredentials struct {
 // the condition for TLS being available in the pod.
 func (c PodCredentials) mountsSecret() bool { return c.SecretName != "" }
 
+// Encrypted reports whether the tunnel server these credentials describe
+// serves TLS. The client asks, because attempting a handshake against a
+// server that has no certificate is a failed connection and a warning rather
+// than a secure tunnel.
+func (c PodCredentials) Encrypted() bool { return c.mountsSecret() }
+
+// Authenticated reports whether the tunnel server will check a token.
+func (c PodCredentials) Authenticated() bool { return c.SecretName != "" || c.Token != "" }
+
 // args returns the server flags these credentials imply.
 func (c PodCredentials) args() []string {
 	if !c.mountsSecret() {

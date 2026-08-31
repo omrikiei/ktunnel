@@ -101,13 +101,14 @@ func expose(t *testing.T, svc *KubeService, name string, reuse bool) (*ResourceT
 	// Buffered: watchForReady's goroutine outlives the test, and an
 	// unbuffered channel nobody reads would park it holding a send.
 	readyChan := make(chan bool, 1)
-	return svc.ExposeAsService(
+	tracker, _, err := svc.ExposeAsService(
 		"default", name, 28688, "tcp", []string{"8080"}, "",
 		Image, reuse, false, readyChan,
 		map[string]string{}, map[string]string{}, map[string]string{}, nil,
 		nil, "ClusterIP",
 		100, 500, 100, 1000,
 	)
+	return tracker, err
 }
 
 // TestExposeAsService_ReuseLeavesTheDeploymentAlone is the regression test for

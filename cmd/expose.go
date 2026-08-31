@@ -151,10 +151,6 @@ ktunnel expose redis 6379
 		if err != nil {
 			log.Fatalf("%v", err)
 		}
-		// expose mounts a certificate, so its tunnel is encrypted as well
-		// as authenticated -- unless the Secret could not be created, which
-		// ExposeAsService reports below by falling back.
-		tunnelCreds = sessionCredentials{bundle: bundle, encrypted: bundle != nil}
 
 		manifestOptions := k8s.ManifestOptions{
 			Namespace:             Namespace,
@@ -221,7 +217,7 @@ ktunnel expose redis 6379
 
 		// The tracker comes back holding what this call created, and only
 		// that, so teardown below removes exactly what ktunnel put there.
-		tracker, err := svc.ExposeAsService(
+		tracker, podCreds, err := svc.ExposeAsService(
 			Namespace,
 			svcName,
 			port,
@@ -251,6 +247,16 @@ ktunnel expose redis 6379
 			cleanupCreated(tracker)
 			log.Fatalf("Failed to expose local machine as a service: %v", err)
 		}
+
+		// What the client presents is decided by what actually reached the
+		// cluster, not by what this command hoped to provision. A run that
+		// adopted a deployment under --reuse, or could not create its
+		// Secret, has a server that cannot complete a TLS handshake, and
+		// attempting one would cost a failed connection and a warning.
+		if !podCreds.Authenticated() {
+			bundle = nil
+		}
+		tunnelCreds = sessionCredentials{bundle: bundle, encrypted: podCreds.Encrypted()}
 
 		// Teardown removes what this run created, and nothing else. It runs
 		// exactly once, whether the command ends on Ctrl+C, on a failed
