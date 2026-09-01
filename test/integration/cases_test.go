@@ -4,8 +4,10 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -163,4 +165,90 @@ func TestExposeRunsUnderAnArbitraryUID(t *testing.T) {
 		t.Fatalf("patching the deployment: %v", err)
 	}
 	awaitRolloutUnderUID(t, cs, "itest-uid", 1000670000, 3*time.Minute)
+}
+
+// statefulSetManifest is somebody else's StatefulSet: two ordinals, labelled
+// however its author chose, with no ktunnel label on it anywhere. That last
+// part is the point -- pods are resolved through the workload's own
+// spec.selector (#171/#115), and a fixture that happened to carry ktunnel's
+// own labels would pass whether or not that is true.
+func statefulSetManifest(name string) string {
+	return fmt.Sprintf(`{"apiVersion":"apps/v1","kind":"StatefulSet","metadata":{"name":%q},`+
+		`"spec":{"replicas":2,"serviceName":%q,`+
+		`"selector":{"matchLabels":{"owl.example/app":%q}},`+
+		`"template":{"metadata":{"labels":{"owl.example/app":%q}},`+
+		`"spec":{"terminationGracePeriodSeconds":1,"containers":[{"name":"app","image":"busybox:1.36",`+
+		`"securityContext":{"runAsUser":1000,"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}},`+
+		`"command":["sh","-c"],"args":["sleep 3600"]}]}}}}`, name, name, name, name)
+}
+
+// TestInjectStatefulSetTunnelsEveryOrdinal is #91 end to end, and the half of
+// it no fake client can see.
+//
+// The unit tests assert the shape of what ktunnel writes. What only a real
+// kubelet can answer is whether the StatefulSet controller rolls the changed
+// template out to every ordinal at all, and whether the pods that come back
+// reach the host through their own sidecar -- both of them, because the
+// sidecar's listeners are pod-local and injecting one of two leaves the other
+// with the port closed and nothing to say which is which.
+//
+// Each ordinal is probed from inside its own pod, because that is the only
+// place localhost:PORT means the tunnel.
+func TestInjectStatefulSetTunnelsEveryOrdinal(t *testing.T) {
+	cs := clientset(t)
+	port := localService(t, "HELLO-FROM-HOST-STS")
+	name := "itest-sts"
+
+	applyManifest(t, "statefulset", name, statefulSetManifest(name))
+	startInject(t, "statefulset", name, itoa(port))
+
+	pods := awaitSidecar(t, cs, "owl.example/app="+name, image(t), 2, 5*time.Minute)
+
+	for _, pod := range pods {
+		out, err := exec.Command("kubectl", "--context", testContext(t), "exec", pod, "-n", namespace,
+			"-c", "app", "--", "sh", "-c",
+			"wget -q -O - --timeout=20 http://127.0.0.1:"+itoa(port)+"/ || echo PROBE-FAILED").CombinedOutput()
+		if err != nil {
+			t.Fatalf("probing %s: %v\n%s", pod, err, out)
+		}
+		if !strings.Contains(string(out), "HELLO-FROM-HOST-STS") {
+			t.Fatalf("%s did not reach the host through its own sidecar; it said:\n%s", pod, out)
+		}
+	}
+}
+
+// TestInjectStatefulSetEjectsCleanly is the promise that makes `inject` safe
+// to point at a workload ktunnel does not own: what went in comes back out,
+// and nothing else moved.
+//
+// The volume assertion is not incidental. `inject` is deliberately token-only
+// with no volume, precisely so that eject is one container out and cannot
+// leave debris in someone else's spec; a future change that mounts the
+// credentials would pass every unit test and fail here.
+func TestInjectStatefulSetEjectsCleanly(t *testing.T) {
+	cs := clientset(t)
+	port := localService(t, "HELLO-EJECT")
+	name := "itest-sts-eject"
+
+	applyManifest(t, "statefulset", name, statefulSetManifest(name))
+	stop := startInject(t, "statefulset", name, itoa(port))
+	awaitSidecar(t, cs, "owl.example/app="+name, image(t), 2, 5*time.Minute)
+
+	// Ctrl+C, and wait for the process: eject runs during shutdown, so the
+	// assertions below are about what it left.
+	stop()
+
+	sts, err := cs.AppsV1().StatefulSets(namespace).Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("reading the statefulset back: %v", err)
+	}
+	for _, c := range sts.Spec.Template.Spec.Containers {
+		if c.Image == image(t) {
+			t.Error("the ktunnel container is still in the statefulset after ktunnel exited; eject is not a clean reverse")
+		}
+	}
+	if len(sts.Spec.Template.Spec.Volumes) != 0 {
+		t.Errorf("eject left %d volume(s) behind in someone else's statefulset: %v",
+			len(sts.Spec.Template.Spec.Volumes), sts.Spec.Template.Spec.Volumes)
+	}
 }

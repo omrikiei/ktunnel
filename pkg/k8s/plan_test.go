@@ -186,7 +186,7 @@ func TestPlanInject_SaysWhatItWillPatch(t *testing.T) {
 		t.Fatalf("failed creating the deployment under test: %v", err)
 	}
 
-	plan, err := svc.PlanInject(namespace, name, "test-image:latest", 28688)
+	plan, err := svc.PlanInject(namespace, name, KindDeployment, "test-image:latest", 28688)
 	if err != nil {
 		t.Fatalf("PlanInject: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestPlanInject_SaysWhenTheSidecarStays(t *testing.T) {
 		t.Fatalf("failed creating the deployment under test: %v", err)
 	}
 
-	plan, err := svc.PlanInject(namespace, name, "test-image:latest", 28688)
+	plan, err := svc.PlanInject(namespace, name, KindDeployment, "test-image:latest", 28688)
 	if err != nil {
 		t.Fatalf("PlanInject: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestPlanInject_SaysWhenNothingChanges(t *testing.T) {
 		t.Fatalf("failed creating the deployment under test: %v", err)
 	}
 
-	plan, err := svc.PlanInject(namespace, name, image, 28688)
+	plan, err := svc.PlanInject(namespace, name, KindDeployment, image, 28688)
 	if err != nil {
 		t.Fatalf("PlanInject: %v", err)
 	}

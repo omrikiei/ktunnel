@@ -9,15 +9,19 @@ import (
 )
 
 var (
-	clientMutex       sync.RWMutex
-	deploymentsClient v1.DeploymentInterface
-	podsClient        v12.PodInterface
-	svcClient         v12.ServiceInterface
+	clientMutex        sync.RWMutex
+	deploymentsClient  v1.DeploymentInterface
+	statefulSetsClient v1.StatefulSetInterface
+	podsClient         v12.PodInterface
+	svcClient          v12.ServiceInterface
 )
 
 type Clients struct {
 	Deployments v1.DeploymentInterface
-	Pods        v12.PodInterface
-	Services    v12.ServiceInterface
-	Secrets     v12.SecretInterface
+	// StatefulSets is only ever read by `inject`: nothing ktunnel creates is
+	// a StatefulSet, and #91 is about attaching to one somebody else owns.
+	StatefulSets v1.StatefulSetInterface
+	Pods         v12.PodInterface
+	Services     v12.ServiceInterface
+	Secrets      v12.SecretInterface
 }

@@ -107,6 +107,23 @@ opens three streams to your machine.
 Replicas added while the tunnel is up are picked up the next time it is rebuilt,
 since the set of pods is resolved once per connection attempt.
 
+### Inject to an existing statefulset
+Same thing for an application that is a StatefulSet rather than a Deployment —
+a PHP app with xdebug, say, which is where this was asked for:
+```bash
+ktunnel inject statefulset owl-app 9003
+```
+
+Every ordinal is injected and every ordinal is tunnelled, and local ports are
+handed out in ordinal order: with `--port 28688`, `owl-app-0` is on 28688,
+`owl-app-1` on 28689, and it stays that way across reconnects. A StatefulSet's
+pods are identities rather than interchangeable replicas, so the port a pod is
+reached on has to keep meaning that pod.
+
+A StatefulSet whose `updateStrategy` is `OnDelete` does not restart its pods
+when its template changes. ktunnel says so before it patches anything, and then
+waits for you to delete them.
+
 
 ### Print the manifests instead of applying them
 `--print-manifests` writes the Deployment and Service ktunnel would create, as

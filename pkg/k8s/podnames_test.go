@@ -117,7 +117,7 @@ func TestGetPodNames_FewerRunningPodsThanReplicas(t *testing.T) {
 	}()
 
 	pods := make([]string, 1)
-	err := svc.getPodNames(context.Background(), ktunnelDeployment("proxy", 1), pods)
+	err := svc.getPodNames(context.Background(), newDeploymentWorkload(ktunnelDeployment("proxy", 1)), pods)
 	if err == nil {
 		t.Fatal("resolving pods reported success with no running pod to forward to; the attempt would build a forward to the empty pod name")
 	}
@@ -135,7 +135,7 @@ func TestGetPodNames_ResolvesRunningPods(t *testing.T) {
 	)
 
 	pods := make([]string, 1)
-	if err := svc.getPodNames(context.Background(), ktunnelDeployment("proxy", 1), pods); err != nil {
+	if err := svc.getPodNames(context.Background(), newDeploymentWorkload(ktunnelDeployment("proxy", 1)), pods); err != nil {
 		t.Fatalf("failed resolving a running pod: %v", err)
 	}
 	if pods[0] != "proxy-7d9f-x2m1" {
@@ -174,13 +174,16 @@ func TestPortForward_NoPodsNeverReportsSuccessWithNoPorts(t *testing.T) {
 	deploymentsClient = fake.AppsV1().Deployments("default")
 	clientMutex.Unlock()
 
-	svc := &KubeService{clients: &Clients{Pods: fake.CoreV1().Pods("default")}}
+	svc := &KubeService{clients: &Clients{
+		Deployments: fake.AppsV1().Deployments("default"),
+		Pods:        fake.CoreV1().Pods("default"),
+	}}
 
 	// Repeated because the bug is a uniform choice between two ready cases:
 	// a single run passes half the time whether or not it is fixed.
 	for i := range 200 {
 		stopChan := make(chan struct{})
-		sourcePorts, _, err := svc.PortForward(context.Background(), "default", name, "28688", stopChan)
+		sourcePorts, _, err := svc.PortForward(context.Background(), KindDeployment, "default", name, "28688", stopChan)
 		close(stopChan)
 
 		if err != nil {
@@ -241,8 +244,11 @@ func TestPortForward_UnresponsiveAPIServerIsCancellable(t *testing.T) {
 	clientMutex.Unlock()
 
 	svc := &KubeService{
-		clients: &Clients{Pods: fake.CoreV1().Pods("default")},
-		config:  &rest.Config{Host: "http://" + ln.Addr().String()},
+		clients: &Clients{
+			Deployments: fake.AppsV1().Deployments("default"),
+			Pods:        fake.CoreV1().Pods("default"),
+		},
+		config: &rest.Config{Host: "http://" + ln.Addr().String()},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -251,7 +257,7 @@ func TestPortForward_UnresponsiveAPIServerIsCancellable(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, _, err := svc.PortForward(ctx, "default", name, "28688", stopChan)
+		_, _, err := svc.PortForward(ctx, KindDeployment, "default", name, "28688", stopChan)
 		done <- err
 	}()
 
@@ -291,7 +297,7 @@ func TestGetPodNames_UsesTheDeploymentsOwnSelector(t *testing.T) {
 	svc := kubeServiceWithPods(appPod("web-5b65-dd54r", selector, v1.PodRunning, time.Minute))
 
 	pods := make([]string, 1)
-	if err := svc.getPodNames(context.Background(), appDeployment("web", 1, selector), pods); err != nil {
+	if err := svc.getPodNames(context.Background(), newDeploymentWorkload(appDeployment("web", 1, selector)), pods); err != nil {
 		t.Fatalf("failed resolving the pods of a deployment ktunnel did not create: %v; "+
 			"this is `ktunnel inject` against any ordinary deployment, and it never forwards to anything", err)
 	}
@@ -316,7 +322,7 @@ func TestGetPodNames_RolloutWindowPrefersTheNewPod(t *testing.T) {
 	)
 
 	pods := make([]string, 1)
-	if err := svc.getPodNames(context.Background(), appDeployment("web", 1, selector), pods); err != nil {
+	if err := svc.getPodNames(context.Background(), newDeploymentWorkload(appDeployment("web", 1, selector)), pods); err != nil {
 		t.Fatalf("failed resolving pods mid-rollout: %v", err)
 	}
 	if pods[0] != "web-new-x2m1" {
@@ -337,7 +343,7 @@ func TestGetPodNames_SkipsTerminatingPods(t *testing.T) {
 	)
 
 	pods := make([]string, 1)
-	if err := svc.getPodNames(context.Background(), appDeployment("web", 1, selector), pods); err != nil {
+	if err := svc.getPodNames(context.Background(), newDeploymentWorkload(appDeployment("web", 1, selector)), pods); err != nil {
 		t.Fatalf("failed resolving pods while one was terminating: %v", err)
 	}
 	if pods[0] != "web-staying-4k2b" {
@@ -373,7 +379,7 @@ func TestGetPodNames_RefusesASelectorThatMatchesEverything(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pods := make([]string, 1)
-			err := svc.getPodNames(context.Background(), tc.deployment, pods)
+			err := svc.getPodNames(context.Background(), newDeploymentWorkload(tc.deployment), pods)
 			if err == nil {
 				t.Fatalf("resolved %q for a deployment that selects nothing in particular; "+
 					"the tunnel would be built to an unrelated pod that happened to be in the namespace", pods[0])
@@ -400,7 +406,7 @@ func TestGetPodNames_ResolvesEveryReplica(t *testing.T) {
 	)
 
 	pods := make([]string, 3)
-	if err := svc.getPodNames(context.Background(), appDeployment("web", 3, selector), pods); err != nil {
+	if err := svc.getPodNames(context.Background(), newDeploymentWorkload(appDeployment("web", 3, selector)), pods); err != nil {
 		t.Fatalf("failed resolving the pods of a three-replica deployment: %v", err)
 	}
 
@@ -438,7 +444,7 @@ func TestGetPodNames_DoesNotMatchADeploymentWithTheSamePrefix(t *testing.T) {
 	)
 
 	pods := make([]string, 1)
-	if err := svc.getPodNames(context.Background(), ktunnelDeployment("react1", 1), pods); err != nil {
+	if err := svc.getPodNames(context.Background(), newDeploymentWorkload(ktunnelDeployment("react1", 1)), pods); err != nil {
 		t.Fatalf("failed resolving the pods of react1: %v", err)
 	}
 	if pods[0] != "react1-abc" {

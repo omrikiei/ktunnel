@@ -1,15 +1,15 @@
-## ktunnel inject deployment
+## ktunnel inject statefulset
 
-Inject server sidecar to a deployment and run the ktunnel client to establish a connection
+Inject server sidecar to a statefulset and run the ktunnel client to establish a connection
 
 ### Synopsis
 
-Adds the tunnel server to a deployment's pod template as a sidecar, waits for the
+Adds the tunnel server to a statefulset's pod template as a sidecar, waits for the
 rollout, and establishes a reverse tunnel from those pods to your machine.
 
 The sidecar's listeners are pod-local: containers in an injected pod reach your
 machine at localhost:PORT, and nothing outside the pod is routed through the
-tunnel. Every replica is injected, so every replica is tunnelled -- a deployment
+tunnel. Every replica is injected, so every replica is tunnelled -- a statefulset
 with three replicas takes three local ports, counting up from --port, and opens
 three streams to your machine. Replicas added while the tunnel is up are picked
 up the next time it is rebuilt.
@@ -18,16 +18,24 @@ The tunnel is not authenticated. Anything in the cluster that can reach an
 injected pod on a tunnelled port reaches whatever is behind it on your machine.
 See docs/security.md.
 
+Local ports are assigned in ordinal order: with --port 28688 and three pods,
+28688 reaches NAME-0, 28689 reaches NAME-1 and 28690 reaches NAME-2, and stays
+that way across reconnects.
+
+A statefulset whose updateStrategy is OnDelete does not restart its pods when
+its template changes; ktunnel says so before it patches anything, and waits for
+you to delete them.
+
 ```
-ktunnel inject deployment [flags] DEPLOYMENT_NAME [ports]
+ktunnel inject statefulset [flags] STATEFULSET_NAME [ports]
 ```
 
 ### Examples
 
 ```
 
-# Inject a back tunnel from a running deployment to local mysql and redis
-ktunnel inject deployment mydeployment 3306 6379
+# Inject a back tunnel from a running statefulset to a local xdebug listener
+ktunnel inject statefulset owl-app 9003
 
 ```
 
@@ -39,7 +47,7 @@ ktunnel inject deployment mydeployment 3306 6379
       --context string                Kubernetes Context
   -e, --eject                         Eject the sidecar when finished (default true)
       --exit-on-disconnect            Exit with a non-zero status the first time the tunnel drops, instead of reconnecting
-  -h, --help                          help for deployment
+  -h, --help                          help for statefulset
       --key string                    TLS key file
       --max-reconnect-attempts int    Give up after this many consecutive failed connection attempts; 0 keeps retrying forever
   -n, --namespace string              Namespace (default: the kubeconfig context's namespace, or "default")

@@ -119,7 +119,8 @@ All namespaced — ktunnel asks for nothing cluster-scoped:
 | Resource | Verbs | Used by |
 |---|---|---|
 | `deployments` | get, create, patch, delete | `expose` |
-| `deployments` | get, update | `inject`, `--eject` |
+| `deployments` | get, update | `inject deployment`, `--eject` |
+| `statefulsets` | get, update | `inject statefulset`, `--eject` |
 | `services` | get, create, patch, delete | `expose` |
 | `pods` | list | both, to resolve pods to forward to |
 | `pods/portforward` | create | both |

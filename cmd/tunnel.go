@@ -14,6 +14,7 @@ import (
 
 	"github.com/omrikiei/ktunnel/pkg/client"
 	"github.com/omrikiei/ktunnel/pkg/creds"
+	"github.com/omrikiei/ktunnel/pkg/k8s"
 	"github.com/omrikiei/ktunnel/pkg/supervisor"
 	"github.com/spf13/cobra"
 )
@@ -194,7 +195,7 @@ func tunnelClientAttempt(host string, grpcPort int, tunnels []string) supervisor
 // before the forward -- can be tested without an API server behind it. The one
 // production implementation is *k8s.KubeService.
 type portForwarder interface {
-	PortForward(ctx context.Context, namespace, deployment, targetPort string, stopChan <-chan struct{}) ([]string, <-chan error, error)
+	PortForward(ctx context.Context, kind k8s.WorkloadKind, namespace, name, targetPort string, stopChan <-chan struct{}) ([]string, <-chan error, error)
 }
 
 // clientRunner runs one tunnel client over a forwarded local port and blocks
@@ -224,31 +225,31 @@ func runTunnelClient(ctx context.Context, localPort int, tunnels []string, estab
 // Cluster resources are never recreated here. If the deployment has been
 // deleted, resolving it fails and that is one failed attempt like any other;
 // silently recreating what the user removed is not a recovery path's business.
-func forwardAndTunnelAttempt(svc portForwarder, namespace, deployment string, remotePort int, tunnels []string) supervisor.Attempt {
-	return forwardAndTunnel(svc, runTunnelClient, namespace, deployment, remotePort, tunnels)
+func forwardAndTunnelAttempt(svc portForwarder, kind k8s.WorkloadKind, namespace, name string, remotePort int, tunnels []string) supervisor.Attempt {
+	return forwardAndTunnel(svc, runTunnelClient, kind, namespace, name, remotePort, tunnels)
 }
 
 // forwardAndTunnel is forwardAndTunnelAttempt with both of its dependencies
 // passed in.
-func forwardAndTunnel(svc portForwarder, run clientRunner, namespace, deployment string, remotePort int, tunnels []string) supervisor.Attempt {
+func forwardAndTunnel(svc portForwarder, run clientRunner, kind k8s.WorkloadKind, namespace, name string, remotePort int, tunnels []string) supervisor.Attempt {
 	strPort := strconv.FormatInt(int64(remotePort), 10)
 
-	label := fmt.Sprintf("%s/%s port %s", namespace, deployment, strPort)
+	label := fmt.Sprintf("%s %s/%s port %s", kind, namespace, name, strPort)
 
 	return func(ctx context.Context, established func()) error {
 		// Per attempt: a stop channel that has already been closed would tear
 		// the new forward down the instant it was created.
 		stopChan := make(chan struct{})
 
-		sourcePorts, fwdErrChan, err := svc.PortForward(ctx, namespace, deployment, strPort, stopChan)
+		sourcePorts, fwdErrChan, err := svc.PortForward(ctx, kind, namespace, name, strPort, stopChan)
 		forward := watchForward(stopChan, fwdErrChan, forwardReleaseTimeout, label)
 		defer forward.release(ctx)
 
 		if err != nil {
-			return fmt.Errorf("failed forwarding to %s/%s: %w", namespace, deployment, err)
+			return fmt.Errorf("failed forwarding to %s %s/%s: %w", kind, namespace, name, err)
 		}
 
-		// A deployment scaled to zero has no pods to forward to, and
+		// A workload scaled to zero has no pods to forward to, and
 		// PortForward reports that as success with no ports rather than as
 		// an error.
 		if len(sourcePorts) == 0 {
@@ -256,7 +257,7 @@ func forwardAndTunnel(svc portForwarder, run clientRunner, namespace, deployment
 			// block on a select no goroutine can ever wake, and the
 			// supervisor -- which waits for the attempt -- would never
 			// retry: a hang that reads as a healthy tunnel.
-			return fmt.Errorf("no running pods to forward to for %s/%s", namespace, deployment)
+			return fmt.Errorf("no running pods to forward to for %s %s/%s", kind, namespace, name)
 		}
 
 		// The clients share a context of their own so that the first failure

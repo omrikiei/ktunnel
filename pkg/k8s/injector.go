@@ -6,9 +6,7 @@ import (
 	"fmt"
 
 	log "github.com/sirupsen/logrus"
-	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func SetLogLevel(l log.Level) {
@@ -18,27 +16,31 @@ func SetLogLevel(l log.Level) {
 	}
 }
 
-func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, readyChan chan<- bool) (bool, error) {
-	if hasSidecar(o.Spec.Template.Spec, image) {
-		log.Warn(fmt.Sprintf("%s already injected to the deployment", image))
-		watchForReady(o, readyChan)
+// injectToWorkload appends the ktunnel container to the workload's pod
+// template and waits for the rollout that follows.
+//
+// Nothing here is Deployment-specific -- a StatefulSet's spec.template is the
+// same PodTemplateSpec, and the sidecar goes into it the same way. Only the
+// client that writes the object back and the controller's account of "rolled
+// out" differ, and both of those live on workload.
+func (k *KubeService) injectToWorkload(w *workload, c *apiv1.Container, image string, readyChan chan<- bool) (bool, error) {
+	if hasSidecar(*w.podSpec, image) {
+		log.Warn(fmt.Sprintf("%s already injected to the %s", image, w.kind))
+		watchWorkloadReady(w, readyChan)
 		return true, nil
 	}
-	o.Spec.Template.Spec.Containers = append(o.Spec.Template.Spec.Containers, *c)
-	u, updateErr := deploymentsClient.Update(context.Background(), o, metav1.UpdateOptions{
-		TypeMeta:     metav1.TypeMeta{},
-		DryRun:       nil,
-		FieldManager: "",
-	})
-	if updateErr != nil {
-		return false, apiError("add the ktunnel container to", "deployment", o.Namespace, o.Name, updateErr)
+	w.podSpec.Containers = append(w.podSpec.Containers, *c)
+	updated, err := k.update(context.Background(), w, "add the ktunnel container to")
+	if err != nil {
+		return false, err
 	}
-	watchForReady(u, readyChan)
+	watchWorkloadReady(updated, readyChan)
 	return true, nil
 }
 
-// InjectSidecar adds the tunnel server to a deployment's pod template as a
+// InjectSidecar adds the tunnel server to a workload's pod template as a
 // sidecar, and reports on readyChan once the resulting rollout has finished.
+// kind is what the user typed: `inject deployment` or `inject statefulset`.
 //
 // Every replica is injected and every replica is tunnelled. This used to
 // refuse outright on a deployment with more than one replica, and the
@@ -62,21 +64,34 @@ func injectToDeployment(o *appsv1.Deployment, c *apiv1.Container, image string, 
 // Replicas added after the tunnel is up are not picked up until the tunnel is
 // rebuilt, since the set of pods is resolved once per attempt.
 //
-// What this is about to do to the deployment, including how many pods it
+// The same reasoning is stronger for a StatefulSet (#91), whose pods are
+// deliberately not interchangeable: forwarding to whichever one of them
+// ktunnel happened to pick would be forwarding to an identity the user did not
+// choose. So every ordinal is injected and every ordinal is tunnelled, in
+// ordinal order -- see sortPods. Targeting a single ordinal (`--ordinal 0`, to
+// debug owl-app-0 alone and leave the rest of the set alone) is a real thing
+// to want and is deliberately not offered yet: the sidecar lives in the shared
+// pod template, so restricting it to one pod means either editing that pod
+// directly, which no controller would leave in place, or a partitioned rolling
+// update, which changes the user's spec in a way eject cannot cleanly reverse.
+// Narrowing only the forwarding half -- every pod injected, one pod tunnelled
+// -- needs none of that, and is where an --ordinal flag should start.
+//
+// What this is about to do to the workload, including how many pods it
 // restarts and how many local ports it takes, is stated by PlanInject before
 // the rollout starts.
-func (k *KubeService) InjectSidecar(namespace, objectName *string, port *int, image string, podCreds PodCredentials, readyChan chan<- bool, kubecontext *string) (bool, error) {
-	log.Infof("Injecting tunnel sidecar to %s/%s", *namespace, *objectName)
+func (k *KubeService) InjectSidecar(namespace, objectName *string, kind WorkloadKind, port *int, image string, podCreds PodCredentials, readyChan chan<- bool, kubecontext *string) (bool, error) {
+	log.Infof("Injecting tunnel sidecar to %s %s/%s", kind, *namespace, *objectName)
 	cpuReq := int64(100) // in milli-cpu
 	cpuLimit := int64(500)
 	memReq := int64(100) // in mega-bytes
 	memLimit := int64(1000)
 	co := newContainer(*port, image, []apiv1.ContainerPort{}, podCreds, cpuReq, cpuLimit, memReq, memLimit)
-	obj, err := k.clients.Deployments.Get(context.Background(), *objectName, metav1.GetOptions{})
+	w, err := k.getWorkload(context.Background(), kind, *namespace, *objectName)
 	if err != nil {
-		return false, apiError("read", "deployment", *namespace, *objectName, err)
+		return false, err
 	}
-	_, err = injectToDeployment(obj, co, image, readyChan)
+	_, err = k.injectToWorkload(w, co, image, readyChan)
 	if err != nil {
 		return false, err
 	}
@@ -104,19 +119,19 @@ func removeFromSpec(s *apiv1.PodSpec, image string) (bool, error) {
 	}
 }
 
-func (k *KubeService) RemoveSidecar(namespace, objectName *string, image string, readyChan chan<- bool, kubecontext *string) (bool, error) {
-	log.Infof("Removing tunnel sidecar from %s/%s", *namespace, *objectName)
-	obj, err := k.clients.Deployments.Get(context.Background(), *objectName, metav1.GetOptions{})
+func (k *KubeService) RemoveSidecar(namespace, objectName *string, kind WorkloadKind, image string, readyChan chan<- bool, kubecontext *string) (bool, error) {
+	log.Infof("Removing tunnel sidecar from %s %s/%s", kind, *namespace, *objectName)
+	w, err := k.getWorkload(context.Background(), kind, *namespace, *objectName)
 	if err != nil {
-		return false, apiError("read", "deployment", *namespace, *objectName, err)
+		return false, err
 	}
-	// Nothing to eject is not a failure: the deployment is already in the
+	// Nothing to eject is not a failure: the workload is already in the
 	// state that was asked for. It used to come back as `IMAGE is not present
 	// on spec`, logged as `Failed removing tunnel sidecar` -- an error, naming
-	// an image rather than the deployment -- for a run whose rollout never
+	// an image rather than the object -- for a run whose rollout never
 	// finished, or a container someone had already taken out by hand.
-	if !hasSidecar(obj.Spec.Template.Spec, image) {
-		log.Infof("Nothing to eject from %s/%s: no container in it runs %s", *namespace, *objectName, image)
+	if !hasSidecar(*w.podSpec, image) {
+		log.Infof("Nothing to eject from %s: no container in it runs %s", w, image)
 		// Non-blocking, because there is no rollout to wait for and the
 		// caller is about to read this before it exits. Every caller passes a
 		// buffered channel; a caller that does not is not left hanging on a
@@ -127,18 +142,14 @@ func (k *KubeService) RemoveSidecar(namespace, objectName *string, image string,
 		}
 		return true, nil
 	}
-	_, err = removeFromSpec(&obj.Spec.Template.Spec, image)
+	_, err = removeFromSpec(w.podSpec, image)
 	if err != nil {
 		return false, err
 	}
-	u, updateErr := k.clients.Deployments.Update(context.Background(), obj, metav1.UpdateOptions{
-		TypeMeta:     metav1.TypeMeta{},
-		DryRun:       nil,
-		FieldManager: "",
-	})
-	if updateErr != nil {
-		return false, apiError("remove the ktunnel container from", "deployment", *namespace, *objectName, updateErr)
+	updated, err := k.update(context.Background(), w, "remove the ktunnel container from")
+	if err != nil {
+		return false, err
 	}
-	watchForReady(u, readyChan)
+	watchWorkloadReady(updated, readyChan)
 	return true, nil
 }

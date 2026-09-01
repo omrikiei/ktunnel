@@ -29,9 +29,8 @@ func apiError(verb, kind, namespace, name string, err error) error {
 		return fmt.Errorf("%s not found; check the name, the --namespace flag and the --context flag "+
 			"(kubectl get %s -n %s): %w", object, kind, namespace, err)
 	case apierrors.IsForbidden(err):
-		return fmt.Errorf("not allowed to %s %s; ktunnel needs get, list, watch, create, update and delete "+
-			"on deployments and services, and get, list and watch on pods, in that namespace "+
-			"-- the permissions are listed in docs/security.md: %w", verb, object, err)
+		return fmt.Errorf("not allowed to %s %s; ktunnel needs %s in that namespace "+
+			"-- the permissions are listed in docs/security.md: %w", verb, object, permissionsFor(kind), err)
 	case apierrors.IsUnauthorized(err):
 		return fmt.Errorf("not authenticated to %s %s; the credentials in your kubeconfig context were "+
 			"rejected -- they may have expired, or the context may point at another cluster: %w", verb, object, err)
@@ -54,4 +53,21 @@ func forwardError(namespace, podName, localPort string, err error) error {
 			localPort, namespace, podName, err)
 	}
 	return fmt.Errorf("the port forward from local port %s to pod %s/%s failed: %w", localPort, namespace, podName, err)
+}
+
+// permissionsFor is the sentence the forbidden message hands a user to copy
+// into a Role. It is per-kind because the answer is: `inject statefulset` is
+// refused on statefulsets, and telling that user to ask for deployments sends
+// them to grant a permission they already have and still fail.
+//
+// StatefulSets get a shorter list because ktunnel does less to them -- it
+// reads one it did not create and writes the sidecar into its template, and
+// never creates or deletes one. Deployments keep the full list because
+// `expose` does create and delete those.
+func permissionsFor(kind string) string {
+	pods := ", and get, list and watch on pods"
+	if kind == string(KindStatefulSet) {
+		return "get and update on statefulsets" + pods
+	}
+	return "get, list, watch, create, update and delete on deployments and services" + pods
 }
