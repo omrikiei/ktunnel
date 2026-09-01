@@ -54,3 +54,40 @@ jobs:
 
       - name: Run security scan
         run: gosec -exclude-dir=.git -exclude-dir=vendor ./...
+
+  integration:
+    name: Integration (kind)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          check-latest: true
+          cache: true
+
+      - name: Create cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: ktunnel-itest
+
+      # These tests need a real kubelet. They assert that the pod starts
+      # without restarting -- meaning it can read the credentials ktunnel
+      # generated for it -- and that traffic actually crosses the tunnel.
+      # A fake client sees none of that, which is how v2.4.0 shipped a
+      # crash loop past a fully green unit suite.
+      - name: Build binary and image
+        run: |
+          go build -o ktunnel .
+          docker build -t ktunnel:itest .
+          kind load docker-image ktunnel:itest --name ktunnel-itest
+
+      - name: Run integration tests
+        env:
+          KTUNNEL_BIN: ${{ github.workspace }}/ktunnel
+          KTUNNEL_IMAGE: ktunnel:itest
+          KTUNNEL_TEST_CONTEXT: kind-ktunnel-itest
+        run: go test -tags integration -v -timeout 20m -count=1 ./test/integration/...
