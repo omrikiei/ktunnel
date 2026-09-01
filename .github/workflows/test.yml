@@ -55,6 +55,42 @@ jobs:
       - name: Run security scan
         run: gosec -exclude-dir=.git -exclude-dir=vendor ./...
 
+  windows:
+    name: Run Tests (Windows)
+    runs-on: windows-latest
+
+    # Every release publishes a Windows binary, and until now nothing in CI
+    # ever ran a line of this code on Windows -- the whole test job is
+    # ubuntu-latest. #121 is a Windows user reporting that ktunnel stopped
+    # working, and the honest answer to "does it work on Windows?" was that
+    # nobody knew: the code cross-compiles, which is all `goreleaser` proves.
+    #
+    # This job is deliberately just the build and the tests. The formatting,
+    # coverage and gosec steps above analyse source rather than behaviour, so
+    # they say the same thing on every platform and running them twice would
+    # only buy a second way for the shell to differ.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          check-latest: true
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      # -race, like the Linux job: the parts of ktunnel most likely to behave
+      # differently here -- port forwards being released, sessions being torn
+      # down on Ctrl+C -- are all goroutines and channels, and a race that only
+      # shows up under Windows' scheduler is exactly the kind of thing this job
+      # exists to catch.
+      - name: Run tests
+        run: go test -v -race ./...
+
   integration:
     name: Integration (kind)
     runs-on: ubuntu-latest
