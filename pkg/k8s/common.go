@@ -159,8 +159,6 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
 	cpuLimit := resource.NewMilliQuantity(cLimit, resource.DecimalSI)
 	memRequest := resource.NewScaledQuantity(mReq, resource.Mega)
 	memLimit := resource.NewScaledQuantity(mLimit, resource.Mega)
-	containerUID := int64(1000)
-
 	return &apiv1.Container{
 		Name:         "ktunnel",
 		Image:        image,
@@ -179,8 +177,30 @@ func newContainer(port int, image string, containerPorts []apiv1.ContainerPort, 
 				"memory": *memLimit,
 			},
 		},
+		// No RunAsUser, and no RunAsGroup. OpenShift assigns a UID from a
+		// per-namespace range and rejects a pod that demands its own, which
+		// is why `expose` did not work there at all (#87). The non-root
+		// property that hardcoded 1000 was protecting now comes from the
+		// image, which carries USER 1000: a vanilla cluster runs as 1000
+		// exactly as before, and OpenShift overrides it, which is what it
+		// wants to do.
+		//
+		// Dropping every capability and refusing privilege escalation are
+		// both required by OpenShift's restricted-v2 SCC and cost nothing
+		// anywhere else -- the tunnel server opens sockets and execs
+		// nothing.
+		//
+		// Nothing is added back. NET_BIND_SERVICE is the obvious grant for
+		// binding ports below 1024, and it is inert here: a non-root process
+		// with no file capabilities gets an empty effective set on exec, so
+		// the capability never reaches the permitted set and the bind still
+		// fails. Measured, not assumed. Privileged ports are handled by a
+		// pod-level sysctl instead -- see podSecurityContext.
 		SecurityContext: &apiv1.SecurityContext{
-			RunAsUser: &containerUID,
+			AllowPrivilegeEscalation: boolPtr(false),
+			Capabilities: &apiv1.Capabilities{
+				Drop: []apiv1.Capability{"ALL"},
+			},
 		},
 	}
 }
@@ -227,6 +247,11 @@ func newDeployment(
 					},
 					Tolerations: podTolerations,
 					Volumes:     podCreds.volumes(),
+					// Pod-level, because a sysctl has nowhere else to go.
+					// Nil unless some port actually needs it, so an
+					// ordinary deployment carries no securityContext at
+					// all and looks exactly as it did before (#164).
+					SecurityContext: newPodSecurityContext(ports),
 				},
 			},
 		},
@@ -647,6 +672,57 @@ func getDeploymentCondition(status appsv1.DeploymentStatus, condType appsv1.Depl
 		c := status.Conditions[i]
 		if c.Type == condType {
 			return &c
+		}
+	}
+	return nil
+}
+
+// boolPtr is the usual dance for an optional bool in a Kubernetes spec, where
+// false and unset mean different things.
+func boolPtr(b bool) *bool { return &b }
+
+// newPodSecurityContext returns the pod securityContext, or nil when there is
+// nothing to put in it. Returning nil rather than an empty struct keeps the
+// rendered manifests unchanged for the runs that need nothing.
+func newPodSecurityContext(ports []apiv1.ContainerPort) *apiv1.PodSecurityContext {
+	numbers := make([]int, 0, len(ports))
+	for _, p := range ports {
+		numbers = append(numbers, int(p.ContainerPort))
+	}
+	sysctls := podSysctls(numbers)
+	if len(sysctls) == 0 {
+		return nil
+	}
+	return &apiv1.PodSecurityContext{Sysctls: sysctls}
+}
+
+// privilegedPortCeiling is the first unprivileged port under the kernel's
+// default. A bind below it needs help; 1024 itself does not.
+const privilegedPortCeiling = 1024
+
+// podSysctls returns the pod-level sysctls the given in-cluster ports need.
+//
+// Binding below 1024 as a non-root process requires
+// net.ipv4.ip_unprivileged_port_start to be lowered (#164). The obvious
+// alternative, granting NET_BIND_SERVICE, does nothing here: a non-root
+// process with no file capabilities gets an empty effective set on exec, so
+// the capability never reaches the permitted set and the bind still fails.
+// That was measured on a cluster, not inferred.
+//
+// Kubernetes classifies this sysctl as safe (1.22+), so no cluster
+// configuration is needed. An SCC can still list it in forbiddenSysctls, so a
+// bind failure has to name the sysctl and not only --port.
+//
+// It is set only when some port actually needs it. Every other run keeps the
+// cluster's default, which is one less thing for a policy reviewer to ask
+// about.
+func podSysctls(ports []int) []apiv1.Sysctl {
+	for _, p := range ports {
+		if p < privilegedPortCeiling {
+			return []apiv1.Sysctl{{
+				Name:  "net.ipv4.ip_unprivileged_port_start",
+				Value: "0",
+			}}
 		}
 	}
 	return nil
