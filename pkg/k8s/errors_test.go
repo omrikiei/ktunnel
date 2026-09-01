@@ -95,7 +95,7 @@ func Test_InjectSidecar_MissingDeploymentNamesTheFix(t *testing.T) {
 
 	port := 28688
 	readyChan := make(chan bool, 1)
-	_, err := svc.InjectSidecar(&namespace, &name, &port, "test-image:latest", PodCredentials{}, readyChan, nil)
+	_, err := svc.InjectSidecar(&namespace, &name, KindDeployment, &port, "test-image:latest", PodCredentials{}, readyChan, nil)
 	if err == nil {
 		t.Fatal("injecting into a deployment that does not exist reported success")
 	}
@@ -129,7 +129,7 @@ func Test_RemoveSidecar_NothingToEject(t *testing.T) {
 	}
 
 	readyChan := make(chan bool, 1)
-	ok, err := svc.RemoveSidecar(&namespace, &name, "test-image:latest", readyChan, nil)
+	ok, err := svc.RemoveSidecar(&namespace, &name, KindDeployment, "test-image:latest", readyChan, nil)
 	if err != nil {
 		t.Errorf("ejecting a sidecar that is not there failed with %v; the deployment is already in the state that was asked for", err)
 	}
@@ -156,7 +156,7 @@ func TestGetPodNames_TooFewPodsSaysWhereToLook(t *testing.T) {
 	)
 
 	pods := make([]string, 3)
-	err := svc.getPodNames(context.Background(), appDeployment("web", 3, selector), pods)
+	err := svc.getPodNames(context.Background(), newDeploymentWorkload(appDeployment("web", 3, selector)), pods)
 	if err == nil {
 		t.Fatal("resolving three pods from one running pod reported success")
 	}

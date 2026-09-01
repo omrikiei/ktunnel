@@ -63,6 +63,7 @@ func useFakeClients(fake *testclient.Clientset, namespace string) {
 	clientMutex.Lock()
 	defer clientMutex.Unlock()
 	deploymentsClient = fake.AppsV1().Deployments(namespace)
+	statefulSetsClient = fake.AppsV1().StatefulSets(namespace)
 	podsClient = fake.CoreV1().Pods(namespace)
 }
 
@@ -191,6 +192,10 @@ func Test_InjectSidecar(t *testing.T) {
 	// Initialize mock client
 	fakeClient := testclient.NewSimpleClientset()
 	useFakeClients(fakeClient, namespace)
+	svc := &KubeService{clients: &Clients{
+		Deployments: fakeClient.AppsV1().Deployments(namespace),
+		Pods:        fakeClient.CoreV1().Pods(namespace),
+	}}
 
 	err := createDeployment(deploymentsClient, objectName, 1, &containers)
 	if err != nil {
@@ -207,12 +212,12 @@ func Test_InjectSidecar(t *testing.T) {
 	}
 
 	// Test sidecar injection
-	injected, err := injectToDeployment(deployment, co, image, readyChan)
+	injected, err := svc.injectToWorkload(newDeploymentWorkload(deployment), co, image, readyChan)
 	if err != nil {
-		t.Errorf("injectToDeployment failed: %v", err)
+		t.Errorf("injectToWorkload failed: %v", err)
 	}
 	if !injected {
-		t.Error("injectToDeployment returned false but expected true")
+		t.Error("injectToWorkload returned false but expected true")
 	}
 
 	// Verify the injection
@@ -233,7 +238,7 @@ func Test_InjectSidecar(t *testing.T) {
 	}
 
 	// Test duplicate injection (should return true with no error)
-	injected, err = injectToDeployment(deployment, co, image, readyChan)
+	injected, err = svc.injectToWorkload(newDeploymentWorkload(deployment), co, image, readyChan)
 	if err != nil {
 		t.Errorf("Unexpected error on duplicate injection: %v", err)
 	}
@@ -331,7 +336,7 @@ func Test_InjectSidecar_MultipleReplicas(t *testing.T) {
 	// Buffered, so watchForReady's goroutine is not left blocked on a channel
 	// this test never reads.
 	readyChan := make(chan bool, 1)
-	ok, err := svc.InjectSidecar(&namespace, &objectName, &port, image, PodCredentials{}, readyChan, nil)
+	ok, err := svc.InjectSidecar(&namespace, &objectName, KindDeployment, &port, image, PodCredentials{}, readyChan, nil)
 	if err != nil {
 		t.Fatalf("failed injecting into a three-replica deployment: %v; "+
 			"most deployments worth tunnelling into run more than one pod, and refusing them rules out the command", err)

@@ -151,33 +151,44 @@ func describeService(svc *apiv1.Service) string {
 	return fmt.Sprintf("%s, port(s) %s", serviceType, strings.Join(ports, ", "))
 }
 
-// InjectPlan is what InjectSidecar will do to a deployment.
+// InjectPlan is what InjectSidecar will do to a workload.
 type InjectPlan struct {
 	Namespace string
 	Name      string
-	Image     string
-	Replicas  int32
-	Port      int
+	// Kind is the workload kind the user typed, and the word the plan uses
+	// for it. Calling a StatefulSet a deployment is how #91 was reported in
+	// the first place.
+	Kind     WorkloadKind
+	Image    string
+	Replicas int32
+	Port     int
 
-	// AlreadyInjected: the deployment already runs this image, so injecting
+	// AlreadyInjected: the workload already runs this image, so injecting
 	// changes nothing and no rollout follows.
 	AlreadyInjected bool
+
+	// Warnings are the properties of this particular object that will stop
+	// the rollout doing what the lines above it say -- an OnDelete
+	// StatefulSet, or a partitioned rolling update. See rolloutWarnings.
+	Warnings []string
 }
 
-// PlanInject reads the deployment and works out what injecting into it means,
+// PlanInject reads the workload and works out what injecting into it means,
 // without touching it.
-func (k *KubeService) PlanInject(namespace, name, image string, port int) (*InjectPlan, error) {
-	deployment, err := k.clients.Deployments.Get(context.Background(), name, v1.GetOptions{})
+func (k *KubeService) PlanInject(namespace, name string, kind WorkloadKind, image string, port int) (*InjectPlan, error) {
+	w, err := k.getWorkload(context.Background(), kind, namespace, name)
 	if err != nil {
-		return nil, apiError("read", "deployment", namespace, name, err)
+		return nil, err
 	}
 	return &InjectPlan{
 		Namespace:       namespace,
 		Name:            name,
+		Kind:            w.kind,
 		Image:           image,
-		Replicas:        replicaCount(deployment),
+		Replicas:        w.replicas,
 		Port:            port,
-		AlreadyInjected: hasSidecar(deployment.Spec.Template.Spec, image),
+		AlreadyInjected: hasSidecar(*w.podSpec, image),
+		Warnings:        w.rolloutWarnings(),
 	}, nil
 }
 
@@ -189,11 +200,11 @@ func (k *KubeService) PlanInject(namespace, name, image string, port int) (*Inje
 func (p *InjectPlan) Describe(eject bool) []string {
 	lines := []string{fmt.Sprintf("In namespace %s, ktunnel will:", p.Namespace)}
 	if p.AlreadyInjected {
-		lines = append(lines, fmt.Sprintf("  leave deployment %s/%s as it is: it already runs %s, so no rollout follows",
-			p.Namespace, p.Name, p.Image))
+		lines = append(lines, fmt.Sprintf("  leave %s %s/%s as it is: it already runs %s, so no rollout follows",
+			p.Kind, p.Namespace, p.Name, p.Image))
 	} else {
-		lines = append(lines, fmt.Sprintf("  add the ktunnel container (%s) to deployment %s/%s, which restarts its %d pod(s)",
-			p.Image, p.Namespace, p.Name, p.Replicas))
+		lines = append(lines, fmt.Sprintf("  add the ktunnel container (%s) to %s %s/%s, which restarts its %d pod(s)",
+			p.Image, p.Kind, p.Namespace, p.Name, p.Replicas))
 	}
 	// Said whether or not the sidecar is new, because the port arithmetic is
 	// the surprise either way: N replicas take N local ports, not one.
@@ -202,6 +213,12 @@ func (p *InjectPlan) Describe(eject bool) []string {
 			p.Replicas, p.Port, p.Port+int(p.Replicas)-1))
 	} else {
 		lines = append(lines, fmt.Sprintf("  tunnel it on local port %d", p.Port))
+	}
+	// After the two lines they qualify, and before the teardown line: what
+	// these say is that the rollout promised above is not going to happen on
+	// its own.
+	for _, warning := range p.Warnings {
+		lines = append(lines, "  note: "+warning)
 	}
 	if eject {
 		lines = append(lines, fmt.Sprintf("On exit it will remove that container from %s/%s.", p.Namespace, p.Name))

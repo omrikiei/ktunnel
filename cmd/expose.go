@@ -312,7 +312,7 @@ ktunnel expose redis 6379
 			return
 		}
 
-		supervise(sess, withTLSDowngrade(forwardAndTunnelAttempt(kubeService, Namespace, svcName, port, ports)))
+		supervise(sess, withTLSDowngrade(forwardAndTunnelAttempt(kubeService, k8s.KindDeployment, Namespace, svcName, port, ports)))
 	},
 }
 

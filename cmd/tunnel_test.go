@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omrikiei/ktunnel/pkg/k8s"
 	"github.com/omrikiei/ktunnel/pkg/server"
 	"github.com/omrikiei/ktunnel/pkg/supervisor"
 	log "github.com/sirupsen/logrus"
@@ -459,7 +460,7 @@ func newFakeForwarder(ports []string, err error) *fakeForwarder {
 	return &fakeForwarder{sourcePorts: ports, err: err, errChan: make(chan error, 1)}
 }
 
-func (f *fakeForwarder) PortForward(ctx context.Context, namespace, deployment, targetPort string, stopChan <-chan struct{}) ([]string, <-chan error, error) {
+func (f *fakeForwarder) PortForward(ctx context.Context, kind k8s.WorkloadKind, namespace, name, targetPort string, stopChan <-chan struct{}) ([]string, <-chan error, error) {
 	f.mu.Lock()
 	f.stopChan = stopChan
 	f.mu.Unlock()
@@ -500,7 +501,7 @@ func TestForwardAndTunnel_ReleasesTheForwardWhenItFailsToStart(t *testing.T) {
 
 	startupErr := errors.New("no running pods for deployment proxy")
 	forwarder := newFakeForwarder(nil, startupErr)
-	attempt := forwardAndTunnel(forwarder, unusedClientRunner(t), "default", "proxy", 28688, []string{"8000"})
+	attempt := forwardAndTunnel(forwarder, unusedClientRunner(t), k8s.KindDeployment, "default", "proxy", 28688, []string{"8000"})
 
 	done := make(chan error, 1)
 	go func() { done <- attempt(context.Background(), func() {}) }()
@@ -552,7 +553,7 @@ func TestForwardAndTunnel_StopsTheClientsBeforeReleasingTheForward(t *testing.T)
 		return nil
 	}
 
-	attempt := forwardAndTunnel(forwarder, run, "default", "proxy", 28688, []string{"8000"})
+	attempt := forwardAndTunnel(forwarder, run, k8s.KindDeployment, "default", "proxy", 28688, []string{"8000"})
 	done := make(chan error, 1)
 	go func() { done <- attempt(context.Background(), func() {}) }()
 
@@ -592,7 +593,7 @@ func TestForwardAndTunnel_NoPortsIsAnError(t *testing.T) {
 	forwarder := newFakeForwarder(nil, nil) // no ports, no failure
 	close(forwarder.errChan)                // nothing was ever launched
 
-	attempt := forwardAndTunnel(forwarder, unusedClientRunner(t), "default", "proxy", 28688, []string{"8000"})
+	attempt := forwardAndTunnel(forwarder, unusedClientRunner(t), k8s.KindDeployment, "default", "proxy", 28688, []string{"8000"})
 
 	done := make(chan error, 1)
 	go func() {
@@ -629,7 +630,7 @@ func TestForwardAndTunnel_ReleasesTheForwardOnShutdown(t *testing.T) {
 		return nil
 	}
 
-	attempt := forwardAndTunnel(forwarder, run, "default", "proxy", 28688, []string{"8000"})
+	attempt := forwardAndTunnel(forwarder, run, k8s.KindDeployment, "default", "proxy", 28688, []string{"8000"})
 	ctx, cancel := context.WithCancel(context.Background())
 
 	established := make(chan struct{}, 1)

@@ -83,14 +83,16 @@ func exposeFixture(t *testing.T, objects ...runtime.Object) *KubeService {
 
 	clientMutex.Lock()
 	deploymentsClient = fake.AppsV1().Deployments("default")
+	statefulSetsClient = fake.AppsV1().StatefulSets("default")
 	podsClient = fake.CoreV1().Pods("default")
 	svcClient = fake.CoreV1().Services("default")
 	clientMutex.Unlock()
 
 	return &KubeService{clients: &Clients{
-		Deployments: fake.AppsV1().Deployments("default"),
-		Pods:        fake.CoreV1().Pods("default"),
-		Services:    fake.CoreV1().Services("default"),
+		Deployments:  fake.AppsV1().Deployments("default"),
+		StatefulSets: fake.AppsV1().StatefulSets("default"),
+		Pods:         fake.CoreV1().Pods("default"),
+		Services:     fake.CoreV1().Services("default"),
 	}}
 }
 

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -60,14 +59,16 @@ func GetClients(cfg *rest.Config, namespace string) *Clients {
 	}
 
 	deploymentsClient = clientSet.AppsV1().Deployments(namespace)
+	statefulSetsClient = clientSet.AppsV1().StatefulSets(namespace)
 	podsClient = clientSet.CoreV1().Pods(namespace)
 	svcClient = clientSet.CoreV1().Services(namespace)
 
 	return &Clients{
-		Deployments: deploymentsClient,
-		Pods:        podsClient,
-		Services:    svcClient,
-		Secrets:     clientSet.CoreV1().Secrets(namespace),
+		Deployments:  deploymentsClient,
+		StatefulSets: statefulSetsClient,
+		Pods:         podsClient,
+		Services:     svcClient,
+		Secrets:      clientSet.CoreV1().Secrets(namespace),
 	}
 }
 
@@ -296,62 +297,31 @@ func replicaCount(deployment *appsv1.Deployment) int32 {
 	return *deployment.Spec.Replicas
 }
 
-// podLabelSelector returns the selector that resolves a deployment's own pods.
-//
-// This is the deployment's spec.selector -- the labels it selects its pods by,
-// whatever they are -- and not the two labels ktunnel puts on the deployments
-// `expose` creates. Those exist only on ktunnel's own deployments, so
-// selecting on them worked for `expose` and could not work for `inject` at
-// all: the sidecar went in, the pod reported 2/2 Running, and the port-forward
-// retried "found 0 running pod(s)" against an application deployment labelled
-// any other way, which is every application deployment (#171, #115).
-func podLabelSelector(deployment *appsv1.Deployment) (string, error) {
-	// An absent or empty spec.selector converts to "match everything", so
-	// these two are refusals rather than a wildcard: forwarding to whichever
-	// unrelated pod happened to sort first, and reporting it as success, is
-	// worse than saying which object cannot be resolved.
-	if deployment.Spec.Selector == nil {
-		return "", fmt.Errorf("deployment %s has no spec.selector, so its pods cannot be identified", deployment.Name)
-	}
-	selector, err := metav1.LabelSelectorAsSelector(deployment.Spec.Selector)
-	if err != nil {
-		return "", fmt.Errorf("deployment %s has a spec.selector that cannot be resolved: %w", deployment.Name, err)
-	}
-	if selector.Empty() {
-		return "", fmt.Errorf("deployment %s has an empty spec.selector, which matches every pod in the namespace", deployment.Name)
-	}
-	return selector.String(), nil
-}
-
-func (k *KubeService) getPodNames(ctx context.Context, deployment *appsv1.Deployment, pods []string) error {
-	labelSelector, err := podLabelSelector(deployment)
+func (k *KubeService) getPodNames(ctx context.Context, w *workload, pods []string) error {
+	labelSelector, err := podLabelSelector(w)
 	if err != nil {
 		return err
 	}
 	filteredPods, err := k.getPodsFilteredByLabel(ctx, labelSelector)
 	if err != nil {
-		return apiError("list the pods of", "deployment", deployment.Namespace, deployment.Name, err)
+		return apiError("list the pods of", string(w.kind), w.namespace, w.name, err)
 	}
-	// Every running pod is collected and the newest len(pods) of them taken
-	// below. The counter that used to guard this loop was never incremented,
-	// so its early exit and the "All pods located" line it logged could only
-	// fire when there were no pods to locate at all.
-	//
-	// Newest first matters because a deployment's selector matches the pods of
-	// its old ReplicaSet and its new one at once, and injecting the sidecar is
-	// itself a rollout: for a moment two running pods answer to the selector
-	// and only the newer one has a tunnel server in it.
+	// Every running pod is collected and the first len(pods) of them taken
+	// below, in the order sortPods puts them in -- which differs by kind, and
+	// why it differs is on sortPods. The counter that used to guard this loop
+	// was never incremented, so its early exit and the "All pods located" line
+	// it logged could only fire when there were no pods to locate at all.
 	//
 	// A pod that is being deleted stays Phase Running for the whole of its
 	// grace period, and is the newest match until its replacement exists, so
 	// it is skipped outright -- a forward built to it dies with it.
-	matchingPods := ByCreationTime{}
+	matchingPods := []apiv1.Pod{}
 	for _, p := range filteredPods.Items {
 		if p.Status.Phase == apiv1.PodRunning && p.DeletionTimestamp == nil {
 			matchingPods = append(matchingPods, p)
 		}
 	}
-	sort.Sort(matchingPods)
+	sortPods(w.kind, matchingPods)
 	if len(matchingPods) < len(pods) {
 		// Indexing past the end used to panic here, taking the whole process
 		// down. That is not a hypothetical: it is the gap between a tunnel
@@ -359,9 +329,9 @@ func (k *KubeService) getPodNames(ctx context.Context, deployment *appsv1.Deploy
 		// exactly the case reconnecting exists to survive. Reported as an
 		// error, it is one failed attempt that the supervisor backs off and
 		// retries until the new pod is up.
-		return fmt.Errorf("found %d running pod(s) for deployment %s/%s, want %d; "+
+		return fmt.Errorf("found %d running pod(s) for %s, want %d; "+
 			"the rollout may still be coming up, or may have failed -- kubectl get pods -n %s -l %s",
-			len(matchingPods), deployment.Namespace, deployment.Name, len(pods), deployment.Namespace, labelSelector)
+			len(matchingPods), w, len(pods), w.namespace, labelSelector)
 	}
 	for i := 0; i < len(pods); i++ {
 		pods[i] = matchingPods[i].Name
@@ -370,10 +340,14 @@ func (k *KubeService) getPodNames(ctx context.Context, deployment *appsv1.Deploy
 	return nil
 }
 
-// PortForward forwards targetPort on every pod of the deployment to a local
+// PortForward forwards targetPort on every pod of the workload to a local
 // port, and returns those local ports once the forwards are up.
 //
-// ctx bounds the calls to the API server that resolve the deployment and its
+// Pods are ordered by sortPods, so which pod a given local port reaches is a
+// property of the workload rather than of the order the API server answered
+// in -- which matters for a StatefulSet, whose pods are not interchangeable.
+//
+// ctx bounds the calls to the API server that resolve the workload and its
 // pods. It does not bound the SPDY dial inside the forwarder itself, which
 // client-go gives no way to cancel; see forwardHandle in cmd for how a caller
 // keeps that from wedging a retry loop.
@@ -390,16 +364,14 @@ func (k *KubeService) getPodNames(ctx context.Context, deployment *appsv1.Deploy
 // returned alongside a non-nil error too, because forwarders already launched
 // hold local ports whether or not startup succeeded. See watchForward in cmd
 // for why a caller about to retry has to wait for that close.
-func (k *KubeService) PortForward(ctx context.Context, namespace, deploymentName string, targetPort string, stopChan <-chan struct{}) ([]string, <-chan error, error) {
-	clientMutex.RLock()
-	deployment, err := deploymentsClient.Get(ctx, deploymentName, metav1.GetOptions{})
-	clientMutex.RUnlock()
+func (k *KubeService) PortForward(ctx context.Context, kind WorkloadKind, namespace, name string, targetPort string, stopChan <-chan struct{}) ([]string, <-chan error, error) {
+	w, err := k.getWorkload(ctx, kind, namespace, name)
 	if err != nil {
-		return nil, nil, apiError("read", "deployment", namespace, deploymentName, err)
+		return nil, nil, err
 	}
 
-	podNames := make([]string, replicaCount(deployment))
-	err = k.getPodNames(ctx, deployment, podNames)
+	podNames := make([]string, w.replicas)
+	err = k.getPodNames(ctx, w, podNames)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -564,83 +536,14 @@ func getPortForwardURL(config *rest.Config, namespace string, podName string) *u
 	}
 }
 
-// readyPollInterval is how often watchForReady re-reads the deployment while
-// waiting for its rollout to finish.
+// readyPollInterval is how often the rollout wait re-reads the object it is
+// waiting on.
 const readyPollInterval = time.Second
 
 // watchForReady reports on readyChan whether the deployment finished rolling
-// out.
-//
-// This polls rather than using a watch. A watch only delivers events that occur
-// after it is established, so a deployment that finished rolling out before we
-// got here produced no event at all and the caller blocked until the progress
-// deadline expired -- the "waiting for deployment to be ready" hang. Polling
-// reads the current state first, so an already-complete rollout is seen
-// immediately. Reading by name also avoids the previous label-selector watch,
-// which matched on whatever labels the caller happened to pass in.
+// out. The polling, and why it polls, is in watchWorkloadReady.
 func watchForReady(deployment *appsv1.Deployment, readyChan chan<- bool) {
-	go func() {
-		name := deployment.Name
-		lastMsg := ""
-
-		if deployment.Spec.Strategy.RollingUpdate != nil &&
-			deployment.Spec.Strategy.RollingUpdate.MaxUnavailable != nil {
-			maxUnavailable := deployment.Spec.Strategy.RollingUpdate.MaxUnavailable.IntValue()
-			if maxUnavailable > 0 {
-				log.Warnf("RollingUpdate.MaxUnavailable: %v. This may prevent deployment failures from being detected. Set to 0 to ensure ProgressDeadlineInSeconds is enforced.", maxUnavailable)
-			}
-		}
-
-		//spec.progressDeadlineSeconds defaults to 600
-		progressDeadlineSeconds := int64(600)
-		if deployment.Spec.ProgressDeadlineSeconds != nil {
-			progressDeadlineSeconds = int64(*deployment.Spec.ProgressDeadlineSeconds)
-		}
-
-		log.Infof("ProgressDeadlineInSeconds is currently %vs. It may take this long to detect a deployment failure.", progressDeadlineSeconds)
-
-		// Kubernetes reports ProgressDeadlineExceeded itself, which
-		// deploymentStatus turns into an error. This deadline is only a
-		// backstop for the cases where it never will -- the deployment being
-		// deleted out from under us, for instance.
-		deadline := time.Now().Add(time.Duration(progressDeadlineSeconds+5) * time.Second)
-
-		for {
-			clientMutex.RLock()
-			d, err := deploymentsClient.Get(context.Background(), name, metav1.GetOptions{})
-			clientMutex.RUnlock()
-			if err != nil {
-				log.WithError(err).Errorf("failed reading deployment %q while waiting for it to be ready", name)
-				readyChan <- false
-				return
-			}
-
-			msg, ready, err := deploymentStatus(d)
-			if err != nil {
-				log.Error(err)
-				readyChan <- false
-				return
-			}
-
-			if msg != lastMsg {
-				log.Info(msg)
-				lastMsg = msg
-			}
-
-			if ready {
-				readyChan <- true
-				return
-			}
-
-			if time.Now().After(deadline) {
-				log.Errorf("timed out after %vs waiting for deployment %q to be ready", progressDeadlineSeconds+5, name)
-				readyChan <- false
-				return
-			}
-
-			time.Sleep(readyPollInterval)
-		}
-	}()
+	watchWorkloadReady(newDeploymentWorkload(deployment), readyChan)
 }
 
 func deploymentStatus(deployment *appsv1.Deployment) (string, bool, error) {

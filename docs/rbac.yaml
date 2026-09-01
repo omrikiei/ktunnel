@@ -26,11 +26,19 @@ metadata:
   namespace: dev
 rules:
   # `expose` creates and removes its own Deployment; `--reuse` patches one it
-  # adopts; `inject` updates a Deployment you own to add and remove the
-  # sidecar.
+  # adopts; `inject deployment` updates a Deployment you own to add and remove
+  # the sidecar.
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "create", "update", "patch", "delete"]
+
+  # `inject statefulset` only (#91). ktunnel never creates or deletes a
+  # StatefulSet -- it reads the one you name and writes the sidecar into its
+  # pod template -- so this rule is narrower than the one above, and dropping
+  # it costs you nothing but that subcommand.
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get", "update"]
 
   # `expose` creates and removes the Service that is the way in.
   - apiGroups: [""]

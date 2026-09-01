@@ -39,8 +39,11 @@ func TestPortForward_FailedAttemptsDoNotLeakGoroutines(t *testing.T) {
 	clientMutex.Unlock()
 
 	svc := &KubeService{
-		clients: &Clients{Pods: fake.CoreV1().Pods("default")},
-		config:  &rest.Config{Host: fmt.Sprintf("http://127.0.0.1:%d", dead)},
+		clients: &Clients{
+			Deployments: fake.AppsV1().Deployments("default"),
+			Pods:        fake.CoreV1().Pods("default"),
+		},
+		config: &rest.Config{Host: fmt.Sprintf("http://127.0.0.1:%d", dead)},
 	}
 
 	const attempts = 20
@@ -74,7 +77,7 @@ func failOnce(t *testing.T, svc *KubeService, deployment string) {
 	t.Helper()
 
 	stopChan := make(chan struct{})
-	_, _, err := svc.PortForward(context.Background(), "default", deployment, "28688", stopChan)
+	_, _, err := svc.PortForward(context.Background(), KindDeployment, "default", deployment, "28688", stopChan)
 	if err == nil {
 		t.Fatal("the port forward reported success against an API server that is not there")
 	}

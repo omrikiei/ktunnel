@@ -17,8 +17,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -241,4 +243,105 @@ func awaitRolloutUnderUID(t *testing.T, cs *kubernetes.Clientset, name string, u
 		time.Sleep(2 * time.Second)
 	}
 	t.Fatalf("no pod running as UID %d became ready within %s", uid, timeout)
+}
+
+// applyManifest pipes a manifest into kubectl apply and removes the object it
+// created on cleanup. It is how a test puts somebody else's workload in the
+// cluster -- the thing `inject` exists to attach to, and the thing `expose`
+// never needs.
+func applyManifest(t *testing.T, kind, name, manifest string) {
+	t.Helper()
+	ctx := testContext(t)
+	apply := exec.Command("kubectl", "--context", ctx, "apply", "-n", namespace, "-f", "-")
+	apply.Stdin = strings.NewReader(manifest)
+	if out, err := apply.CombinedOutput(); err != nil {
+		t.Fatalf("creating %s %s: %v\n%s", kind, name, err, out)
+	}
+	t.Cleanup(func() {
+		_ = exec.Command("kubectl", "--context", ctx, "delete", kind, name,
+			"-n", namespace, "--ignore-not-found", "--wait=false").Run()
+	})
+}
+
+// startInject runs `ktunnel inject KIND ...` in the background and returns the
+// function that stops it. Stopping is a SIGINT, so it is also how the eject
+// path gets exercised; it is idempotent, so a test that wants to assert on
+// what eject left behind can stop ktunnel itself and let the cleanup be a
+// no-op.
+func startInject(t *testing.T, kind, name string, args ...string) func() {
+	t.Helper()
+	full := append([]string{"inject", kind, name}, args...)
+	full = append(full, "-n", namespace, "--server-image", image(t), "--context", testContext(t))
+	cmd := exec.Command(binary(t), full...)
+	var out strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("starting ktunnel: %v", err)
+	}
+
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			_ = cmd.Process.Signal(os.Interrupt)
+			done := make(chan struct{})
+			go func() { _, _ = cmd.Process.Wait(); close(done) }()
+			select {
+			case <-done:
+			case <-time.After(90 * time.Second):
+				_ = cmd.Process.Kill()
+			}
+			if t.Failed() {
+				t.Logf("ktunnel output:\n%s", out.String())
+			}
+		})
+	}
+	t.Cleanup(stop)
+	return stop
+}
+
+// awaitSidecar waits until `want` pods matching the selector are ready and run
+// a container with the given image, and returns their names in name order.
+//
+// Readiness alone is not the assertion: a StatefulSet rolls its pods one at a
+// time, so a pod can be ready and still on the old template -- which is
+// exactly the state that would have ktunnel forward to a pod with no tunnel
+// server in it.
+func awaitSidecar(t *testing.T, cs *kubernetes.Clientset, selector, img string, want int, timeout time.Duration) []string {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	last := "no pods seen"
+	for time.Now().Before(deadline) {
+		pods, err := cs.CoreV1().Pods(namespace).List(context.Background(), metav1.ListOptions{LabelSelector: selector})
+		if err == nil {
+			var carrying []string
+			for _, p := range pods.Items {
+				if p.DeletionTimestamp != nil {
+					continue
+				}
+				hasImage := false
+				for _, c := range p.Spec.Containers {
+					if c.Image == img {
+						hasImage = true
+					}
+				}
+				ready := len(p.Status.ContainerStatuses) > 0
+				for _, st := range p.Status.ContainerStatuses {
+					if !st.Ready {
+						ready = false
+					}
+				}
+				if hasImage && ready {
+					carrying = append(carrying, p.Name)
+				}
+			}
+			last = fmt.Sprintf("%d of %d pods ready with the sidecar", len(carrying), want)
+			if len(carrying) == want {
+				sort.Strings(carrying)
+				return carrying
+			}
+		}
+		time.Sleep(2 * time.Second)
+	}
+	t.Fatalf("the sidecar never reached every pod of %s within %s (%s)", selector, timeout, last)
+	return nil
 }
