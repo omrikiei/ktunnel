@@ -1,5 +1,53 @@
 # Changelog
 
+## v2.5.0
+
+### Fixed
+
+- **`ktunnel expose` now works on OpenShift.** ([#87]) The container spec
+  set `RunAsUser: 1000`, and OpenShift's SCCs assign a UID from a
+  per-namespace range and reject a pod that demands its own — so the
+  command failed there entirely. The field is gone; the non-root guarantee
+  moves to the image, which carries `USER 1000`.
+
+  On any other cluster nothing changes: the server still runs as UID 1000,
+  now because the image says so rather than the pod spec.
+
+### Added
+
+- **Ports below 1024 can be tunnelled.** ([#164]) `ktunnel expose myapp
+  80:8000` needs to bind `:80` inside the pod, which a non-root process
+  cannot do by default. ktunnel now sets the pod-level
+  `net.ipv4.ip_unprivileged_port_start` sysctl, and only when a requested
+  port actually needs it.
+
+  Kubernetes classifies that sysctl as safe, so no cluster configuration is
+  required. `NET_BIND_SERVICE` — the obvious alternative — was measured and
+  is **inert** for a non-root container: the capability never reaches the
+  effective set and the bind still fails.
+
+  Setting it explicitly also makes ktunnel behave the same everywhere
+  rather than inheriting whatever the runtime chose. Docker and kind
+  default it to `0`; the kernel defaults it to `1024`. That difference is
+  why this reproduces for some people and not others.
+
+- **The container drops every capability** and refuses privilege
+  escalation. Both are required by OpenShift's `restricted-v2` and cost
+  nothing elsewhere.
+
+- **Integration tests that run against a real kubelet** (`make
+  test-integration`). v2.4.0 shipped a crash loop past a fully green suite
+  because every assertion asked whether a manifest had the right shape, and
+  none could ask whether the process on the other end could open the file.
+
+### Known limitation
+
+#164's fix is confirmed in mechanism but **not end-to-end on a real
+target**. kind and Docker default `ip_unprivileged_port_start` to `0` in
+every pod, and a pod does not inherit the node's value, so a privileged
+port binds there whether or not ktunnel sets the sysctl. If you tunnel a
+port below 1024, a report either way is welcome on [#164].
+
 ## v2.4.1
 
 ### Fixed
@@ -739,6 +787,7 @@ planned for v2.1.
 [#134]: https://github.com/omrikiei/ktunnel/issues/134
 [#143]: https://github.com/omrikiei/ktunnel/issues/143
 [#147]: https://github.com/omrikiei/ktunnel/pull/147
+[#164]: https://github.com/omrikiei/ktunnel/issues/164
 [#166]: https://github.com/omrikiei/ktunnel/issues/166
 [#171]: https://github.com/omrikiei/ktunnel/issues/171
 [dp]: https://github.com/doctorpangloss

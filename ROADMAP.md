@@ -178,12 +178,43 @@ Decided along the way:
 
 ---
 
-## v2.5 — Beyond single-replica Deployments
+## v2.5 — Where the pod runs · **shipped**
+
+Split out from what was one "beyond single-replica Deployments" release.
+Both items landed in the same six lines of pod spec, and neither has
+anything to do with StatefulSets, so they shipped on their own rather than
+waiting on #91.
+
+- [x] OpenShift: drop the `RunAsUser` that OCP rejects — **S** · #87
+      <br>The container demanded UID 1000 and OCP's SCCs assign one from a
+      per-namespace range, so `expose` did not work there at all. The
+      non-root guarantee moves to the image's `USER 1000`, which is what
+      the original change was reaching for. `Drop: ALL` and no privilege
+      escalation come along, both required by `restricted-v2`.
+- [x] Tunnel server can bind privileged ports (<1024) — **S** · #164
+      <br>A pod-level `net.ipv4.ip_unprivileged_port_start` sysctl, set
+      only when a port needs it. `NET_BIND_SERVICE` is the obvious grant
+      and is **inert** for a non-root container — measured, with the
+      capability absent from every set and the bind still refused.
+      Awaiting confirmation from the reporter on a real cluster; see the
+      note below.
+- [x] Integration tests against a real kubelet — **M**
+      <br>Prompted by v2.4.0, which shipped a crash loop past a fully
+      green suite because every assertion asked about the shape of a
+      manifest rather than whether the process could open the file.
+
+**Unverified on a real target.** #164's fix is confirmed in mechanism but
+not end-to-end: kind defaults every pod to `ip_unprivileged_port_start=0`
+and pods do not inherit the node's value, so a privileged port binds there
+whether or not ktunnel sets the sysctl. Only the unit test catches that
+regression. Confirmation needs a cluster whose default is the kernel's
+1024.
+
+---
+
+## v2.6 — Beyond single-replica Deployments
 
 - [ ] `ktunnel inject statefulset` — **M** · #91
-- [ ] OpenShift: drop the `RunAsUser` that OCP rejects; a contributor has
-      offered a PR — **S** · #87
-- [ ] Tunnel server can bind privileged ports (<1024) — **S** · #164
 - [ ] Windows behaviour regressed somewhere around 1.5 — needs a
       reproduction first — **M** · #121
 
@@ -199,6 +230,11 @@ Not tied to a release; pick up whenever.
 - [ ] Config file for repeated setups — **M**
 - [x] `--server-memory-limit` help text said "CPU Limit in mega-bytes" — **S**
 - [ ] Automated coverage for the pod-rename reconnect path, manual today — **S**
+- [ ] `freePort` in the client tests races: it closes its listener before
+      returning the port, so a parallel test can claim it and the suite
+      fails with `address already in use` — **S**
+- [ ] Deprecated wrappers for the `pkg/k8s` signatures v2.4.0 changed, if
+      anyone imports ktunnel as a library — **S**
 - [ ] Codespaces / remote-dev-container guidance — **S** · #81
 
 ---
